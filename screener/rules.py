@@ -190,6 +190,18 @@ def c_range_pct(p: Panel, a):
     return (r >= a.get("min", 0)) & (r <= a.get("max", 1000))
 
 
+def c_upper_shadow(p: Panel, a):
+    """上影線長度（最高價 − 實體上緣）÷ 前收 ≥ min %：盤中衝高後被賣回來（高檔換手／賣壓）。"""
+    s = (p.high - np.maximum(p.open, p.close)) / p.prev_close * 100
+    return _normal_day(p) & (s >= a.get("min", 4))
+
+
+def c_intraday_new_high(p: Panel, a):
+    """盤中最高價創 days 日新高（收盤不一定守住）。"""
+    n = a.get("days", 60)
+    return p.high > p.high.shift(1).rolling(n, min_periods=n).max()
+
+
 CONDITIONS = {
     "volume_vs_prev": (c_volume_vs_prev, "量比前日≥{min}倍"),
     "volume_vs_avg": (c_volume_vs_avg, "量比{days}日均量≥{min}倍"),
@@ -211,6 +223,8 @@ CONDITIONS = {
     "red_candle": (c_red_candle, "紅K"),
     "near_high": (c_near_high, "距{days}日高點{pct}%內"),
     "range_pct": (c_range_pct, "{days}日振幅{rng}%"),
+    "upper_shadow": (c_upper_shadow, "上影線≥{min}%"),
+    "intraday_new_high": (c_intraday_new_high, "盤中創{days}日新高"),
 }
 
 
