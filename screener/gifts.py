@@ -64,7 +64,7 @@ COLS = ["code", "name", "market", "price", "last_buy", "meeting", "kind", "place
         "proxy", "evote", "evote_period", "hist_id", "sd", "src"]
 
 # 等同現金的禮券（用面額估值）；折價券、抵用券、自家購物金、滿額才能用的有使用條件，不算
-_CARD = re.compile(r"商品卡|禮物卡|禮券|禮卡|商品券|提貨券|儲值卡|現金|悠遊卡|一卡通|電子票券")
+_CARD = re.compile(r"商品卡|禮物卡|禮券|禮卡|商品券|提貨券|儲值卡|現金|悠遊卡|一卡通|電子票券|即享卡|即享券")
 _COND = re.compile(r"抵用|折價|折抵|優惠|折扣|買一送一|買1送1|購物金|滿\s*\$?\d|結帳|取消")
 _AMT = re.compile(r"(\d{2,5})\s*元")
 _CN = {"三十五": "35", "兩百": "200", "二百": "200", "三百": "300", "一百": "100", "五十": "50",
@@ -99,7 +99,10 @@ def face_value(gift: str) -> float | None:
     for k, v in _CN.items():
         g = g.replace(k, v)
     m = _AMT.findall(g) or re.findall(r"\$\s*(\d{2,5})", g)
-    return float(m[0]) if m else None
+    if not m:
+        return None
+    n = re.search(r"([2-5二兩三四五])\s*張", g)   # 「50元禮物卡二張」
+    return float(m[0]) * ({"二": 2, "兩": 2, "三": 3, "四": 4, "五": 5}.get(n.group(1)) or int(n.group(1)) if n else 1)
 
 
 def region(addr: str) -> str:
@@ -349,7 +352,7 @@ def records(df: pd.DataFrame) -> list[dict]:
     for r in df.itertuples(index=False):
         if re.fullmatch(NO_GIFT, r.gift or "") and not r.last_buy:
             continue
-        if "取消" in (r.gift or ""):
+        if "取消" in (r.gift or "") or r.code == "000001":   # 000001 是證交所自己，買不到
             continue
         fv = face_value(r.gift)
         bmax = _num(r.buy_max, 0)
@@ -466,7 +469,7 @@ function detail(r,S){const x=calc(r,S),P={...S,mode:'proxy'},Q={...S,mode:'self'
   <dt>自己去領</dt><dd>${line('自己去領',xs,'')}<br>地點：${esc(r.ag||'股代未知')} ${esc(r.at||'')}<br>${esc(r.aa||'')}${r.ar?` <span class=tag>${esc(r.ar)}</span>`:''}</dd>
   <dt>1 股成本</dt><dd>${fmt(r.p,2)} ＋ 手續費 1 ＝ ${fmt(x.k,2)} 元</dd>
   <dt>價格風險</dt><dd>${x.risk==null?'沒有足夠的股價資料':`最後買進日買、隔天賣也能領；1 天波動約 ±${fmt(x.risk,1)} 元（近 60 天單日標準差 ${fmt(r.sd*100,1)}%）`}</dd>
-  <dt>時間</dt><dd>最後買進日 ${r.lb||'未知'}・股東會 ${r.m}（${esc(r.k)}${r.pl?'，'+esc(r.pl):''}）${r.ev?`・電投：${esc(r.ev)} ${esc(r.ep)}`:''}</dd>
+  <dt>時間</dt><dd>最後買進日 ${r.lb||'未知'}・股東會 ${r.m}（${esc(r.k)}${r.pl?'，'+esc(r.pl):''}）${r.ep?`・電子投票 ${esc(r.ep)}`:''}</dd>
   <dt>零股</dt><dd>${r.om==='否'?'零股寄單：否（公司不寄開會通知書給零股股東；自己電子投票或找代領）':r.om==='是'?'零股寄單：是（零股也會收到開會通知書）':'零股寄單：未知'}</dd>
   <dt>連結</dt><dd>${r.h?`<a href="https://www.gooddie.tw/stock/meeting/history/${r.h}" target=_blank rel=noopener>股代網：歷年紀念品</a> ・ `:''}<a href="https://histock.tw/stock/gift.aspx" target=_blank rel=noopener>HiStock 清單</a></dd>
   </dl>`}
