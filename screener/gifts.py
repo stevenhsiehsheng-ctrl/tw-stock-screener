@@ -101,8 +101,9 @@ def face_value(gift: str) -> float | None:
     m = _AMT.findall(g) or re.findall(r"\$\s*(\d{2,5})", g)
     if not m:
         return None
-    n = re.search(r"([2-5二兩三四五])\s*張", g)   # 「50元禮物卡二張」
-    return float(m[0]) * ({"二": 2, "兩": 2, "三": 3, "四": 4, "五": 5}.get(n.group(1)) or int(n.group(1)) if n else 1)
+    n = re.search(r"([2-5二兩三四五])\s*張|[x×*]\s*([2-5])(?!\d)", g)   # 「50元禮物卡二張」「50元商品卡x2」
+    k = (n.group(1) or n.group(2)) if n else "1"
+    return float(m[0]) * ({"二": 2, "兩": 2, "三": 3, "四": 4, "五": 5}.get(k) or int(k))
 
 
 def region(addr: str) -> str:
