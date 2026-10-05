@@ -1,14 +1,17 @@
 name: 股東紀念品
 
 on:
+  schedule:
+    # 22:17 UTC = 台北 06:17，每天更新一次紀念品清單
+    - cron: "17 22 * * *"
   workflow_dispatch:
     inputs:
       probe:
-        description: "只印出候選資料來源的格式"
+        description: "只印出候選資料來源的格式（不更新）"
         type: boolean
-        default: true
+        default: false
       raw_url:
-        description: "印出這個網址的原始碼（看 HTML 結構用）"
+        description: "印出這個網址的原始碼（看 HTML 結構用，不更新）"
         default: ""
       raw_key:
         description: "原始碼從這個關鍵字附近開始印"
@@ -16,6 +19,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: gifts
@@ -35,11 +39,28 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: 看原始碼
-        if: ${{ inputs.raw_url != '' }}
+        if: ${{ inputs.raw_url }}
         env:
           RAW_URL: ${{ inputs.raw_url }}
           RAW_KEY: ${{ inputs.raw_key }}
         run: python -m screener.gifts --raw "$RAW_URL" "$RAW_KEY"
       - name: 測試資料來源
-        if: ${{ inputs.probe && inputs.raw_url == '' }}
+        if: ${{ inputs.probe && !inputs.raw_url }}
         run: python -m screener.gifts --probe
+      - name: 更新紀念品清單並重畫網頁
+        if: ${{ !inputs.probe && !inputs.raw_url }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m screener.gifts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/gifts
+          if git diff --cached --quiet; then echo "沒有變更"; exit 0; fi
+          git commit -m "紀念品清單 $(TZ=Asia/Taipei date +%F)"
+          ok=0; for i in 1 2 3; do
+            if git pull --rebase -X theirs && git push; then ok=1; break; fi
+            git rebase --abort 2>/dev/null || true; sleep 5
+          done; [ "$ok" = 1 ]
+          # 用 GITHUB_TOKEN 推的 commit 不會觸發 pages.yml，直接叫它重畫網頁
+          gh workflow run pages.yml --ref main

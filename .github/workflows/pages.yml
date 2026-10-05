@@ -9,7 +9,9 @@ on:
       - screener/live_page.html
       - screener/rebuild.py
       - screener/weekly.py
+      - screener/gifts.py
       - data/weekly/**
+      - data/gifts/**
   workflow_dispatch:
 
 permissions:
