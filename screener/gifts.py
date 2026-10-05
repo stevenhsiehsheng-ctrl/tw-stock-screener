@@ -50,11 +50,10 @@ CANDIDATES = [
 COLS = ["code", "name", "price", "last_buy", "meeting", "kind", "place", "gift",
         "odd_mail", "agent", "agent_tel", "value"]
 
-# 等同現金的禮券（用面額估值）；折價券、抵用券有使用條件，不算
-_CARD = re.compile(r"商品卡|禮物卡|禮券|禮卡|商品券|提貨券|儲值卡|購物金|現金|悠遊卡|一卡通|電子票券")
-_COND = re.compile(r"抵用|折價|折抵|優惠|折扣|買一送一|買1送1")
+# 等同現金的禮券（用面額估值）；折價券、抵用券、自家購物金、滿額才能用的有使用條件，不算
+_CARD = re.compile(r"商品卡|禮物卡|禮券|禮卡|商品券|提貨券|儲值卡|現金|悠遊卡|一卡通|電子票券")
+_COND = re.compile(r"抵用|折價|折抵|優惠|折扣|買一送一|買1送1|購物金|滿\s*\$?\d|結帳|取消")
 _AMT = re.compile(r"(\d{2,5})\s*元")
-_NONE = re.compile(r"^(無|不發放|不發|未決定|等待公告|未公告|-|—)?$")
 
 
 def _session() -> requests.Session:
@@ -69,12 +68,19 @@ def _text(r: requests.Response) -> str:
     return r.text
 
 
+_CN = {"三十五": "35", "兩百": "200", "二百": "200", "三百": "300", "一百": "100", "五十": "50",
+       "三十": "30", "二十": "20"}
+
+
 def face_value(gift: str) -> float | None:
     """商品卡、禮物卡這類等同現金的紀念品回傳面額，其他回傳 None。"""
     g = unicodedata.normalize("NFKC", str(gift or ""))
     if _COND.search(g) or not _CARD.search(g):
         return None
-    m = _AMT.findall(g)
+    g = re.sub(r"7\s*-\s*11|7-?eleven|711", " 超商 ", g, flags=re.I)   # 「7-1135元」是 7-11 的 35 元
+    for k, v in _CN.items():
+        g = g.replace(k, v)
+    m = _AMT.findall(g) or re.findall(r"\$\s*(\d{2,5})", g)
     return float(m[0]) if m else None
 
 
@@ -117,6 +123,7 @@ def parse_histock(page: str) -> tuple[int, pd.DataFrame]:
     out["last_buy"] = [d.isoformat() if d else "" for d in buy]
     out["gift"] = out["gift"].replace({"nan": ""})
     out["value"] = [face_value(g) for g in out["gift"]]
+    out = out.drop_duplicates(["code", "meeting", "gift"])
     return year, out[COLS].reset_index(drop=True)
 
 
@@ -247,6 +254,7 @@ def load(year: int | None = None) -> tuple[int, pd.DataFrame] | None:
     for c in ("gift", "odd_mail", "agent", "agent_tel", "kind", "last_buy", "meeting", "place"):
         if c in df:
             df[c] = df[c].fillna("")
+    df["value"] = [face_value(g) for g in df["gift"]]   # 估值規則改了不用重抓
     return int(f.stem), df
 
 
@@ -260,7 +268,8 @@ def render(today: dt.date | None = None) -> str | None:
     meta = {}
     if (DATA / "meta.json").exists():
         meta = json.loads((DATA / "meta.json").read_text("utf-8"))
-    has_gift = df[~df["gift"].str.fullmatch(r"\s*(無|不發放|不發|未決定|等待公告|未公告|-)?\s*")]
+    has_gift = df[~df["gift"].str.fullmatch(r"\s*(無|不發放|不發|未決定|等待公告|未公告|-)?\s*")
+                  & ~df["gift"].str.contains("取消")]
     soon = has_gift[has_gift["last_buy"] >= today.isoformat()].sort_values(["last_buy", "meeting"])
     cost = has_gift["price"] + FEE
     ranked = has_gift.assign(cp=has_gift["value"] / cost).dropna(subset=["cp"]).sort_values("cp", ascending=False)
@@ -271,7 +280,7 @@ def render(today: dt.date | None = None) -> str | None:
             f"<p class='meta'>資料更新：{html.escape(meta.get('updated', ''))}・來源："
             f"<a href='{HISTOCK}'>HiStock 嗨投資</a>（各公司公告整理）・"
             f"共 {len(df)} 場股東會，{len(has_gift)} 場有紀念品。實際以公司公告為準。</p>",
-            "<p class='meta'>估值：只算商品卡、禮物卡這類等同現金的（用面額），實體禮品不估。"
+            "<p class='meta'>估值：只算商品卡、禮物卡這類等同現金的（用面額）；折價券、自家購物金、實體禮品不估。"
             "1 股成本＝股價＋手續費 1 元。CP＝估值 ÷ 1 股成本，≥2 標紅。</p>"]
 
     body.append(f"<h2>還來得及買（<span id='soon-n'>{len(soon)}</span> 場）</h2>")
