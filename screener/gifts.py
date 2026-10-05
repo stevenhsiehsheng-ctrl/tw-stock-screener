@@ -388,12 +388,14 @@ GUIDE = """
 <li><b>費用</b>：買進手續費 1 元（國泰電子下單零股最低 1 元）。<br>
 「代領寄到家」再加代領費（票券 12 元／件，其他 15 元／件）＋運費（超商取貨每箱 38 元＋理貨 15 元＝53 元，除以一箱寄幾件）。
 「自己去領」不加，但要在發放期間跑一趟股代或公司指定地點。<br>
-勾「隔天就賣」再加賣出手續費 1 元＋證交稅 0.3%（1 股通常是 0 元）。</li>
+勾「隔天就賣」再加賣出手續費 1 元＋證交稅 0.3%（1 股通常是 0 元）。<br>
+另外一律扣<b>預期跌價＝股價 × 0.35%</b>：回測 2026 年上市櫃紀念品股，最後買進日收盤到隔天收盤，平均比同股價、同成交值的股票多跌約 0.35～0.4%
+（同一批股票換到別的日子是 0）。樣本只有一年、集中在 3～4 月的 39 個交易日，t 值約 −1，方向可信、大小不準，明年 3～4 月用新資料重估。</li>
 <li><b>實拿</b> ＝ 估值 − 費用。<b>CP</b> ＝ 實拿 ÷（股價＋1 元），也就是每拿出 1 元本金、最後淨賺多少紀念品價值。</li>
 <li><b>排行</b>：只排「有估值、而且你選的領法做得到」的場次——選代領時，股代網沒有代領的（不能代領或不知道）不排，
 標「不能代領／未知」。依 CP 由高到低，也可以改成依實拿金額。</li>
 <li><b>價格風險</b>：最後買進日買進、<b>隔天就賣也能領</b>（股東名冊在最後過戶日就定了）。所以只要承擔 1 天的漲跌，
-表上「1 天風險」＝股價 × 近 60 天單日漲跌的標準差（大約三分之二的日子漲跌在這個範圍內）。高價股買 1 股換 50 元，這個數字可能比紀念品還大。</li>
+表上「1 天風險」＝股價 × 近 60 天單日漲跌的標準差（大約三分之二的日子漲跌在這個範圍內）；平均會跌的那部分已經在費用裡扣了，這裡只是上下抖的幅度。高價股買 1 股換 50 元，這個數字可能比紀念品還大。</li>
 </ol>
 <h2>怎麼領</h2>
 <ol class="guide">
@@ -446,14 +448,14 @@ details summary{cursor:pointer;font-weight:600;margin:12px 0}
 
 APP = r"""<script>
 const D=__DATA__, TODAY=(()=>{const t=new Date(),p=n=>(n<10?'0':'')+n;return t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate())})();
-const FEE=1,PX_TICKET=12,PX_ITEM=15,SHIP=53;
+const FEE=1,PX_TICKET=12,PX_ITEM=15,SHIP=53,DRIFT=0.0035;   // DRIFT：最後買進日隔天平均超額跌幅（2026 回測）
 const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=(x,d=0)=>x==null||isNaN(x)?'':(+x).toLocaleString('zh-TW',{maximumFractionDigits:d,minimumFractionDigits:0});
 const md=s=>s?s.slice(5).replace('-','/'):'';
 function st(){return{mode:$('mode').value,box:Math.max(1,+$('box').value||10),reg:$('reg').value,mk:$('mk').value,sort:$('sort').value,sell:$('sell').checked,q:$('q').value.trim().toLowerCase()}}
 function ticket(r){return r.fv!=null||r.gt==='票券'}
 function proxy(r){return r.pd?1:(/不可|無法|不提供/.test(r.ps||'')?0:null)}   // 1 可代領、0 不能、null 不知道
-function cost(r,S){let c=FEE;if(S.sell)c+=1+Math.floor((r.p||0)*0.003);
+function cost(r,S){let c=FEE+(r.p||0)*DRIFT;if(S.sell)c+=1+Math.floor((r.p||0)*0.003);
   if(S.mode==='proxy'){const x=proxy(r);if(x!==1)return null;c+=(ticket(r)?PX_TICKET:PX_ITEM)+SHIP/S.box}return c}
 function calc(r,S){const c=cost(r,S),k=(r.p||0)+FEE,net=(r.v==null||c==null)?null:r.v-c;
   return{c,k,net,cp:net==null||!r.p?null:net/k,risk:r.sd&&r.p?r.p*r.sd:null}}
@@ -472,11 +474,11 @@ function table(id,rows,cols,S){const th=cols.map(c=>`<th${COLS[c][2]?' class=n':
   $(id).innerHTML=`<thead><tr>${th}</tr></thead><tbody>${tb||`<tr><td colspan=${cols.length} class=na>沒有符合的</td></tr>`}</tbody>`;
   $(id).dataset.cols=cols.length}
 function detail(r,S){const x=calc(r,S),P={...S,mode:'proxy'},Q={...S,mode:'self'},xp=calc(r,P),xs=calc(r,Q);
-  const pxc=(ticket(r)?PX_TICKET:PX_ITEM), ship=SHIP/S.box, sell=S.sell?1+Math.floor((r.p||0)*0.003):0;
+  const pxc=(ticket(r)?PX_TICKET:PX_ITEM), ship=SHIP/S.box, sell=S.sell?1+Math.floor((r.p||0)*0.003):0, dr=(r.p||0)*DRIFT;
   const val=r.v==null?(r.na?'金額未公布（公告只寫禮券、沒寫面額，股代網也沒有收購價）':'未估（沒有面額、股代網也沒有收購價）'):`${fmt(r.v)} 元（${r.vb==='面額'?'禮券面額':'股代網最高收購出價'}）`;
   const buy=r.b1?`股代網收購出價 ${fmt(r.b0)}～${fmt(r.b1)} 元`:'股代網沒有收購出價';
   const line=(lab,xx,extra)=>xx.net==null?`<span class="na">${why(r,lab==='代領寄到家'?P:Q)}</span>`:
-     `實拿 ${fmt(xx.net,1)} 元 ＝ ${fmt(r.v)} − 買進 1${extra}${sell?` − 隔天賣 ${sell}`:''}；CP ${fmt(xx.cp,2)}`;
+     `實拿 ${fmt(xx.net,1)} 元 ＝ ${fmt(r.v)} − 買進 1 − 預期跌價 ${fmt(dr,1)}${extra}${sell?` − 隔天賣 ${sell}`:''}；CP ${fmt(xx.cp,2)}`;
   return`<dl>
   <dt>紀念品</dt><dd>${esc(r.g||'未公告')}${r.gt?` <span class=tag>${esc(r.gt)}</span>`:''}</dd>
   <dt>估值</dt><dd>${val}；${buy}</dd>
