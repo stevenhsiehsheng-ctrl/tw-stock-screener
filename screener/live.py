@@ -328,9 +328,24 @@ def lock_minutes(st: dict) -> dict[str, int]:
     return {c: m(last) - m(t) for c, t in (st.get("lock_since") or {}).items()}
 
 
+def save_book(today: str, when: str, q: pd.DataFrame, codes: set[str]) -> None:
+    """委買／委賣第一檔快照（data/book/日期.csv）：13:12 拍正式訊號＋鎖漲停的預警股，收盤後再拍一次同一批。"""
+    x = q[q.code.isin(codes)].reindex(columns=["code", "price", "bid1", "bid1_lots", "ask1_lots", "vol_lots"])
+    if x.empty:
+        return
+    d = ROOT / "data" / "book"
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / f"{today}.csv"
+    x.insert(0, "when", when)
+    x.to_csv(f, mode="a", header=not f.exists(), index=False)
+
+
 def close_book(today: str, stocks: pd.DataFrame, at: dt.datetime) -> None:
     """收盤後抓今天正式訊號的委買／委賣第一檔與全日量：鎖漲停的話委買第一檔就是收盤時沒買到、還在排隊的張數。"""
     codes = set(positions.load().query("signal_date == @today").code)
+    bf = ROOT / "data" / "book" / f"{today}.csv"
+    if bf.exists():  # 13:12 有拍快照的（含沒進正式提醒、但盤中鎖漲停的預警股）
+        codes |= set(pd.read_csv(bf, dtype={"code": str}).code)
     if not codes:
         return
     wait = (at - dt.datetime.now(TZ)).total_seconds()
@@ -339,6 +354,7 @@ def close_book(today: str, stocks: pd.DataFrame, at: dt.datetime) -> None:
     q, _ = intraday.fetch_quotes(stocks[stocks.code.isin(codes)])
     book = {r.code: {"bid1_lots": r.bid1_lots, "ask1_lots": r.ask1_lots, "vol_lots": r.vol_lots} for r in q.itertuples()}
     positions.set_close_book(today, book)
+    save_book(today, "close", q, codes)
     log.info("收盤委買／委賣：%s", "、".join(f"{c} 買{b['bid1_lots']}／賣{b['ask1_lots']}／量{b['vol_lots']}" for c, b in book.items()))
 
 
@@ -530,10 +546,18 @@ def main(argv=None) -> int:
             # 13:12 正式進場提醒（與回測相同條件）
             if now >= official_t and not st.get("official") and not a.test:
                 try:
+                    intraday.QUOTES = (q.reindex(columns=["code", "name", "price", "open", "high", "low", "yclose", "vol_lots", "time", "date", "bid1", "ask1", "bid1_lots", "ask1_lots"]).copy(), day)
                     intraday.main([])
                 except Exception as e:  # noqa: BLE001
                     log.error("正式提醒失敗：%s", e)
+                finally:
+                    intraday.QUOTES = None
                 st["official"] = official_result(today) or {"time": hm, "count": 0, "stocks": []}
+                try:
+                    save_book(today, "1312", q, {s["code"] for s in st["official"].get("stocks", [])}
+                              | {c for c in st["alerts"] if c in set(q.code[q.locked])})
+                except Exception as e:  # noqa: BLE001
+                    log.warning("委買委賣快照失敗：%s", e)
 
             try:
                 senti = sentiment.from_quotes(q, hist)

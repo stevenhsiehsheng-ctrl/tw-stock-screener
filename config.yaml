@@ -68,6 +68,15 @@ strategies:
       - {type: ma_rising, period: 60, days: 5}
       - {type: range_pct, days: 20, min: 8, max: 18}
 
+  - name: 爆量衝高換手（長上影）
+    enabled: true           # 盤中衝過 20 日高點、爆量，但被賣回來留長上影（例：10/5 強茂）。回測 5 年 8,177 筆：之後 5/10/20 日
+                            # 超額 +0.1/+0.3/+0.4%、勝率約 4 成，比同條件但收高的（+0.7/+1.0/+1.2%）弱，但也不是出貨訊號
+    conditions:
+      - {type: volume_vs_avg, days: 5, min: 1.8}
+      - {type: intraday_new_high, days: 20}
+      - {type: upper_shadow, min: 4}
+      - {type: volume, min: 1000}
+
   - name: 創60日新高且多頭排列
     enabled: false          # 改成 true 就會啟用
     conditions:
@@ -83,6 +92,8 @@ strategies:
 #  {type: price, min: 10, max: 200}         股價範圍
 #  {type: change_pct, min: 3, max: 9}       漲跌幅 % 範圍（跌就用負數）
 #  {type: limit_up} / {type: limit_down}    漲停 / 跌停
+#  {type: upper_shadow, min: 4}            上影線（最高 − 實體上緣）≥ 前收的 4%
+#  {type: intraday_new_high, days: 60}     盤中最高價創 60 日新高
 #  {type: above_ma, period: 60}             收盤在 N 日均線之上（20=月線，60=季線，240=年線）
 #  {type: below_ma, period: 60}             收盤在 N 日均線之下
 #  {type: cross_above_ma, period: 60}       今天剛突破 N 日均線
