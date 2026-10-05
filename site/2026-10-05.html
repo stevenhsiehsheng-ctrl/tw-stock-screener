@@ -177,6 +177,7 @@ const cols=[
  {k:'close',t:'收盤',f:v=>v.toFixed(2)},
  {k:'change_pct',t:'漲跌%',f:v=>(v>0?'+':'')+v.toFixed(2),c:v=>v>0?'up':v<0?'down':''},
  {k:'volume_lots',t:'成交量(張)',f:v=>Math.round(v).toLocaleString()},
+ {k:'turnover',t:'換手率%',f:v=>v.toFixed(v<10?2:1)},
  {k:'vol_x_prev',t:'量比前日',f:v=>v.toFixed(1)+'×'},
  {k:'vol_x_avg5',t:'量比5日均',f:v=>v.toFixed(1)+'×'},
  {k:'bias60',t:'季線乖離%',f:v=>(v>0?'+':'')+v.toFixed(1),c:v=>v>0?'up':v<0?'down':''},
