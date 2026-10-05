@@ -22,6 +22,9 @@ COLS = ["date", "code", "open", "high", "low", "close", "volume"]
 # 大盤對照組（ETF）：另存 data/extras/bench.csv，不放進 history，免得 ETF 混進選股母體
 BENCH_F = ROOT / "data" / "extras" / "bench.csv"
 BENCH_CODES = {"0050": "TWSE"}
+# 全部上市櫃 ETF（代號 00 開頭）的每日行情：Cowork 的持股日報、虛擬帳戶結算用
+ETF_F = ROOT / "data" / "extras" / "etf.csv.gz"
+ETF_FOCUS = {"0050": "TWSE", "009816": "TWSE", "00981A": "TWSE"}   # 第一次沒有就用 Yahoo 補一年
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -296,6 +299,36 @@ def update_bench(new: pd.DataFrame | None, keep_days: int) -> None:
         log.warning("對照組 ETF 更新失敗：%s", e)
 
 
+def update_etf(new: pd.DataFrame | None, keep_days: int) -> None:
+    """當天抓到的全市場行情裡挑出 ETF（代號 00 開頭）存 data/extras/etf.csv.gz。失敗不影響主流程。"""
+    try:
+        cols = COLS + ["name"]
+        old = pd.read_csv(ETF_F, dtype={"code": str}) if ETF_F.exists() else pd.DataFrame(columns=cols)
+        add = []
+        if new is not None and len(new):
+            e = new[new.code.astype(str).str.fullmatch(r"00\d{2,4}[A-Z]?")]
+            add.append(e.reindex(columns=cols))
+        need = [c for c in ETF_FOCUS if c not in set(old.code)]
+        if need:
+            start = dt.date.today() - dt.timedelta(days=int(keep_days * 1.5) + 10)
+            try:
+                y = fetch_yahoo(pd.DataFrame({"code": need, "market": [ETF_FOCUS[c] for c in need]}), start)
+                add.insert(0, y.reindex(columns=cols))
+                log.info("ETF 用 Yahoo 補 %s：%d 筆", need, len(y))
+            except Exception as e:  # noqa: BLE001
+                log.warning("ETF 用 Yahoo 補歷史失敗（明天再試）：%s", e)
+        if not add:
+            return
+        df = pd.concat([old, *add], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
+        df["name"] = df.groupby("code")["name"].transform(lambda x: x.replace("", pd.NA).ffill().bfill()).fillna("")
+        keep = sorted(df.date.unique())[-keep_days:]
+        ETF_F.parent.mkdir(parents=True, exist_ok=True)
+        df[df.date.isin(keep)].sort_values(["code", "date"]).to_csv(ETF_F, index=False)
+        log.info("ETF %d 檔、%d 天", df.code.nunique(), len(keep))
+    except Exception as e:  # noqa: BLE001
+        log.warning("ETF 行情更新失敗：%s", e)
+
+
 # ---------------------------------------------------------------- 對外介面
 def _build_stock_list() -> None:
     """第一次執行時，用 twstock 套件內建的代號表建立股票清單。"""
@@ -462,6 +495,7 @@ def update_history(
         new = new[new.date <= target.isoformat()]
 
     update_bench(new, keep_days)
+    update_etf(new, keep_days)
     new = new[new.code.str.fullmatch(r"[1-9]\d{3}")]
     _add_new_listings(new, stocks, markets)
     stocks = load_stock_list(markets)
