@@ -25,6 +25,7 @@ from . import corpact, enrich, fetch, notify, positions, sentiment
 log = logging.getLogger("intraday")
 TZ = ZoneInfo("Asia/Taipei")
 MIS = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+QUOTES: tuple[pd.DataFrame, str | None] | None = None  # 盤中監控傳進來的報價
 
 
 def _f(x):
@@ -145,7 +146,9 @@ def main(argv=None) -> int:
         "last_close": g.close.last(),
     })
 
-    q, day = fetch_quotes(stocks)
+    # 盤中監控呼叫時直接用同一輪的報價（已沿用上一輪價格補洞）；單獨重抓的話，
+    # 鎖漲停一直沒成交的股票偶爾抓不到價格就被漏掉（10/5 聯策）
+    q, day = QUOTES if QUOTES is not None else fetch_quotes(stocks)
     if q.empty:
         log.error("抓不到即時報價")
         return 1
