@@ -25,6 +25,7 @@ import json
 import logging
 import re
 import sys
+import time
 import unicodedata
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -213,6 +214,22 @@ def parse_gooddie(page: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def fetch_gooddie(s: requests.Session, max_pages: int = 80) -> pd.DataFrame:
+    """股代網一頁 20 場，照分頁（?page=N）全部翻完。"""
+    first = _text(s.get(GOODDIE, timeout=60))
+    last = max((int(n) for n in re.findall(r'href="/stock/meeting\?page=(\d+)"', first)), default=1)
+    frames = [parse_gooddie(first)]
+    for p in range(2, min(last, max_pages) + 1):
+        time.sleep(1)   # 別打太快
+        try:
+            frames.append(parse_gooddie(_text(s.get(GOODDIE, params={"page": p}, timeout=60))))
+        except requests.RequestException as e:
+            logging.warning("股代網第 %d 頁抓取失敗：%s", p, e)
+    df = pd.concat(frames, ignore_index=True)
+    logging.info("股代網 %d 頁 %d 場", min(last, max_pages), len(df))
+    return df.drop_duplicates(["code", "meeting"]) if len(df) else df
+
+
 def fetch_agents(s: requests.Session) -> pd.DataFrame:
     """證交所、櫃買中心公司基本資料 → 官方登記的股票過戶機構（股代）名稱、電話、地址。"""
     out = []
@@ -287,7 +304,7 @@ def refresh() -> Path:
     if len(hi) < 20:
         raise ValueError(f"HiStock 只抓到 {len(hi)} 筆，可能改版了")
     try:
-        go = parse_gooddie(_text(s.get(GOODDIE, timeout=60)))
+        go = fetch_gooddie(s)
     except (requests.RequestException, ValueError) as e:
         logging.warning("股代網抓取失敗：%s", e)
         go = pd.DataFrame()
