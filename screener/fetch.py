@@ -292,6 +292,8 @@ def update_bench(new: pd.DataFrame | None, keep_days: int) -> None:
                         log.warning("對照組 ETF 補 %s 失敗：%s", d, e)
                     time.sleep(REQUEST_GAP)
                 log.info("對照組 ETF 補缺漏日 %s", gap)
+        px = ["open", "high", "low", "close"]
+        df[px] = df[px].apply(pd.to_numeric, errors="coerce").round(2)
         keep = sorted(df.date.unique())[-keep_days:]
         BENCH_F.parent.mkdir(parents=True, exist_ok=True)
         df[df.date.isin(keep)].sort_values(["code", "date"]).to_csv(BENCH_F, index=False)
@@ -317,9 +319,30 @@ def update_etf(new: pd.DataFrame | None, keep_days: int) -> None:
                 log.info("ETF 用 Yahoo 補 %s：%d 筆", need, len(y))
             except Exception as e:  # noqa: BLE001
                 log.warning("ETF 用 Yahoo 補歷史失敗（明天再試）：%s", e)
-        if not add:
-            return
         df = pd.concat([old, *add], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
+        if df.empty:
+            return
+        # 跟 history 的交易日對齊；重點 ETF 近 10 個交易日有缺（Yahoo 晚一天）就用證交所當天行情補
+        days = set(load_history().date.unique())
+        if days:
+            df = df[df.date.isin(days) | (df.date > max(days))]
+            have = set(zip(df.date, df.code))
+            gap = [d for d in sorted(days)[-10:] if any((d, c) not in have for c in ETF_FOCUS if c in set(df.code))]
+            s = requests.Session()
+            for d in gap:
+                try:
+                    t = fetch_twse_day(s, dt.date.fromisoformat(d))
+                    if t is not None:
+                        t = t[t.code.astype(str).str.fullmatch(r"00\d{2,4}[A-Z]?")].reindex(columns=cols)
+                        df = pd.concat([df, t], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
+                except Exception as e:  # noqa: BLE001
+                    log.warning("ETF 補 %s 失敗：%s", d, e)
+                time.sleep(REQUEST_GAP)
+            if gap:
+                log.info("ETF 補缺漏日 %s", gap)
+        # Yahoo 給的是浮點數（112.050003），價格一律取到小數兩位，跟官方行情、bench.csv 一致
+        px = ["open", "high", "low", "close"]
+        df[px] = df[px].apply(pd.to_numeric, errors="coerce").round(2)
         df["name"] = df.groupby("code")["name"].transform(lambda x: x.replace("", pd.NA).ffill().bfill()).fillna("")
         keep = sorted(df.date.unique())[-keep_days:]
         ETF_F.parent.mkdir(parents=True, exist_ok=True)
