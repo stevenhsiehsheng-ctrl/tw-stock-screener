@@ -149,6 +149,19 @@ def institutional(s, d: dt.date) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+# ------------------------------------------------------------ 已發行股數（算換手率）
+def shares(s) -> pd.DataFrame:
+    """上市：openapi t187ap03_L「已發行普通股數或TDR原股發行股數」；上櫃：mopsfin_t187ap03_O「IssueShares」。單位：股。"""
+    out = []
+    for r in _openapi_rows(s, "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"):
+        out.append({"code": str(r.get("公司代號", "")).strip(), "shares": _num(r.get("已發行普通股數或TDR原股發行股數"))})
+    time.sleep(2)
+    for r in _openapi_rows(s, "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"):
+        out.append({"code": str(r.get("SecuritiesCompanyCode", "")).strip(), "shares": _num(r.get("IssueShares"))})
+    df = pd.DataFrame(out, columns=["code", "shares"])
+    return df[df.shares.notna() & (df.shares > 0)].drop_duplicates("code")
+
+
 # ------------------------------------------------------------ 月營收（最新一個月）
 def _openapi_rows(s, url):
     j = _json(s, url)
@@ -245,7 +258,8 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
     s = _session()
     got = {}
     for name, fn in [("pe", lambda: pe(s, d)), ("inst", lambda: institutional(s, d)),
-                     ("revenue", lambda: revenue(s)), ("warnings", lambda: warnings_list(s))]:
+                     ("revenue", lambda: revenue(s)), ("warnings", lambda: warnings_list(s)),
+                     ("shares", lambda: shares(s))]:
         try:
             df = fn()
         except Exception as e:  # noqa: BLE001
@@ -368,7 +382,7 @@ def inst_streaks() -> pd.DataFrame:
 def load() -> pd.DataFrame:
     """合併已存的資料，index = 股票代號。"""
     frames = []
-    for name in ["pe", "inst", "revenue", "warnings"]:
+    for name in ["pe", "inst", "revenue", "warnings", "shares"]:
         f = DIR / f"{name}.csv"
         if f.exists():
             df = pd.read_csv(f, dtype={"code": str}).drop_duplicates("code").set_index("code")
@@ -392,6 +406,9 @@ def probe(s, d: dt.date) -> None:
         roc_y -= 1
     y0 = (d - dt.timedelta(days=365))
     urls = [
+        # 已發行股數（算換手率）
+        ("TWSE 上市公司基本資料", "https://openapi.twse.com.tw/v1/opendata/t187ap03_L", None),
+        ("TPEX 上櫃公司基本資料", "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O", None),
         # 除權息（給虛擬帳戶和 0050 對照組算含息報酬）
         ("TWSE 除權息結果", "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
          {"startDate": y0.strftime("%Y%m%d"), "endDate": ymd, "response": "json"}),

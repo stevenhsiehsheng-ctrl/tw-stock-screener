@@ -386,7 +386,9 @@ def stock_row(r, first: dict | None = None) -> dict:
         d.update(pe=_num(x.get("pe"), 1), rev_yoy=_num(x.get("rev_yoy"), 0), foreign=_num(x.get("foreign"), 0),
                  flag=x.get("flag") if isinstance(x.get("flag"), str) else None,
                  fstreak=_num(x.get("foreign_streak"), 0), tstreak=_num(x.get("trust_streak"), 0),
-                 inst5=_num(x.get("inst_pct_5d"), 1), dt=_num(x.get("dt_ratio"), 0))
+                 inst5=_num(x.get("inst_pct_5d"), 1), dt=_num(x.get("dt_ratio"), 0),
+                 turnover=_num(r["vol_lots"] * 1000 / x["shares"] * 100, 2)
+                 if x.get("shares") and pd.notna(x.get("shares")) and pd.notna(r["vol_lots"]) else None)
     # 處置股採分盤集中撮合（約每 5~20 分鐘才成交一次），盤中常沒有即時成交價
     d["split"] = d.get("flag") == "處置"
     if first:
@@ -477,7 +479,8 @@ def main(argv=None) -> int:
     qinfo = quarter_info(today, hist.date.unique())
     try:
         ex = enrich.load()
-        cols = [c for c in ["pe", "rev_yoy", "foreign", "flag", "foreign_streak", "trust_streak", "inst_pct_5d", "dt_ratio"]
+        cols = [c for c in ["pe", "rev_yoy", "foreign", "flag", "foreign_streak", "trust_streak", "inst_pct_5d", "dt_ratio",
+                            "shares"]
                 if c in ex.columns]
         _EXT.update(ex[cols].to_dict("index"))
         log.info("載入本益比／營收／法人資料 %d 檔", len(_EXT))

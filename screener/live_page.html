@@ -214,7 +214,7 @@ function render(d){
     (d.alerts||[]).map(r=>`<tr class="${r.hit||r.noprice||r.split?'':'off'}"><td class="l">${r.first_time}</td><td class="l">${link(r)}</td>
       <td class="l meta">${esc(r.industry)}</td><td>${num(r.first_price)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.since)}">${pct(r.since)}</td><td class="${cls(r.chg)}">${pct(r.chg)}</td>
-      <td>${num(r.vol_lots,0)}</td><td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}
+      <td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td><td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}
       <td class="l">${flag(r)}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.hit?'<span class="tag g">仍符合</span>':r.split&&(r.noprice||!r.hit)?'<span class="tag w" title="處置股分盤集中撮合，盤中成交價更新很慢">分盤</span>':r.noprice?'<span class="tag">暫無報價</span>':'<span class="tag">已不符合</span>'}${extra(r)}</td></tr>`),
     `今天還沒有早期預警（${d.alert_start||'09:30'} 起記錄）`);
 
@@ -227,7 +227,7 @@ function render(d){
 
   table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']],
     (d.candidates||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
-      <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
+      <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
       <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${extra(r)}</td></tr>`),
     '目前沒有符合條件的股票');
 }

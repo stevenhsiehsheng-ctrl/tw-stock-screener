@@ -185,6 +185,7 @@ const cols=[
  {k:'close',t:'收盤',f:v=>v.toFixed(2)},
  {k:'change_pct',t:'漲跌%',f:v=>(v>0?'+':'')+v.toFixed(2),c:v=>v>0?'up':v<0?'down':''},
  {k:'volume_lots',t:'成交量(張)',f:v=>Math.round(v).toLocaleString()},
+ {k:'turnover',t:'換手率%',f:v=>v.toFixed(v<10?2:1)},
  {k:'vol_x_prev',t:'量比前日',f:v=>v.toFixed(1)+'×'},
  {k:'vol_x_avg5',t:'量比5日均',f:v=>v.toFixed(1)+'×'},
  {k:'bias60',t:'季線乖離%',f:v=>(v>0?'+':'')+v.toFixed(1),c:v=>v>0?'up':v<0?'down':''},
@@ -443,6 +444,8 @@ def build_rows(stocks: pd.DataFrame, met: pd.DataFrame, hits: dict[str, list[str
             r[k] = _clean(float(ex[k])) if ex is not None and k in ex and pd.notna(ex[k]) else None
         if r["pe"] is None and ex is not None and "pe" in ex:
             r["pe"] = -1 if "pb" in ex and pd.notna(ex.get("pb")) else None  # 有資料但沒本益比 = 虧損
+        sh = ex.get("shares") if ex is not None else None
+        r["turnover"] = _clean(r["volume_lots"] * 1000 / float(sh) * 100) if sh and pd.notna(sh) and r.get("volume_lots") else None
         r["rev_high12"] = bool(ex["rev_high12"]) if ex is not None and "rev_high12" in ex and pd.notna(ex["rev_high12"]) else None
         r["flag"] = ex["flag"] if ex is not None and "flag" in ex and isinstance(ex["flag"], str) else ""
         r["ann"] = (ann or {}).get(code, [])
