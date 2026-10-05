@@ -392,6 +392,12 @@ def probe(s, d: dt.date) -> None:
         roc_y -= 1
     y0 = (d - dt.timedelta(days=365))
     urls = [
+        # 已發行股數（算換手率）
+        ("TWSE 上市公司基本資料", "https://openapi.twse.com.tw/v1/opendata/t187ap03_L", None),
+        ("TPEX 上櫃公司基本資料", "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O", None),
+        ("TPEX 興櫃公司基本資料", "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_R", None),
+    ]
+    _old = [
         # 除權息（給虛擬帳戶和 0050 對照組算含息報酬）
         ("TWSE 除權息結果", "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
          {"startDate": y0.strftime("%Y%m%d"), "endDate": ymd, "response": "json"}),
