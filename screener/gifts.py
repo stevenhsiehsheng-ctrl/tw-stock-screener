@@ -355,6 +355,8 @@ def records(df: pd.DataFrame) -> list[dict]:
         if "取消" in (r.gift or "") or r.code == "000001":   # 000001 是證交所自己，買不到
             continue
         fv = face_value(r.gift)
+        g = _nfkc(r.gift)
+        no_amt = fv is None and bool(_CARD.search(g)) and not _COND.search(g)
         bmax = _num(r.buy_max, 0)
         v, vb = (fv, "面額") if fv is not None else ((bmax, "收購價") if bmax else (None, ""))
         out.append({
@@ -363,9 +365,18 @@ def records(df: pd.DataFrame) -> list[dict]:
             "ag": r.agent, "at": r.agent_tel, "aa": r.agent_addr, "ar": r.region,
             "v": v, "vb": vb, "fv": fv, "b0": _num(r.buy_min, 0), "b1": bmax,
             "pd": r.proxy_deadline, "ps": r.proxy, "ev": r.evote, "ep": r.evote_period,
-            "h": r.hist_id, "sd": _num(r.sd, 4), "src": r.src,
+            "h": r.hist_id, "sd": _num(r.sd, 4), "src": r.src, "na": 1 if no_amt and v is None else 0,
         })
-    return out
+    # ④ 同一家、同樣禮物、會議日相差 3 天內（例如誠美材 6/29 臨時＋6/30 常會）多半是重複登錄，只留一列（常會優先）
+    out.sort(key=lambda x: (x["c"], x["g"], x["k"] != "常會", x["m"]))
+    keep, seen = [], {}
+    for x in out:
+        k = (x["c"], x["g"])
+        if x["g"] and k in seen and abs((dt.date.fromisoformat(x["m"]) - dt.date.fromisoformat(seen[k])).days) <= 3:
+            continue
+        seen.setdefault(k, x["m"])
+        keep.append(x)
+    return keep
 
 
 GUIDE = """
@@ -418,6 +429,8 @@ CSS_EXTRA = """
 table.g td,table.g th{text-align:left!important}
 table.g td.n,table.g th.n{text-align:right!important}
 table.g td.gift{white-space:normal;min-width:150px}
+table.g td.stk{white-space:normal;min-width:130px;max-width:220px}
+.gsub{color:var(--muted);font-size:13px;line-height:1.4;margin-top:2px}
 table.g tbody tr.r{cursor:pointer}
 table.g tbody tr.r:hover{background:var(--card)}
 tr.d td{white-space:normal;background:var(--card);font-size:14.5px;line-height:1.7}
@@ -436,19 +449,20 @@ const FEE=1,PX_TICKET=12,PX_ITEM=15,SHIP=53;
 const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=(x,d=0)=>x==null||isNaN(x)?'':(+x).toLocaleString('zh-TW',{maximumFractionDigits:d,minimumFractionDigits:0});
 const md=s=>s?s.slice(5).replace('-','/'):'';
-function st(){return{mode:$('mode').value,box:Math.max(1,+$('box').value||10),reg:$('reg').value,sort:$('sort').value,sell:$('sell').checked,q:$('q').value.trim().toLowerCase()}}
+function st(){return{mode:$('mode').value,box:Math.max(1,+$('box').value||10),reg:$('reg').value,mk:$('mk').value,sort:$('sort').value,sell:$('sell').checked,q:$('q').value.trim().toLowerCase()}}
 function ticket(r){return r.fv!=null||r.gt==='票券'}
 function proxy(r){return r.pd?1:(/不可|無法|不提供/.test(r.ps||'')?0:null)}   // 1 可代領、0 不能、null 不知道
 function cost(r,S){let c=FEE;if(S.sell)c+=1+Math.floor((r.p||0)*0.003);
   if(S.mode==='proxy'){const x=proxy(r);if(x!==1)return null;c+=(ticket(r)?PX_TICKET:PX_ITEM)+SHIP/S.box}return c}
 function calc(r,S){const c=cost(r,S),k=(r.p||0)+FEE,net=(r.v==null||c==null)?null:r.v-c;
   return{c,k,net,cp:net==null||!r.p?null:net/k,risk:r.sd&&r.p?r.p*r.sd:null}}
-function why(r,S){if(r.v==null)return'未估';if(S.mode==='proxy'){const x=proxy(r);if(x===0)return'不能代領';if(x===null)return'代領未知'}return''}
-function okRegion(r,S){return S.mode!=='self'||!S.reg||r.ar.startsWith(S.reg)}
+function why(r,S){if(r.v==null)return r.na?'金額未公布':'未估';if(S.mode==='proxy'){const x=proxy(r);if(x===0)return'不能代領';if(x===null)return'代領未知'}return''}
+function listed(r){return r.mk==='上市'||r.mk==='上櫃'||(!r.mk&&r.sd!=null)}
+function okRegion(r,S){return(S.mode!=='self'||!S.reg||r.ar.startsWith(S.reg))&&(S.mk==='all'||listed(r))}
 function hit(r,S){return!S.q||(r.c+' '+r.n+' '+r.g+' '+r.ar+' '+r.ag).toLowerCase().includes(S.q)}
 const COLS={
- lb:['最後買進日',r=>md(r.lb)], st:['股票',r=>esc(r.c+' '+r.n)], cp:['CP',(r,x)=>x.cp==null?'':`<span class="${x.cp>=2?'hi':x.cp<0?'neg':''}">${fmt(x.cp,1)}</span>`,1],
- net:['實拿',(r,x,S)=>x.net==null?`<span class="na">${why(r,S)}</span>`:fmt(x.net,1),1], v:['估值',r=>r.v==null?'<span class="na">未估</span>':fmt(r.v)+(r.vb==='收購價'?'<span class="na">收</span>':''),1],
+ lb:['最後買進日',r=>md(r.lb)], st:['股票／紀念品',r=>`${esc(r.c+' '+r.n)}${r.mk&&!listed(r)?` <span class=tag>${esc(r.mk)}</span>`:''}<div class=gsub>${esc(r.g||'未公告')}</div>`,0,'stk'], cp:['CP',(r,x)=>x.cp==null?'':`<span class="${x.cp>=2?'hi':x.cp<0?'neg':''}">${fmt(x.cp,1)}</span>`,1],
+ net:['實拿',(r,x,S)=>x.net==null?`<span class="na">${why(r,S)}</span>`:fmt(x.net,1),1], v:['估值',r=>r.v==null?`<span class="na">${r.na?'金額未公布':'未估'}</span>`:fmt(r.v)+(r.vb==='收購價'?'<span class="na">收</span>':''),1],
  k:['1 股',(r,x)=>fmt(x.k,2),1], risk:['1 天風險',(r,x)=>x.risk==null?'':'±'+fmt(x.risk,1),1],
  g:['紀念品',r=>esc(r.g||'未公告'),0,'gift'], px:['代領',r=>r.pd?(r.pd>=TODAY?'可，至 '+md(r.pd):'有（已截止）'):(proxy(r)===0?'不能':'<span class="na">未知</span>')],
  ar:['領取地點',r=>esc(r.ar||'')], m:['股東會',r=>md(r.m)+' '+esc(r.k)]};
@@ -458,7 +472,7 @@ function table(id,rows,cols,S){const th=cols.map(c=>`<th${COLS[c][2]?' class=n':
   $(id).dataset.cols=cols.length}
 function detail(r,S){const x=calc(r,S),P={...S,mode:'proxy'},Q={...S,mode:'self'},xp=calc(r,P),xs=calc(r,Q);
   const pxc=(ticket(r)?PX_TICKET:PX_ITEM), ship=SHIP/S.box, sell=S.sell?1+Math.floor((r.p||0)*0.003):0;
-  const val=r.v==null?'未估（沒有面額、股代網也沒有收購價）':`${fmt(r.v)} 元（${r.vb==='面額'?'禮券面額':'股代網最高收購出價'}）`;
+  const val=r.v==null?(r.na?'金額未公布（公告只寫禮券、沒寫面額，股代網也沒有收購價）':'未估（沒有面額、股代網也沒有收購價）'):`${fmt(r.v)} 元（${r.vb==='面額'?'禮券面額':'股代網最高收購出價'}）`;
   const buy=r.b1?`股代網收購出價 ${fmt(r.b0)}～${fmt(r.b1)} 元`:'股代網沒有收購出價';
   const line=(lab,xx,extra)=>xx.net==null?`<span class="na">${why(r,lab==='代領寄到家'?P:Q)}</span>`:
      `實拿 ${fmt(xx.net,1)} 元 ＝ ${fmt(r.v)} − 買進 1${extra}${sell?` − 隔天賣 ${sell}`:''}；CP ${fmt(xx.cp,2)}`;
@@ -477,12 +491,12 @@ function draw(){const S=st();try{localStorage.setItem('giftS',JSON.stringify({mo
   $('boxw').style.display=S.mode==='proxy'?'':'none';$('regw').style.display=S.mode==='self'?'':'none';
   const soon=D.filter(r=>r.lb&&r.lb>=TODAY&&hit(r,S)&&okRegion(r,S)).sort((a,b)=>a.lb<b.lb?-1:a.lb>b.lb?1:0);
   $('soon-n').textContent=soon.length;
-  table('soon',soon,['lb','st','cp','net','v','k','risk','g','px','ar','m'],S);
+  table('soon',soon,['lb','st','cp','net','v','k','risk','px','ar','m'],S);
   const key=S.sort==='net'?'net':'cp';
   const rk=D.map(r=>[r,calc(r,S)]).filter(([r,x])=>x[key]!=null&&hit(r,S)&&okRegion(r,S)).sort((a,b)=>b[1][key]-a[1][key]).slice(0,60).map(a=>a[0]);
-  table('rank',rk,['st','cp','net','v','k','risk','g','px','ar','m'],S);
+  table('rank',rk,['st','cp','net','v','k','risk','px','ar','m'],S);
   const all=D.filter(r=>hit(r,S)&&okRegion(r,S)).sort((a,b)=>a.m<b.m?1:a.m>b.m?-1:0);
-  $('all-n').textContent=all.length; table('all',all,['m','st','cp','net','v','k','g','px','ar','lb'],S)}
+  $('all-n').textContent=all.length; table('all',all,['m','st','cp','net','v','k','px','ar','lb'],S)}
 document.addEventListener('click',e=>{const tr=e.target.closest('tr.r');if(!tr||e.target.closest('a'))return;
   const nx=tr.nextElementSibling;if(nx&&nx.classList.contains('d')){nx.remove();return}
   const r=D[+tr.dataset.i],d=document.createElement('tr');d.className='d';
@@ -490,7 +504,7 @@ document.addEventListener('click',e=>{const tr=e.target.closest('tr.r');if(!tr||
 (()=>{const R={};D.forEach(r=>{if(r.ar){const c=r.ar.slice(0,3);R[c]=(R[c]||0)+1}});
   $('reg').innerHTML='<option value="">全部</option>'+Object.entries(R).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<option value="${c}">${c}（${n}）</option>`).join('');
   try{const s=JSON.parse(localStorage.getItem('giftS')||'{}');if(s.mode)$('mode').value=s.mode;if(s.box)$('box').value=s.box;if(s.sell)$('sell').checked=true}catch(e){}
-  ['mode','box','reg','sort','sell','q'].forEach(id=>$(id).addEventListener('input',draw));draw()})();
+  ['mode','box','reg','mk','sort','sell','q'].forEach(id=>$(id).addEventListener('input',draw));draw()})();
 </script>"""
 
 
@@ -516,6 +530,7 @@ def render(today: dt.date | None = None) -> str | None:
  <label>領法 <select id="mode"><option value="proxy">代領寄到家</option><option value="self">自己去領</option></select></label>
  <label id="boxw">一箱寄幾件 <input id="box" type="number" min="1" value="10"></label>
  <label id="regw">領取地區 <select id="reg"></select></label>
+ <label>市場 <select id="mk"><option value="listed">上市櫃（零股買得到）</option><option value="all">全部（含興櫃、公開發行）</option></select></label>
  <label>排序 <select id="sort"><option value="cp">CP 值</option><option value="net">實拿金額</option></select></label>
  <label><input type="checkbox" id="sell"> 隔天就賣</label>
  <input id="q" placeholder="搜尋代號、名稱、紀念品、地區">
@@ -524,7 +539,7 @@ def render(today: dt.date | None = None) -> str | None:
 <div class="tbl"><table class="g" id="soon"></table></div>
 <h2>CP 值排行（{year} 年，明年可參考）</h2>
 <p class="meta">實拿 ＝ 估值 − 買進手續費 1 元 −（代領：代領費 12／15 元＋運費 53 元 ÷ 一箱件數）−（隔天賣：賣出 1 元＋證交稅）。
-CP ＝ 實拿 ÷（股價＋1 元）。只排有估值、而且這個領法做得到的；「收」＝用收購價估值。算法細節在下面。</p>
+CP ＝ 實拿 ÷（股價＋1 元）。只排有估值、而且這個領法做得到的；「收」＝用收購價估值。預設只排上市櫃（零股盤中、盤後都買得到）；興櫃、公開發行的要另外跟券商議價或根本買不到，選「全部」才會出現。算法細節在下面。</p>
 <div class="tbl"><table class="g" id="rank"></table></div>
 {GUIDE}
 <details><summary>全部 <span id="all-n">0</span> 場（可搜尋、可點開）</summary>
