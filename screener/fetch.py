@@ -478,6 +478,7 @@ def update_history(
         log.info("歷史資料已是最新（%s）", hist.date.max())
         if source in ("auto", "official"):
             update_bench(None, keep_days)
+            update_etf(None, keep_days)   # 只補重點 ETF 的歷史（例如前一次中途失敗）
         save_history(hist, keep_days)
         return load_history()
 
