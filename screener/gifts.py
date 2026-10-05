@@ -73,10 +73,23 @@ def probe() -> None:
             print("  內文", body[:1500])
 
 
+def raw(url: str, key: str, width: int = 6000) -> None:
+    """印出網頁原始碼在關鍵字附近的一段（看 HTML 結構用）。"""
+    r = _session().get(url, timeout=30)
+    t = _text(r)
+    i = t.find(key)
+    print(f"===== {url}  HTTP {r.status_code}  長度 {len(t)}  「{key}」在 {i}")
+    print(t[max(i - 1500, 0):i + width] if i >= 0 else t[:width])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--probe", action="store_true", help="只印出候選資料來源的格式")
+    ap.add_argument("--raw", nargs=2, metavar=("URL", "KEY"), help="印出網頁原始碼在關鍵字附近的一段")
     a = ap.parse_args()
+    if a.raw:
+        raw(*a.raw)
+        return 0
     if a.probe:
         probe()
         return 0

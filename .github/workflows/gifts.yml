@@ -7,6 +7,12 @@ on:
         description: "只印出候選資料來源的格式"
         type: boolean
         default: true
+      raw_url:
+        description: "印出這個網址的原始碼（看 HTML 結構用）"
+        default: ""
+      raw_key:
+        description: "原始碼從這個關鍵字附近開始印"
+        default: ""
 
 permissions:
   contents: write
@@ -28,6 +34,12 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: 看原始碼
+        if: ${{ inputs.raw_url != '' }}
+        env:
+          RAW_URL: ${{ inputs.raw_url }}
+          RAW_KEY: ${{ inputs.raw_key }}
+        run: python -m screener.gifts --raw "$RAW_URL" "$RAW_KEY"
       - name: 測試資料來源
-        if: ${{ inputs.probe }}
+        if: ${{ inputs.probe && inputs.raw_url == '' }}
         run: python -m screener.gifts --probe
