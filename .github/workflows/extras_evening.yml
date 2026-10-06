@@ -11,6 +11,9 @@ on:
       dispo_years:
         description: "另外把處置公告往回補幾年（研究用，留空＝不補）"
         default: ""
+      attn_years:
+        description: "另外把注意股公告往回補幾年（研究用，留空＝不補）"
+        default: ""
 
 permissions:
   contents: write
@@ -37,6 +40,9 @@ jobs:
       - name: 處置長歷史
         if: ${{ inputs.dispo_years != '' && inputs.dispo_years != null }}
         run: python -m screener.enrich --dispo-years "${{ inputs.dispo_years }}" --date "$(TZ=Asia/Taipei date +%F)"
+      - name: 注意股長歷史
+        if: ${{ inputs.attn_years != '' && inputs.attn_years != null }}
+        run: python -m screener.enrich --attn-years "${{ inputs.attn_years }}" --date "$(TZ=Asia/Taipei date +%F)"
       - name: 存檔
         run: |
           git config user.name "github-actions[bot]"
