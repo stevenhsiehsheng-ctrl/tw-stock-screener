@@ -42,9 +42,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python -m screener.us
+          python -m screener.macro || echo "大環境長歷史失敗（不影響美股）"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/us data/extras/bench_long.csv 2>/dev/null || git add data/us
+          git add data/us data/extras/bench_long.csv data/macro 2>/dev/null || git add data/us
           if git diff --cached --quiet; then echo "沒有變更"; exit 0; fi
           git commit -m "美股隔夜 $(TZ=Asia/Taipei date +%F)"
           ok=0; for i in 1 2 3; do
