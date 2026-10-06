@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write
   actions: write
+  issues: write   # 風險燈變色通知（沒設 Gmail 時用 Issue）
 
 concurrency:
   group: us
@@ -40,6 +41,11 @@ jobs:
         if: ${{ !inputs.research }}
         env:
           GH_TOKEN: ${{ github.token }}
+          # 風險燈變色時通知 Dennis（screener.macro → notify）
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python -m screener.us
           python -m screener.macro || echo "大環境長歷史失敗（不影響美股）"

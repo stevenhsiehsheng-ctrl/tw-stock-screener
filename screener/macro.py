@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import html
+import json
 import logging
 from pathlib import Path
 
@@ -21,6 +22,7 @@ log = logging.getLogger("macro")
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "macro"
 LONG = DATA / "long.csv.gz"
+REGIME = DATA / "regime.json"
 
 SYMS = [("^TWII", "加權指數"), ("0050.TW", "0050"), ("^SOX", "費城半導體"), ("^GSPC", "標普 500"),
         ("^VIX", "VIX 恐慌指數"), ("^TNX", "美國 10 年債殖利率"), ("^IRX", "美國 3 個月國庫券殖利率"),
@@ -213,11 +215,21 @@ def write(site_dir: Path) -> bool:
                   f"<td class='short'>{p(r['pct'])}<div class='meta'>{_lvl(r['pct'])}</div></td><td class='sp'>{_spark(r['spark'])}</td></tr>"
                   for r in flows)
     css = ("<style>.meta{font-size:12px;color:var(--muted)}td:first-child .meta{white-space:normal;max-width:240px;min-width:150px}td{vertical-align:top}"
-           "td.sp{color:var(--link)}.short{color:var(--muted)}@media(max-width:560px){.sp{display:none}td:first-child .meta{min-width:0;max-width:140px}th,td{padding:6px 5px}}</style>")
-    body = (css + "<h1>大環境</h1>"
+           "td.sp{color:var(--link)}.short{color:var(--muted)}.light{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:10px 14px;margin:10px 0}@media(max-width:560px){.sp{display:none}td:first-child .meta{min-width:0;max-width:140px}th,td{padding:6px 5px}}</style>")
+    light = ""
+    if REGIME.exists():
+        g = json.loads(REGIME.read_text("utf-8"))
+        red = g.get("light") == "red"
+        aux = "、".join(t for t, k in (("加權跌破 200 日線連 3 日（R1）", "r1"), ("費半跌破 200 日線（R3，輔助、假警報多）", "r3")) if g.get(k))
+        light = ("<div class='light'>" + ("🔴 <b>風險燈：紅</b>" if red else "🟢 <b>風險燈：綠</b>")
+                 + f"　加權距一年高點 {g['dd52']:+.1f}%（−10% 亮紅，R2）・{g['date']}"
+                 + f"<div class='meta'>R2＝已經跌 10% 才亮，不是預知。綠燈不等於安全：加權現在離 200 日線 {g['dev200']:+.1f}%，"
+                 f"在 {g['dev200_since'][:4]} 年以來排第 {g['dev200_pct_all']:.0f} 百分位。"
+                 + (f"另外亮著：{aux}。" if aux else "R1、R3 都沒亮。") + "燈亮只提醒、不自動賣。</div></div>")
+    body = (css + "<h1>大環境</h1>" + light +
             "<blockquote>這頁只描述「現在在歷史上排在哪裡」，不是買賣訊號。我們用 1998 年以來的資料測過："
             "這些數字拿來<b>預測</b>台股空頭幾乎都沒用（假警報太多），唯一站得住的是「大盤已經從一年高點跌 10%」"
-            "——那是確認、不是預知，會放在盤中頁的風險燈。</blockquote>"
+            "——那是確認、不是預知，就是上面的風險燈。</blockquote>"
             "<p>分位＝最新值在過去 10／20 年每天的值裡排第幾（0＝最低、100＝最高）。指數類看的是「離 200 日線多遠」，"
             "因為指數本身長期一直往上，比水準沒有意義。利率的一年變化單位是百分點。走勢＝近一年。</p>"
             "<h2>全球</h2><div class='tbl'><table><tr><th>項目</th><th>最新</th><th>一年變化</th><th>10 年<br>分位</th><th>20 年<br>分位</th><th class='sp'>近一年</th></tr>"
@@ -230,9 +242,64 @@ def write(site_dir: Path) -> bool:
     return True
 
 
+def _dev200(s: pd.Series) -> pd.Series:
+    return (s / s.rolling(200).mean() - 1) * 100
+
+
+def regime(long: pd.DataFrame) -> dict:
+    """大盤風險燈（協作板 2358 回測、Cowork 0026 條件）：
+    R2 主燈＝加權收盤距 52 週（250 交易日）高 ≤ −10%；R1＝加權跌破 200 日線連 3 日；R3＝費半收盤 < 200 日線（輔助、假警報多）。
+    R2 是『已經跌 10% 才亮』，不是預知；綠燈不等於安全，所以並列偏離 200 日線的歷史分位。"""
+    px = long.pivot(index="date", columns="sym", values="close").sort_index()
+    tw = px["^TWII"].dropna()
+    dd = (tw / tw.rolling(250, min_periods=200).max() - 1) * 100
+    r2 = dd <= -10
+    below = tw < tw.rolling(200).mean()
+    r1 = below & below.shift(1, fill_value=False) & below.shift(2, fill_value=False)
+    dev = _dev200(tw)
+    since = r2.ne(r2.shift()).cumsum()
+    on_since = r2[since == since.iloc[-1]].index[0]
+    out = {"date": tw.index[-1], "close": round(float(tw.iloc[-1]), 2), "light": "red" if r2.iloc[-1] else "green",
+           "light_since": on_since, "r2": bool(r2.iloc[-1]), "dd52": round(float(dd.iloc[-1]), 2),
+           "r1": bool(r1.iloc[-1]), "dev200": round(float(dev.iloc[-1]), 2),
+           "dev200_pct20y": round(_pct_rank(dev.set_axis(pd.to_datetime(dev.index)), 20), 1),
+           "dev200_pct_all": round(float((dev.dropna() <= dev.iloc[-1]).mean() * 100), 1),
+           "dev200_since": dev.dropna().index[0]}
+    if "^SOX" in px:
+        sox = px["^SOX"].dropna()
+        out.update({"r3": bool(sox.iloc[-1] < sox.rolling(200).mean().iloc[-1]), "sox_date": sox.index[-1],
+                    "sox_dev200": round(float(_dev200(sox).iloc[-1]), 2)})
+    return out
+
+
+def update_regime(notify: bool = True) -> dict | None:
+    """算 regime.json；主燈（R2）跟上一次存的不一樣就通知 Dennis（第一次產生不通知）。"""
+    if not LONG.exists():
+        return None
+    r = regime(pd.read_csv(LONG))
+    prev = json.loads(REGIME.read_text("utf-8")) if REGIME.exists() else None
+    r["changed"] = bool(prev and prev.get("light") != r["light"])
+    r["prev_light"] = prev.get("light") if prev else None
+    REGIME.write_text(json.dumps(r, ensure_ascii=False, indent=1), "utf-8")
+    log.info("風險燈 %s（距一年高點 %+.1f%%，離 200 日線 %+.1f%%）", r["light"], r["dd52"], r["dev200"])
+    if r["changed"] and notify:
+        from . import notify as nt
+        if r["light"] == "red":
+            title = f"⚠️ 大盤風險燈轉紅（{r['date']}）"
+            body = (f"加權 {r['close']:,.0f}，已從一年高點下跌 {-r['dd52']:.1f}%（R2）。\n\n"
+                    "這是『已經跌了 10%』的確認，不是預知；1998 年以來 12 次大空頭每次都會經過這裡，"
+                    "但每年也約有 1.3 次只是一般回檔。帳本規則：只提醒，不自動賣；這時候不要加碼，檢查自己承受得了。")
+        else:
+            title = f"✅ 大盤風險燈轉綠（{r['date']}）"
+            body = f"加權 {r['close']:,.0f}，距一年高點 {r['dd52']:+.1f}%，回到 −10% 以內。綠燈不等於安全。"
+        nt.send(title, body + "\n\n<sub>自動產生，僅供參考，不構成投資建議。</sub>")
+    return r
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     print("大環境長歷史", update(), "筆")
+    print("風險燈", update_regime())
     return 0
 
 
