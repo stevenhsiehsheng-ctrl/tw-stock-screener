@@ -10,6 +10,7 @@ on:
       - screener/rebuild.py
       - screener/weekly.py
       - screener/gifts.py
+      - screener/revdrift.py
       - data/weekly/**
       - data/gifts/**
   workflow_dispatch:
