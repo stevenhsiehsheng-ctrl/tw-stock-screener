@@ -135,5 +135,5 @@ def write(site_dir: Path) -> bool:
             "<div class='tbl'><table><tr><th>營收月</th><th>批次日</th><th>出場日</th><th>檔數</th><th>籃子平均</th><th>籃子中位</th>"
             "<th>安慰劑平均中位</th><th>輸贏</th><th>連輸</th><th>近 6 批平均</th><th>抽 3 檔</th><th>3 檔平均</th><th></th></tr>"
             f"{trs}</table></div>")
-    (site_dir / "revdrift.html").write_text(_page("月營收漂移每批成績", body, "<a href='index.html'>← 每日報表</a>"), "utf-8")
+    (site_dir / "revdrift.html").write_text(_page("月營收漂移每批成績", body, "<!--SITENAV:revdrift-->"), "utf-8")
     return True

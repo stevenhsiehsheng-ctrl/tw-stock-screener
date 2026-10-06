@@ -26,7 +26,7 @@ ul.list li{margin:6px 0}hr{border:0;border-top:1px solid var(--line);margin:28px
 def _page(title: str, body: str, nav: str) -> str:
     return (f"<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'><title>{html.escape(title)}</title>"
-            f"<style>{CSS}</style></head><body><main><nav>{nav}</nav>{body}</main></body></html>")
+            f"<style>{CSS}</style></head><body><main>{nav if nav.startswith('<!--SITENAV') else f'<nav>{nav}</nav>'}{body}</main></body></html>")
 
 
 def write(site_dir: Path) -> list[str]:
@@ -36,7 +36,7 @@ def write(site_dir: Path) -> list[str]:
         return []
     out = site_dir / "weekly"
     out.mkdir(parents=True, exist_ok=True)
-    nav = "<a href='../index.html'>每日報表</a> ・ <a href='index.html'>所有週報</a>"
+    nav = "<!--SITENAV:weekly:../--><nav><a href='index.html'>← 所有週報</a></nav>"
     titles = {}
     for w in weeks:
         md = (SRC / f"{w}.md").read_text("utf-8")
@@ -47,5 +47,5 @@ def write(site_dir: Path) -> list[str]:
         (out / f"{w}.html").write_text(_page(titles[w], body, nav), "utf-8")
     items = "".join(f"<li><a href='{w}.html'>{html.escape(titles[w])}</a></li>" for w in weeks)
     (out / "index.html").write_text(
-        _page("市場週報", f"<h1>市場週報</h1><ul class='list'>{items}</ul>", "<a href='../index.html'>← 每日報表</a>"), "utf-8")
+        _page("市場週報", f"<h1>市場週報</h1><ul class='list'>{items}</ul>", "<!--SITENAV:weekly:../-->"), "utf-8")
     return weeks

@@ -550,7 +550,7 @@ CP ＝ 實拿 ÷（股價＋1 元）。只排有估值、而且這個領法做�
 <p class="meta">僅供參考，不構成投資建議。</p>"""
     return (f"<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'><title>股東紀念品</title>"
-            f"<style>{CSS}{CSS_EXTRA}</style></head><body><main><nav><a href='index.html'>← 每日報表</a></nav>"
+            f"<style>{CSS}{CSS_EXTRA}</style></head><body><main><!--SITENAV:gifts-->"
             f"{body}</main>{APP.replace('__DATA__', data)}</body></html>")
 
 
