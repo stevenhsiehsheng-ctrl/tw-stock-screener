@@ -98,6 +98,10 @@ def update() -> dict:
         df[c] = df[c].astype(float).round(4)
     df.sort_values(["sym", "date"]).to_csv(HIST, index=False)
     meta = {"rows": len(df), "syms": int(df.sym.nunique()), "last": df.date.max()}
+    sox = df[df.sym == "^SOX"].sort_values("date")
+    if len(sox) >= 2:   # 給 12:50／15:47 直接讀：最近一晚費半漲跌（%）
+        meta["sox_chg_prev"] = round(float(sox.close.iloc[-1] / sox.close.iloc[-2] - 1) * 100, 2)
+        meta["sox_date"] = sox.date.iloc[-1]
     META.write_text(json.dumps(meta, ensure_ascii=False))
     try:   # 給盤中頁用：前一晚費半漲跌分組 → 台股隔天的歷史平均（live.py 讀）
         tw = pd.read_csv(ROOT / "data" / "history.csv.gz", dtype={"code": str})
@@ -177,6 +181,7 @@ def impact(us: pd.DataFrame, tw: pd.DataFrame, bench: pd.DataFrame | None = None
     df["sig_gap"] = [float(nxt_gap.iloc[i - 1][surge.iloc[i - 1]].mean()) if i > 0 and surge.iloc[i - 1].any() else np.nan
                      for i in range(len(days))]
     df["sig_n"] = [int(surge.iloc[i - 1].sum()) if i > 0 else 0 for i in range(len(days))]
+    df["sig_list"] = [list(nxt_gap.iloc[i - 1][surge.iloc[i - 1]].dropna()) if i > 0 else [] for i in range(len(days))]
     if bench is not None and len(bench):
         b = bench[bench.code == "0050"].set_index("date")
         df["b_gap"] = df.date.map((b.open / b.close.shift(1) - 1) * 100)
@@ -198,10 +203,13 @@ def impact(us: pd.DataFrame, tw: pd.DataFrame, bench: pd.DataFrame | None = None
         if g.empty:
             continue
         s = g.sig_gap.dropna()
+        each = pd.Series([x for xs in g.sig_list for x in xs], dtype=float)   # 每一筆訊號（不是每一天）
         rows.append({"bucket": lab, "n": len(g), "ew_gap": g.ew_gap.mean(), "ew_day": g.ew_day.mean(),
                      "up": (g.ew_day > 0).mean() * 100,
                      "b_gap": g.b_gap.mean() if "b_gap" in g else None, "b_day": g.b_day.mean() if "b_day" in g else None,
-                     "sig_days": len(s), "sig_gap": s.mean() if len(s) else None, "sig_gap_med": s.median() if len(s) else None})
+                     "sig_days": len(s), "sig_gap": s.mean() if len(s) else None, "sig_gap_med": s.median() if len(s) else None,
+                     "sig_trades": len(each), "sig_trade_avg": each.mean() if len(each) else None,
+                     "sig_trade_med": each.median() if len(each) else None})
     corr = float(df[["sox", "ew_gap"]].corr().iloc[0, 1])
     corr_day = float(df[["sox", "ew_day"]].corr().iloc[0, 1])
     return {"rows": rows, "n": len(df), "start": df.date.min(), "end": df.date.max(), "corr_gap": corr, "corr_day": corr_day,
@@ -281,12 +289,15 @@ def write(site_dir: Path) -> bool:
             f"<td class='{_cls(r['ew_day'])}'>{_f(r['ew_day'], 2, True, True)}</td><td>{_f(r['up'], 0, True)}</td>"
             f"<td class='{_cls(r['b_gap'])}'>{_f(r['b_gap'], 2, True, True)}</td><td class='{_cls(r['b_day'])}'>{_f(r['b_day'], 2, True, True)}</td>"
             f"<td>{r['sig_days']}</td><td class='{_cls(r['sig_gap'])}'>{_f(r['sig_gap'], 2, True, True)}</td>"
-            f"<td class='{_cls(r['sig_gap_med'])}'>{_f(r['sig_gap_med'], 2, True, True)}</td></tr>" for r in imp["rows"])
+            f"<td class='{_cls(r['sig_gap_med'])}'>{_f(r['sig_gap_med'], 2, True, True)}</td>"
+            f"<td>{r.get('sig_trades', '')}</td><td class='{_cls(r.get('sig_trade_avg'))}'>{_f(r.get('sig_trade_avg'), 2, True, True)}</td>"
+            f"<td class='{_cls(r.get('sig_trade_med'))}'>{_f(r.get('sig_trade_med'), 2, True, True)}</td></tr>" for r in imp["rows"])
         im = (f"<h2>美股隔夜 → 台股隔天（{imp['start']}～{imp['end']}，{imp['n']} 個交易日）</h2>"
               "<p>依「前一晚費城半導體漲跌」分組，看台股隔天怎麼走。台股＝前 20 日均量 ≥500 張的股票等權平均；"
               "訊號＝我們的爆量突破（前一天收盤符合），隔天開盤相對前一天收盤的跳空。</p>"
               "<div class='tbl'><table><tr><th>前一晚費半</th><th>天數</th><th>台股開盤跳空</th><th>台股全天</th><th>上漲天數</th>"
-              "<th>0050 開盤</th><th>0050 全天</th><th>有訊號的天數</th><th>訊號隔天開盤 平均</th><th>中位</th></tr>"
+              "<th>0050 開盤</th><th>0050 全天</th><th>有訊號的天數</th><th>訊號隔天開盤（每天平均）平均</th><th>中位</th>"
+              "<th>訊號筆數</th><th>每筆平均</th><th>每筆中位</th></tr>"
               f"{rows}</table></div>"
               f"<p class='meta'>費半漲跌跟台股開盤跳空的相關係數 {imp['corr_gap']:.2f}、跟台股全天 {imp['corr_day']:.2f}。"
               "只是統計描述，樣本只有約一年；分組天數少的格子（10 天以下）不要當真。</p>")
