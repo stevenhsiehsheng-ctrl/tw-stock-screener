@@ -222,10 +222,12 @@ function render(d){
       <td class="l">${flag(r)}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.hit?'<span class="tag g">仍符合</span>':r.split&&(r.noprice||!r.hit)?'<span class="tag w" title="處置股分盤集中撮合，盤中成交價更新很慢">分盤</span>':r.noprice?'<span class="tag">暫無報價</span>':'<span class="tag">已不符合</span>'}${extra(r)}</td></tr>`),
     `今天還沒有早期預警（${d.alert_start||'09:30'} 起記錄）`);
 
-  table($('holds'),[['股票','l'],['進場日','l'],['進場價'],['現價'],['報酬'],['今日漲跌'],['目前量(張)'],['預估量 / 爆量日'],['狀態','l']],
+  table($('holds'),[['股票','l'],['進場日','l'],['進場價'],['現價'],['報酬'],['今日漲跌'],['目前量(張)'],['預估全日 / 出場門檻(張)'],['預估量 / 爆量日'],['最多再抱'],['狀態','l']],
     (d.holdings||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l">${r.signal_date}</td><td>${num(r.entry)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.ret)}">${pct(r.ret)}</td><td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}</td>
+      <td>${r.proj_lots==null||r.shrink_lots==null?'—':num(r.proj_lots,0)+' / '+num(r.shrink_lots,0)}</td>
       <td>${r.proj_ratio==null?'—':(r.proj_ratio*100).toFixed(0)+'%'}</td>
+      <td>${r.days_left==null?'—':r.days_left+' 天'}</td>
       <td class="l">${r.status==='可能量縮出場'?'<span class="tag w">可能量縮出場</span>':`<span class="tag">${esc(r.status)}</span>`}${r.drop_alert?'<span class="tag r">跌幅警示</span>':''}</td></tr>`),
     '目前沒有持有中的股票');
 
