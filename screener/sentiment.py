@@ -44,13 +44,15 @@ def from_history(hist: pd.DataFrame) -> dict:
     ma60 = C.rolling(60).mean()
     nh = C > H.shift(1).rolling(60, min_periods=60).max()
     nl = C < L.shift(1).rolling(60, min_periods=60).min()
+    from .rules import limit_hits
+    lu, ld = limit_hits(C, C.notna())
     s = pd.DataFrame({
         "up_pct": ((chg > 0) & univ).sum(axis=1) / n * 100,
         "above_ma60": ((C > ma60) & univ).sum(axis=1) / n * 100,
         "new_high": (nh & univ).sum(axis=1),
         "new_low": (nl & univ).sum(axis=1),
-        "limit_up": ((chg >= 0.095) & univ).sum(axis=1),
-        "limit_down": ((chg <= -0.095) & univ).sum(axis=1),
+        "limit_up": (lu & univ).sum(axis=1),
+        "limit_down": (ld & univ).sum(axis=1),
         "surge_pct": ((V >= 3 * V.shift(1).rolling(5).mean()) & univ).sum(axis=1) / n * 100,
     })
     # 站上月線、近 20 日：和 data/extras/breadth.csv 完全同一套算法

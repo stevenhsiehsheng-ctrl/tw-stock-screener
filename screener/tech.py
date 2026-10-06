@@ -77,7 +77,7 @@ def breadth(p) -> pd.DataFrame:
     """每天的大盤寬度（口徑）：
     - above_ma20：20 日均量（含當日）≥ 100 張的股票中，收盤 > 20 日均線的比例（%）
     - up_pct：當天有成交、前一天也有成交的全部股票中，收盤上漲的比例（%）
-    - limit_up / limit_down：同上母體，漲跌幅 ≥ 9.5% / ≤ -9.5% 的家數
+    - limit_up / limit_down：同上母體，收在漲停／跌停價的家數（官方檔位，rules.limit_hits）
     - ew_ret：同上母體的等權平均日報酬（%），個股日報酬先截在 ±11%
     - mkt20：最近 20 天 ew_ret 連乘的累積報酬（%）
     """
@@ -89,11 +89,13 @@ def breadth(p) -> pd.DataFrame:
     nl = liquid.sum(axis=1)
     nt = traded.sum(axis=1)
     ew = chg.clip(-0.11, 0.11).mean(axis=1)
+    from .rules import limit_hits
+    lu, ld = limit_hits(c, p.traded)
     df = pd.DataFrame({
         "above_ma20": ((c > ma20) & liquid).sum(axis=1) / nl.replace(0, np.nan) * 100,
         "up_pct": (chg > 0).sum(axis=1) / nt.replace(0, np.nan) * 100,
-        "limit_up": (chg >= 0.095).sum(axis=1),
-        "limit_down": (chg <= -0.095).sum(axis=1),
+        "limit_up": lu.sum(axis=1),
+        "limit_down": ld.sum(axis=1),
         "ew_ret": ew * 100,
         "mkt20": ((1 + ew.fillna(0)).rolling(20, min_periods=20).apply(np.prod, raw=True) - 1) * 100,
         "n_liquid": nl, "n_traded": nt,

@@ -53,18 +53,31 @@ class Panel:
         return (self.close / self.prev_close - 1) * 100
 
     def limit_price(self, up: bool = True) -> pd.DataFrame:
-        raw = self.prev_close * (1.1 if up else 0.9)
-        tick = pd.DataFrame(
-            np.select(
-                [raw < 10, raw < 50, raw < 100, raw < 500, raw < 1000],
-                [0.01, 0.05, 0.1, 0.5, 1.0],
-                default=5.0,
-            ),
-            index=raw.index,
-            columns=raw.columns,
-        )
-        f = np.floor if up else np.ceil
-        return f(raw / tick + (1e-6 if up else -1e-6)) * tick
+        return limit_price(self.prev_close, up)
+
+
+def limit_price(prev: pd.DataFrame, up: bool = True) -> pd.DataFrame:
+    """漲停（跌停）價：前收 ×1.1（×0.9）照升降單位取到合法檔位。"""
+    raw = prev * (1.1 if up else 0.9)
+    tick = pd.DataFrame(
+        np.select(
+            [raw < 10, raw < 50, raw < 100, raw < 500, raw < 1000],
+            [0.01, 0.05, 0.1, 0.5, 1.0],
+            default=5.0,
+        ),
+        index=raw.index,
+        columns=raw.columns,
+    )
+    f = np.floor if up else np.ceil
+    return f(raw / tick + (1e-6 if up else -1e-6)) * tick
+
+
+def limit_hits(close: pd.DataFrame, traded: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """收在漲停／跌停價（官方檔位口徑；前一天也要有成交，漲跌幅 >10.5% 的是除權息或減資，不算）。"""
+    prev = close.shift(1)
+    chg = (close / prev - 1).abs()
+    ok = traded & traded.shift(1, fill_value=False) & (chg <= 0.105)
+    return (ok & (close >= limit_price(prev, True) - 1e-6), ok & (close <= limit_price(prev, False) + 1e-6))
 
 
 def _ratio(a: pd.DataFrame, b: pd.DataFrame) -> pd.DataFrame:
