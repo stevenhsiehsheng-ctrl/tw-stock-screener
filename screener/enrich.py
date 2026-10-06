@@ -106,6 +106,50 @@ def pe(s, d: dt.date) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+# ------------------------------------------------------------ 盤後零股（14:30 撮合一次）
+ODD_HIST = DIR / "oddlot_hist.csv.gz"
+ODD_COLS = ["date", "code", "market", "price", "shares", "amount", "bid", "ask"]
+
+
+def oddlot(s, d: dt.date) -> pd.DataFrame:
+    """盤後零股成交價（證交所 TWT53U、櫃買 odd_result）。price 空白＝當天盤後零股沒成交。
+    虛擬帳戶零股記帳用：比整股收盤價實際。"""
+    out = []
+    srcs = [("TWSE", "https://www.twse.com.tw/rwd/zh/afterTrading/TWT53U",
+             {"date": d.strftime("%Y%m%d"), "selectType": "ALL", "response": "json"}),
+            ("TPEX", "https://www.tpex.org.tw/web/stock/aftertrading/odd_stock/odd_result.php",
+             {"l": "zh-tw", "d": f"{d.year - 1911}/{d:%m/%d}", "o": "json"})]
+    for k, (mkt, url, params) in enumerate(srcs):
+        if k:
+            time.sleep(3)
+        for t in _tables(_json(s, url, params)):
+            f = t["fields"]
+            ic, iq, ia = _col(f, "代號"), _col(f, "成交股數"), _col(f, "成交金額")
+            ip = _col(f, "成交價")
+            ib, ix = _col(f, "買價"), _col(f, "賣價")
+            if ic is None or ip is None:
+                log.warning("%s 盤後零股欄位對不上：%s", mkt, f)
+                break
+            for r in t["data"]:
+                px = _num(r[ip])
+                out.append({"code": str(r[ic]).strip(), "market": mkt, "price": px or None,
+                            "shares": _num(r[iq]) if iq is not None else None,
+                            "amount": _num(r[ia]) if ia is not None else None,
+                            "bid": (_num(r[ib]) or None) if ib is not None else None,
+                            "ask": (_num(r[ix]) or None) if ix is not None else None})
+            break
+    return pd.DataFrame(out, columns=ODD_COLS[1:])
+
+
+def update_oddlot_history(df: pd.DataFrame, d: dt.date) -> int:
+    """當天盤後零股併進歷史檔（只留有成交或有掛價的），回傳天數。"""
+    old = pd.read_csv(ODD_HIST, dtype={"code": str}) if ODD_HIST.exists() else pd.DataFrame(columns=ODD_COLS)
+    x = df[df.price.notna() | df.bid.notna() | df.ask.notna()].assign(date=d.isoformat())[ODD_COLS]
+    h = pd.concat([old[old.date != d.isoformat()], x], ignore_index=True).sort_values(["date", "code"])
+    h.to_csv(ODD_HIST, index=False, compression="gzip")
+    return int(h.date.nunique())
+
+
 # ------------------------------------------------------------ 三大法人（股數→張）
 def _lots(r, i):
     return (_num(r[i]) or 0) / 1000 if i is not None and i < len(r) else None
@@ -375,7 +419,7 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
     got = {}
     for name, fn in [("pe", lambda: pe(s, d)), ("inst", lambda: institutional(s, d)),
                      ("revenue", lambda: revenue(s)), ("warnings", lambda: warnings_list(s)),
-                     ("shares", lambda: shares(s))]:
+                     ("shares", lambda: shares(s)), ("oddlot", lambda: oddlot(s, d))]:
         try:
             df = fn()
         except Exception as e:  # noqa: BLE001
@@ -389,6 +433,11 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
                     got["shares_hist"] = update_shares_history(df, d)
                 except Exception as e:  # noqa: BLE001
                     log.warning("股數月檔更新失敗：%s", e)
+            if name == "oddlot":
+                try:
+                    got["oddlot_days"] = update_oddlot_history(df, d)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("盤後零股歷史更新失敗：%s", e)
             if name == "inst":
                 try:
                     got["inst_hist"] = update_inst_history(s, d, df)
