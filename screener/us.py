@@ -321,11 +321,17 @@ def _universe() -> list[str]:
                       ("https://en.wikipedia.org/wiki/Nasdaq-100", ("Ticker", "Symbol"))]:
         try:
             r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (tw-stock-screener research)"}, timeout=30)
+            got = 0
             for t in pd.read_html(io.StringIO(r.text)):
-                c = next((c for c in cols if c in t.columns), None)
-                if c and len(t) > 90:
-                    out |= {str(x).strip().replace(".", "-") for x in t[c].dropna()}
+                # 欄名可能是多層或帶註腳（"Ticker[3]"），統一攤平成字串再比
+                names = {(" ".join(map(str, c)) if isinstance(c, tuple) else str(c)): c for c in t.columns}
+                c = next((names[k] for k in names for w in cols if k.split("[")[0].strip().lower() == w.lower()), None)
+                if c is not None and len(t) > 90:
+                    syms = {str(x).strip().replace(".", "-") for x in t[c].dropna() if str(x).strip().isascii()}
+                    got = len(syms)
+                    out |= syms
                     break
+            log.info("成分股 %s：%d 檔", url.rsplit("/", 1)[-1], got)
         except Exception as e:  # noqa: BLE001
             log.warning("成分股清單抓不到 %s：%s", url, e)
     return sorted(out)
