@@ -2,7 +2,7 @@
 
 口徑（協作板 0657／0715／0955 定案）：
 - 籃子：營收月份 M 的年增率 ≥30% 且營收是近 12 個月最高（要有 12 個月資料），4 碼普通股
-- 批次日：M 的下個月 11 日之後第一個交易日（11 日當作公告日）；批次日開盤進、第 20 個交易日收盤出
+- 批次日：M 的下個月 11 日之後第一個交易日（11 日當作公告日），和「法定期限 10 日（遇假日順延到下一個交易日）之後第一個交易日」取較晚者（Cowork 0052）；批次日開盤進、第 20 個交易日收盤出
 - 超額：個股（出場收盤 ÷ 進場開盤 − 1）減同期全市場等權（同買賣時點），再扣來回 0.38%
 - 配對安慰劑：籃子每一檔換成「同一天、同流動性五分位」隨機一檔，算籃子平均；300 次取中位。
   比的是「籃子平均」對「安慰劑籃子平均的中位」（同一個尺）
@@ -45,7 +45,10 @@ def _batch_day(ym: str, days: list[str]) -> int | None:
     y, m = (y + 1, 1) if m == 12 else (y, m + 1)
     ann = f"{y}-{m:02d}-11"
     i = next((k for k, d in enumerate(days) if d > ann), None)
-    return i
+    # 法定期限 10 日遇假日順延到下一個上班日（用交易日近似），期限當天公告的要隔天開盤才進得去
+    dl = next((k for k, d in enumerate(days) if d >= f"{y}-{m:02d}-10"), None)
+    j = dl + 1 if dl is not None and dl + 1 < len(days) else None
+    return None if i is None or j is None else max(i, j)
 
 
 def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n: int = N_PLACEBO) -> pd.DataFrame:
@@ -126,7 +129,7 @@ def write(site_dir: Path) -> bool:
         f"<td>{html.escape(r.pick3)}</td><td>{f(r.pick3_avg)}</td><td>{'⚠️ 下架' if r.delist and r.done else ''}</td></tr>"
         for r in df.iloc[::-1].itertuples())
     body = ("<h1>月營收漂移（revdrift）每批成績</h1>"
-            "<p>籃子＝年增 ≥30% 且營收創 12 個月新高；11 日後第一個交易日開盤進、第 20 個交易日收盤出；"
+            "<p>籃子＝年增 ≥30% 且營收創 12 個月新高；11 日後第一個交易日（10 日期限遇假日順延時再往後）開盤進、第 20 個交易日收盤出；"
             "超額＝減同期全市場等權、扣 0.38%。安慰劑＝每檔換成同日同流動性五分位的隨機股票，籃子平均 300 次取中位。"
             "下架：連 3 批輸安慰劑，或最近 6 批平均 ≤0。抽 3 檔＝numpy default_rng(批次日) 不放回抽（本尊算法）。</p>"
             "<div class='tbl'><table><tr><th>營收月</th><th>批次日</th><th>出場日</th><th>檔數</th><th>籃子平均</th><th>籃子中位</th>"
