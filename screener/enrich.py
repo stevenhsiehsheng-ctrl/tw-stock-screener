@@ -404,6 +404,11 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
         except Exception as e:  # noqa: BLE001
             log.warning("%s 歷史更新失敗：%s", name, e)
     try:
+        from . import etfw
+        got.update(etfw.refresh(s))
+    except Exception as e:  # noqa: BLE001
+        log.warning("0050 權重失敗：%s", e)
+    try:
         got["warn_hist"] = update_warnings_history(s, d)
     except Exception as e:  # noqa: BLE001
         log.warning("注意處置歷史更新失敗：%s", e)
