@@ -210,10 +210,10 @@ def write(site_dir: Path) -> bool:
                    f"<td>{p(r['p20'])}<div class='meta'>{_lvl(r['p20'])}</div></td><td class='sp'>{_spark(r['spark'])}</td></tr>")
     ftr = "".join(f"<tr><td>{html.escape(r['name'])}<div class='meta'>{html.escape(r['note'])}・{r['date']}（{r['since']} 起算）</div></td>"
                   f"<td>{f(r['value'], 1, ' ' + r['unit'] if r['unit'] == '億' else r['unit'], r['unit'] != '%' or r['name'].startswith('融資'))}</td>"
-                  f"<td>{p(r['pct'])}<div class='meta'>{_lvl(r['pct'])}</div></td><td class='sp'>{_spark(r['spark'])}</td></tr>"
+                  f"<td class='short'>{p(r['pct'])}<div class='meta'>{_lvl(r['pct'])}</div></td><td class='sp'>{_spark(r['spark'])}</td></tr>"
                   for r in flows)
     css = ("<style>.meta{font-size:12px;color:var(--muted)}td:first-child .meta{white-space:normal;max-width:240px;min-width:150px}td{vertical-align:top}"
-           ".sp{color:var(--link)}@media(max-width:560px){.sp{display:none}td:first-child .meta{min-width:0;max-width:140px}th,td{padding:6px 5px}}</style>")
+           "td.sp{color:var(--link)}.short{color:var(--muted)}@media(max-width:560px){.sp{display:none}td:first-child .meta{min-width:0;max-width:140px}th,td{padding:6px 5px}}</style>")
     body = (css + "<h1>大環境</h1>"
             "<blockquote>這頁只描述「現在在歷史上排在哪裡」，不是買賣訊號。我們用 1998 年以來的資料測過："
             "這些數字拿來<b>預測</b>台股空頭幾乎都沒用（假警報太多），唯一站得住的是「大盤已經從一年高點跌 10%」"
@@ -222,8 +222,8 @@ def write(site_dir: Path) -> bool:
             "因為指數本身長期一直往上，比水準沒有意義。利率的一年變化單位是百分點。走勢＝近一年。</p>"
             "<h2>全球</h2><div class='tbl'><table><tr><th>項目</th><th>最新</th><th>一年變化</th><th>10 年<br>分位</th><th>20 年<br>分位</th><th class='sp'>近一年</th></tr>"
             + "".join(trs) + "</table></div>"
-            + ("<h2>台股資金面</h2><p>這幾項我們只有一年左右的資料，分位只跟這一年比，參考就好。</p>"
-               "<div class='tbl'><table><tr><th>項目</th><th>最新</th><th>一年內<br>分位</th><th class='sp'>近一年</th></tr>" + ftr + "</table></div>"
+            + ("<h2>台股資金面</h2><p>這幾項我們只有一年左右的資料，分位只跟這一年比（灰字），<b>不能跟上面 10／20 年的分位放在一起比</b>：一年裡的 80 分跟 20 年裡的 80 分不是同一把尺。</p>"
+               "<div class='tbl'><table><tr><th>項目</th><th>最新</th><th class='short'>一年分位<br>（樣本短，參考）</th><th class='sp'>近一年</th></tr>" + ftr + "</table></div>"
                if ftr else "")
             + "<p class='meta'>資料：Yahoo Finance（每天台北 06:20 更新）、證交所／櫃買（每天 15:20）。</p>")
     (site_dir / "macro.html").write_text(_page("大環境", body, "<!--SITENAV:macro-->"), "utf-8")
