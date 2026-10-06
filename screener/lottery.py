@@ -208,3 +208,77 @@ def report(trades: pd.DataFrame, ret: str = "ret", placebo: pd.DataFrame | None 
         s.append(f"配對安慰劑 中位 {f(r['placebo_median'])}、剔前5% {f(r['placebo_trim_top5'])}")
     s.append("判定：" + ("彩券組" if r["lottery"] else "非彩券（可以談衛星）"))
     return "\n".join(s)
+
+
+def inst_flow(hist: pd.DataFrame, inst: pd.DataFrame, industry: pd.Series, col: str = "foreign", side: str = "buy",
+              min_streak: int = 5, min_ratio: float = 0.10, liq_lots: float = 500, ret60_pos: bool = False,
+              holds: tuple[int, ...] = (5, 20), cost: float = COST) -> pd.DataFrame:
+    """法人連買／連賣事件＋同日配對（協作板 0244／0319 定死的口徑，週末 5 年版三題都只准用這一支）：
+    - 訊號：col（foreign／trust）連續 side（buy＝買超、sell＝賣超）≥ min_streak 天，且 min_streak 日累計買（賣）超 ÷ 同期成交量
+      ≥ min_ratio；前一日為止 20 日均量 ≥ liq_lots 張；取第一次達標那天，連買（賣）中斷前不重複。ret60_pos：只留前 60 日報酬 >0。
+    - 進出：訊號日 T（法人資料收盤後才公布）→ T+1 開盤進、T+k 收盤出；ex＝個股減同窗全市場等權、扣 cost（%）。
+    - 配對：同日、同產業、前 5 日報酬差 ±1%、該法人沒有連買（賣）≥ min_streak 天、流動性同門檻的股票，取平均 ctrl。
+      diff＝ex − ctrl（沒有配對的 diff 空白）。
+    inst：date、code、col（張）。industry：code → 產業。回傳每個事件×持有天數一列：date、code、hold、ex、ctrl、nctrl、diff。"""
+    h = hist[hist.code.astype(str).str.fullmatch(r"[1-9]\d{3}")]
+    piv = lambda c: h.pivot(index="date", columns="code", values=c).sort_index()  # noqa: E731
+    C, O, V = piv("close"), piv("open"), piv("volume") / 1000
+    F = inst.pivot_table(index="date", columns="code", values=col, aggfunc="sum").reindex(index=C.index, columns=C.columns)
+    F = F.loc[F.index >= inst.date.min()]
+    sign = 1 if side == "buy" else -1
+    hit = (F * sign > 0).astype(int)
+    streak = hit.apply(lambda s: s.groupby((s == 0).cumsum()).cumsum())
+    ratio = sign * F.rolling(min_streak).sum() / V.loc[F.index].rolling(min_streak).sum()
+    liq = V.rolling(20).mean().shift(1).loc[F.index] >= liq_lots
+    cond = (streak >= min_streak) & (ratio >= min_ratio) & liq
+    if ret60_pos:
+        cond &= (C / C.shift(60) - 1).loc[F.index] > 0
+    first = cond & ~cond.shift(1, fill_value=False)
+    ret5 = (C / C.shift(5) - 1).loc[F.index]
+    ind = industry.reindex(C.columns)
+    alld = list(C.index)
+    pos = {d: i for i, d in enumerate(alld)}
+    rows = []
+    for d in F.index:
+        codes = first.columns[first.loc[d].to_numpy()]
+        if not len(codes):
+            continue
+        i = pos[d]
+        pool = ((streak.loc[d] < min_streak) & liq.loc[d]).to_numpy()
+        for k in holds:
+            if i + k >= len(alld):
+                continue
+            e, x = alld[i + 1], alld[i + k]
+            r = C.loc[x] / O.loc[e] - 1
+            ok = r.notna() & (r.abs() < 3) & (O.loc[e] > 0)
+            ex = (r - r[ok].mean()) * 100 - cost
+            for c in codes:
+                if not ok.get(c, False):
+                    continue
+                m = pool & (ind == ind.get(c)).to_numpy() & ((ret5.loc[d] - ret5.loc[d, c]).abs() <= 0.01).to_numpy() & ok.to_numpy()
+                m[C.columns.get_loc(c)] = False
+                ctrl = ex[m]
+                rows.append({"date": d, "code": c, "hold": k, "ex": ex[c], "ctrl": ctrl.mean() if len(ctrl) else np.nan,
+                             "nctrl": len(ctrl)})
+    out = pd.DataFrame(rows, columns=["date", "code", "hold", "ex", "ctrl", "nctrl"])
+    out["diff"] = out.ex - out.ctrl
+    return out
+
+
+def inst_flow_report(ev: pd.DataFrame, seed: int = 0) -> str:
+    """每個持有天數：N、有配對、訊號日、一天最多、同時持有中位／最大（用訊號日數近似持有天數，粗估）、
+    ex 平均中位、diff 平均中位＋按日抽 5～95%、逐年。"""
+    lines = []
+    for k, g in ev.groupby("hold"):
+        dd = g.dropna(subset=["diff"])
+        dm = dd.groupby("date")["diff"].mean().to_numpy()
+        rng = np.random.default_rng(seed)
+        lo, hi = np.percentile([dm[rng.integers(0, len(dm), len(dm))].mean() for _ in range(2000)], [5, 95]) if len(dm) else (np.nan, np.nan)
+        days = pd.Index(sorted(ev.date.unique()))
+        cnt = g.groupby("date").size().reindex(days, fill_value=0).rolling(k, min_periods=1).sum()
+        yr = dd.groupby(dd.date.str[:4])["diff"].agg(["size", "median"]).round(2)
+        lines.append(f"抱 {k} 日：N={len(g)}（有配對 {len(dd)}）訊號日 {g.date.nunique()} 一天最多 {g.groupby('date').size().max()} 檔 "
+                     f"同時持有中位 {cnt[cnt > 0].median():.0f}／最大 {cnt.max():.0f}｜訊號組 平均 {g.ex.mean():+.2f} 中位 {g.ex.median():+.2f}｜"
+                     f"配對差 平均 {dd['diff'].mean():+.2f} 中位 {dd['diff'].median():+.2f}（按日抽 5～95% {lo:+.2f}～{hi:+.2f}）\n"
+                     f"   逐年（筆數／配對差中位）：{ {y: (int(r['size']), float(r['median'])) for y, r in yr.iterrows()} }")
+    return "\n".join(lines)
