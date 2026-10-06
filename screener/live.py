@@ -267,9 +267,11 @@ def group_heat(q: pd.DataFrame, st: dict, hm: str, themes: dict[str, list[str]],
             continue
         hot = g[act | (g.chg >= 7)].sort_values("chg", ascending=False)
         out.append({"kind": kind, "name": name, "n": len(g), "active": na, "surge": ns, "limit": nl, "up7": n7,
+                    "ups_pct": _num(na / len(g) * 100, 1), "limit_pct": _num(nl / len(g) * 100, 1),
                     "avg_chg": _num(g.chg.mean()), "first5": first.get(key), "main": bool(first.get(key, "99") < main_by),
                     "members": [[c, r["name"], _num(r["chg"]), bool(r["locked"])] for c, r in hot.head(15).iterrows()]})
-    out.sort(key=lambda d: (d["main"], d["active"], d["limit"]), reverse=True)
+    # 排序用「發動占比」，不再把主線排第一（10/6 回測：主線對隔天、隔週都沒有預測力，只當描述）
+    out.sort(key=lambda d: (d["ups_pct"] or 0, d["active"], d["limit"]), reverse=True)
     return out
 
 
@@ -288,7 +290,8 @@ def save_heat_log(today: str, heat: list[dict]) -> None:
     """族群熱度存成 data/group_heat/YYYY-MM-DD.csv（每輪覆蓋成最新），之後統計「10 點前就發動的族群」後面幾天的表現。"""
     if not heat:
         return
-    df = pd.DataFrame([{**{k: h[k] for k in ("kind", "name", "n", "active", "surge", "limit", "up7", "avg_chg", "first5", "main")},
+    df = pd.DataFrame([{**{k: h.get(k) for k in ("kind", "name", "n", "active", "surge", "limit", "up7", "ups_pct", "limit_pct",
+                                                 "avg_chg", "first5", "main")},
                         "members": " ".join(m[0] for m in h["members"])} for h in heat])
     df.insert(0, "date", today)
     HEAT_DIR.mkdir(parents=True, exist_ok=True)

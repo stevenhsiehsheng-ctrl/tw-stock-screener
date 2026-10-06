@@ -76,7 +76,7 @@ tr.off td{opacity:.55}
   <div class="box" id="official"></div>
 
   <h2>🔥 族群熱度</h2>
-  <p class="hint">每個產業（和題材清單）現在有幾檔在發動。「發動」= 預估爆量＋漲 3% 以上（和「族群同步」同定義），或漲停（漲停鎖住常常沒量，也算）。<span id="mainrule">10:00 前發動達 5 家（而且至少占該族群 5%）</span>就標<span class="tag r">主線</span>。每天都會記錄下來，之後統計主線族群後面幾天的表現，驗證是真主線還是過熱。</p>
+  <p class="hint">每個產業（和題材清單）現在有幾檔在發動。「發動」= 預估爆量＋漲 3% 以上（和「族群同步」同定義），或漲停（漲停鎖住常常沒量，也算）。依「發動占比」（發動家數 ÷ 族群檔數）排序。<span id="mainrule">10:00 前發動達 5 家（而且至少占該族群 5%）</span>標灰色「主線」：<b>只描述今天市場在玩什麼，不是買進理由</b>——10/6 用 5 年資料回測，主線族群隔 5 天、20 天都沒有超額；追同族群還沒漲的股票（補漲）也是虧多賺少。</p>
   <div class="tbl" id="heat"></div>
 
   <h2>⚡ 今日早期預警</h2>
@@ -207,10 +207,10 @@ function render(d){
     `<td>${r.dt==null?'—':r.dt.toFixed(0)+'%'}</td>`;
   const flag=r=>r.flag?`<span class="tag r">${esc(r.flag)}</span>`:'';
   const chip=m=>`<span class="tag${m[3]?' r':''}" title="${m[3]?'漲停鎖住':''}">${esc(m[1])} <span class="${m[3]?'':cls(m[2])}">${pct(m[2])}</span></span>`;
-  table($('heat'),[['族群','l'],['發動'],['其中爆量'],['漲停'],['漲 7%+'],['平均漲跌'],['達 5 家','l'],['成員（漲幅排序）','l']],
+  table($('heat'),[['族群','l'],['發動'],['發動占比'],['其中爆量'],['漲停'],['漲 7%+'],['平均漲跌'],['達 5 家','l'],['成員（漲幅排序）','l']],
     (d.group_heat||[]).map(h=>`<tr><td class="l">${h.kind==='題材'?'<span class="tag w">題材</span>':''}<b>${esc(h.name)}</b><div class="meta">${h.n} 檔</div></td>
-      <td><b>${h.active??h.surge}</b></td><td>${h.surge}</td><td class="${h.limit?'up':''}">${h.limit}</td><td>${h.up7}</td><td class="${cls(h.avg_chg)}">${pct(h.avg_chg)}</td>
-      <td class="l">${h.first5?h.first5:'<span class="meta">—</span>'}${h.main?' <span class="tag r">主線</span>':''}</td>
+      <td><b>${h.active??h.surge}</b></td><td>${h.ups_pct==null?'—':h.ups_pct.toFixed(0)+'%'}</td><td>${h.surge}</td><td class="${h.limit?'up':''}">${h.limit}</td><td>${h.up7}</td><td class="${cls(h.avg_chg)}">${pct(h.avg_chg)}</td>
+      <td class="l">${h.first5?h.first5:'<span class="meta">—</span>'}${h.main?' <span class="tag" title="只描述今天市場在玩什麼，10/6 回測沒有預測力">主線（描述用）</span>':''}</td>
       <td class="l" style="white-space:normal;min-width:320px">${(h.members||[]).map(chip).join('')}</td></tr>`),
     '目前沒有族群有 2 檔以上在發動');
 
