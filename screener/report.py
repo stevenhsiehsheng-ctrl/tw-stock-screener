@@ -519,8 +519,13 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    from . import gifts, weekly
+    from . import gifts, revdrift, weekly
     weeks = weekly.write(out_dir)
+    try:
+        has_rev = revdrift.write(out_dir)
+    except Exception as e:  # 研究頁壞掉不能拖垮每日報表
+        logging.warning("營收漂移成績頁產生失敗：%s", e)
+        has_rev = False
     try:
         has_gifts = gifts.write(out_dir)
     except Exception as e:  # 紀念品頁壞掉不能拖垮每日報表
@@ -529,6 +534,7 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
     links = ("<a href='live.html'>⚡ 盤中即時</a> ・ <a href='#' onclick='return openClaude()'>🔒 Claude 研判＋虛擬帳戶</a>"
              + (f" ・ <a href='weekly/{weeks[0]}.html'>📅 市場週報</a>" if weeks else "")
              + (" ・ <a href='gifts.html'>🎁 股東紀念品</a>" if has_gifts else "")
+             + (" ・ <a href='revdrift.html'>📈 營收漂移每批</a>" if has_rev else "")
              + " ・ <a href='archive.html'>歷史報表</a>")
     (out_dir / f"{date}.html").write_text(html_for(links), "utf-8")
     (out_dir / "index.html").write_text(html_for(links), "utf-8")
