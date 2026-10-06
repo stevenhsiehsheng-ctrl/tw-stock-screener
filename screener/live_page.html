@@ -88,6 +88,8 @@ tr.off td{opacity:.55}
 
   <h2>📡 目前符合條件（每次掃描更新）</h2>
   <div class="tbl" id="cands"></div>
+  <h2>⭐ 昨日觀察名單（<span id="wdate"></span> 收盤「準備突破觀察」，即時價量）</h2>
+  <div class="tbl" id="watch"></div>
 
   <p class="foot">預估全日量比 = 目前成交量 ÷ 依時間推估的全天比例 ÷ 前 5 日均量（早盤估計誤差較大）。
     資料來源：證交所即時報價，GitHub 每幾分鐘更新一次，網頁每 60 秒自動重新整理，實際延遲約 3～5 分鐘。僅供參考，不構成投資建議。
@@ -225,11 +227,15 @@ function render(d){
       <td class="l">${r.status==='可能量縮出場'?'<span class="tag w">可能量縮出場</span>':`<span class="tag">${esc(r.status)}</span>`}${r.drop_alert?'<span class="tag r">跌幅警示</span>':''}</td></tr>`),
     '目前沒有持有中的股票');
 
-  table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']],
-    (d.candidates||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
-      <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
-      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${extra(r)}</td></tr>`),
+  const cols=[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']];
+  $('wdate').textContent=d.watch_date||'';
+  table($('watch'),cols,(d.watchlist||[]).map(r=>candRow(r)),'沒有觀察名單');
+  table($('cands'),cols,
+    (d.candidates||[]).map(r=>candRow(r)),
     '目前沒有符合條件的股票');
+  function candRow(r){return `<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
+      <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
+      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${r.hit?'<span class="tag g">符合條件</span>':''}${peer(r)}${extra(r)}</td></tr>`}
 }
 
 async function tick(){
