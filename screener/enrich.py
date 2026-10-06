@@ -162,6 +162,25 @@ def shares(s) -> pd.DataFrame:
     return df[df.shares.notna() & (df.shares > 0)].drop_duplicates("code")
 
 
+SHARES_HIST = DIR / "shares_hist.csv"
+SHARES_FROM = "2025-09"   # 回補起點（history 從 2025-09 開始）
+
+
+def update_shares_history(today_df: pd.DataFrame, d: dt.date) -> int:
+    """每月一筆發行股數（code, ym, shares, src）。當月每天覆蓋成最新；src=snap 是當月真的抓到的，
+    src=backfill 是第一次建檔時拿當時的快照往回填（增資、減資、庫藏股註銷會有誤差，算市值時要知道）。回傳月份數。"""
+    ym = d.strftime("%Y-%m")
+    cur = today_df[["code", "shares"]].assign(ym=ym, src="snap")
+    if SHARES_HIST.exists():
+        h = pd.read_csv(SHARES_HIST, dtype={"code": str, "ym": str})
+    else:
+        months = pd.period_range(SHARES_FROM, ym, freq="M").strftime("%Y-%m")
+        h = pd.concat([cur.assign(ym=m, src="backfill") for m in months if m != ym], ignore_index=True)
+    h = pd.concat([h[h.ym != ym], cur], ignore_index=True)[["code", "ym", "shares", "src"]]
+    h.sort_values(["code", "ym"]).to_csv(SHARES_HIST, index=False)
+    return h.ym.nunique()
+
+
 # ------------------------------------------------------------ 月營收（最新一個月）
 def _openapi_rows(s, url):
     j = _json(s, url)
@@ -268,6 +287,11 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
         got[name] = len(df)
         if len(df):
             df.to_csv(DIR / f"{name}.csv", index=False)
+            if name == "shares":
+                try:
+                    got["shares_hist"] = update_shares_history(df, d)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("股數月檔更新失敗：%s", e)
             if name == "inst":
                 try:
                     got["inst_hist"] = update_inst_history(s, d, df)

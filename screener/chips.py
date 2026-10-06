@@ -237,6 +237,8 @@ def _months_back(today: dt.date, n: int) -> list[tuple[int, int]]:
 def update_revenue_history(s, today: dt.date, max_fetch: int = 30) -> int:
     """最近兩個月每天重抓（公司陸續公布、可能更正），其餘缺的月份補齊到 24 個月。"""
     h = pd.read_csv(REV_HIST, dtype={"code": str}) if REV_HIST.exists() else pd.DataFrame(columns=REV_COLS)
+    h = h.reindex(columns=REV_COLS + ["ann_date"])
+    h["ann_date"] = h["ann_date"].astype(object)
     months = _months_back(today, REV_MONTHS)
     have = set(h.ym)
     todo = months[:2] + [x for x in months[2:] if f"{x[0]}-{x[1]:02d}" not in have]
@@ -245,7 +247,15 @@ def update_revenue_history(s, today: dt.date, max_fetch: int = 30) -> int:
         if df.empty:
             log.info("月營收 %d-%02d 尚無資料", y, m)
             continue
-        h = pd.concat([h[h.ym != f"{y}-{m:02d}"], df[REV_COLS]], ignore_index=True)
+        ym = f"{y}-{m:02d}"
+        # ann_date＝我們第一次看到這家這個月營收的日期（公告日的上界；收盤後才抓，所以通常是公告當天或隔天）。
+        # 已經有的保留舊值；往回補的舊月份不知道公告日，留空。
+        seen = h[h.ym == ym].set_index("code")["ann_date"]
+        df = df[REV_COLS].copy()
+        df["ann_date"] = df.code.map(seen).astype(object)
+        if (y, m) in months[:2]:
+            df.loc[~df.code.isin(seen.index), "ann_date"] = today.isoformat()
+        h = pd.concat([h[h.ym != ym], df], ignore_index=True)
         log.info("月營收 %d-%02d：%d 家", y, m, len(df))
     keep = {f"{y}-{m:02d}" for y, m in months}
     h = h[h.ym.isin(keep)].drop_duplicates(["code", "ym"], keep="last").sort_values(["code", "ym"])
