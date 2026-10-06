@@ -310,7 +310,7 @@ def write(site_dir: Path) -> bool:
             f"<h2>指數</h2><div class='tbl'><table>{head}{idx}</table></div>{pm}"
             f"<h2>台股供應鏈相關（依今天漲跌排序）</h2><div class='tbl'><table>{head}{lk}</table></div>{im}")
     css_extra = "<style>.up{color:#c0392b}.dn{color:#1e8449}.meta{color:var(--muted);font-size:13px}</style>"
-    (site_dir / "us.html").write_text(_page("美股（給台股用）", css_extra + body, "<a href='index.html'>← 每日報表</a> ・ <a href='live.html'>盤中即時</a>"), "utf-8")
+    (site_dir / "us.html").write_text(_page("美股（給台股用）", css_extra + body, "<!--SITENAV:us-->"), "utf-8")
     return True
 
 

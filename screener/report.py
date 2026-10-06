@@ -38,6 +38,7 @@ h1{font-size:22px;margin:0 0 2px}
 .tile .n{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums}
 .tile .t{font-weight:600}
 .tile .d{color:var(--muted);font-size:12px}
+@media(max-width:560px){.tiles{grid-template-columns:1fr 1fr;gap:8px}.tile{padding:10px 11px}.tile .n{font-size:22px}}
 .bar{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
 .bar input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
   background:var(--surface);color:var(--ink);font:inherit}
@@ -148,7 +149,8 @@ details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
 <body>
 <div class="wrap">
   <h1>__TITLE__</h1>
-  <p class="sub">資料日期 __DATE__（__QDAY__）・ 共掃描 __SCANNED__ 檔 ・ __ARCHIVE__</p>
+  <p class="sub">資料日期 __DATE__（__QDAY__）・ 共掃描 __SCANNED__ 檔</p>
+  __ARCHIVE__
   <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
   <div class="breadth" id="breadth" hidden></div>
@@ -519,7 +521,7 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    from . import gifts, macro, revdrift, us, weekly
+    from . import gifts, macro, revdrift, sitenav, us, weekly
     weeks = weekly.write(out_dir)
     try:
         has_us = us.write(out_dir)
@@ -541,13 +543,7 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
     except Exception as e:  # 紀念品頁壞掉不能拖垮每日報表
         logging.warning("股東紀念品頁產生失敗：%s", e)
         has_gifts = False
-    links = ("<a href='live.html'>⚡ 盤中即時</a> ・ <a href='#' onclick='return openClaude()'>🔒 Claude 研判＋虛擬帳戶</a>"
-             + (f" ・ <a href='weekly/{weeks[0]}.html'>📅 市場週報</a>" if weeks else "")
-             + (" ・ <a href='gifts.html'>🎁 股東紀念品</a>" if has_gifts else "")
-             + (" ・ <a href='revdrift.html'>📈 營收漂移每批</a>" if has_rev else "")
-             + (" ・ <a href='us.html'>🇺🇸 美股隔夜</a>" if has_us else "")
-             + (" ・ <a href='macro.html'>🌏 大環境</a>" if has_macro else "")
-             + " ・ <a href='archive.html'>歷史報表</a>")
+    links = "<!--SITENAV:daily-->"  # 導覽列最後由 sitenav.apply 換成真的（那時才知道哪些頁有產生）
     (out_dir / f"{date}.html").write_text(html_for(links), "utf-8")
     (out_dir / "index.html").write_text(html_for(links), "utf-8")
     js = Path(__file__).with_name("claude_link.js")
@@ -562,8 +558,11 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
         "<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>歷史報表</title><style>body{font:15px/1.8 sans-serif;max-width:600px;margin:24px auto;padding:0 16px;"
         "background:#f7f7f5;color:#1d1d1b}@media(prefers-color-scheme:dark){body{background:#141413;color:#ecebe6}"
-        "a{color:#7d9cf0}}</style><h2>歷史報表</h2><p><a href='index.html'>← 最新</a>"
-        + (" ・ <a href='weekly/index.html'>市場週報</a>" if weeks else "") + "</p>"
+        "a{color:#7d9cf0}}</style><!--SITENAV:archive--><h2>歷史報表</h2>"
         f"<ul>{items}</ul>",
         "utf-8",
     )
+    try:
+        sitenav.apply(out_dir)
+    except Exception as e:  # 導覽列壞掉不能拖垮每日報表
+        logging.warning("導覽列產生失敗：%s", e)

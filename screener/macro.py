@@ -226,7 +226,7 @@ def write(site_dir: Path) -> bool:
                "<div class='tbl'><table><tr><th>項目</th><th>最新</th><th>一年內<br>分位</th><th class='sp'>近一年</th></tr>" + ftr + "</table></div>"
                if ftr else "")
             + "<p class='meta'>資料：Yahoo Finance（每天台北 06:20 更新）、證交所／櫃買（每天 15:20）。</p>")
-    (site_dir / "macro.html").write_text(_page("大環境", body, "<a href='index.html'>← 每日報表</a>"), "utf-8")
+    (site_dir / "macro.html").write_text(_page("大環境", body, "<!--SITENAV:macro-->"), "utf-8")
     return True
 
 
