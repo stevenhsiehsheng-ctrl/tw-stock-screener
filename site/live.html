@@ -71,6 +71,7 @@ tr.off td{opacity:.55}
   <h2>🌎 美股隔夜</h2>
   <p class="hint">費城半導體與台積電 ADR 前一晚的漲跌，常決定台股（尤其電子股）當天開盤方向。</p>
   <div class="kpis" id="glob"></div>
+  <p class="hint" id="globhint"></p>
 
   <h2>🎯 13:12 正式進場提醒</h2>
   <div class="box" id="official"></div>
@@ -193,6 +194,8 @@ function render(d){
   $('glob').innerHTML=(g.items||[]).map(x=>`<div class="k"><b class="${x.sym==='^VIX'?cls(-x.chg):cls(x.chg)}">${pct(x.chg)}</b><span>${esc(x.name)} ・ ${x.date}</span></div>`).join('')
     +(g.adr_premium!=null?k(`${g.adr_premium>0?'+':''}${g.adr_premium}%`,'台積電ADR溢價'):'')
     ||'<span class="meta">明天開盤後顯示</span>';
+  const h=g.sox_hint;
+  $('globhint').innerHTML=h?`昨晚費半 <b class="${cls(h.sox)}">${pct(h.sox)}</b>（${esc(h.bucket)}）：過去一年這種隔天（${h.n} 天），台股開盤平均 <b class="${cls(h.ew_gap)}">${pct(h.ew_gap)}</b>、全天 <b class="${cls(h.ew_day)}">${pct(h.ew_day)}</b>、收紅 ${h.up==null?'—':h.up.toFixed(0)+'%'}；我們的爆量突破訊號隔天開盤平均 <b class="${cls(h.sig_gap)}">${pct(h.sig_gap)}</b>。只是統計描述，<a href="us.html">美股頁</a>有完整表。`:'';
 
   const o=d.official;
   $('official').innerHTML=!o?'<span class="meta">13:12 掃描後顯示（與回測相同條件：收盤前買進）</span>':
