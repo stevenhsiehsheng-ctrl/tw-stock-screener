@@ -305,7 +305,7 @@ def _rows(j) -> list[tuple[list, list]]:
     return [(t.get("fields") or [], t.get("data") or []) for t in j.get("tables") or []]
 
 
-def warnings_range(s, start: dt.date, end: dt.date) -> pd.DataFrame:
+def warnings_range(s, start: dt.date, end: dt.date, flags=("注意", "處置")) -> pd.DataFrame:
     """抓 start～end 公告的注意、處置股（上市＋上櫃，只留四碼股票）。"""
     a, b = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
     A, B = start.strftime("%Y/%m/%d"), end.strftime("%Y/%m/%d")
@@ -319,6 +319,8 @@ def warnings_range(s, start: dt.date, end: dt.date) -> pd.DataFrame:
             {"startDate": A, "endDate": B, "response": "json"})]
     out = []
     for flag, url, params in src:
+        if flag not in flags:
+            continue
         for fields, data in _rows(_json(s, url, params)):
             f = [str(x).replace(" ", "") for x in fields]
             ic = next((i for i, x in enumerate(f) if x == "證券代號"), None)
@@ -357,6 +359,25 @@ def update_warnings_history(s, d: dt.date) -> int:
     df = pd.concat([old, new], ignore_index=True).drop_duplicates(["date", "code", "flag"], keep="last")
     df = df[df.date >= (d - dt.timedelta(days=400)).isoformat()].sort_values(["date", "code"])
     df.to_csv(WARN_HIST, index=False)
+    return len(df)
+
+
+DISPO_LONG = DIR / "disposal_5y.csv.gz"
+
+
+def backfill_disposals(s, d: dt.date, years: float = 5) -> int:
+    """處置公告長歷史（研究用，只抓處置、不抓注意；一季查一次）→ data/extras/disposal_5y.csv.gz。
+    warnings_hist 只留 400 天給每日用，這份另外放。"""
+    a = d - dt.timedelta(days=int(years * 365.25))
+    parts = []
+    while a <= d:
+        b = min(a + dt.timedelta(days=91), d)
+        x = warnings_range(s, a, b, flags=("處置",))
+        log.info("處置 %s～%s：%d 筆", a, b, len(x))
+        parts.append(x)
+        a = b + dt.timedelta(days=1)
+    df = pd.concat(parts, ignore_index=True).drop_duplicates(["date", "code", "start"]).sort_values(["date", "code"])
+    df.to_csv(DISPO_LONG, index=False, compression="gzip")
     return len(df)
 
 
@@ -673,8 +694,13 @@ def main():
                     help="融資融券／當沖往前補 N 個交易日、月營收補到 24 個月（存檔）")
     ap.add_argument("--refresh", action="store_true",
                     help="只重抓消息面／籌碼面並存檔（傍晚補跑：15:20 時證交所法人、本益比常常還沒公布）")
+    ap.add_argument("--dispo-years", type=float, metavar="N", help="處置公告往回補 N 年（研究用，存 disposal_5y.csv.gz）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    if a.dispo_years:
+        d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+        print("處置長歷史", backfill_disposals(_session(), d, a.dispo_years), "筆")
+        return
     if a.refresh:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
         print(refresh(d))

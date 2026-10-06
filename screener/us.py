@@ -93,6 +93,10 @@ def update() -> dict:
     except Exception as e:  # noqa: BLE001
         log.warning("bench_long 失敗：%s", e)
     df = fetch()
+    # 匯率、VIX 在亞洲時段也有報價，06:20 抓會多一根「今天」的半根 K；以美股大盤最後一天為準切掉
+    last = df.loc[df.sym == "^GSPC", "date"].max()
+    if isinstance(last, str):
+        df = df[df.date <= last]
     DATA.mkdir(parents=True, exist_ok=True)
     for c in ["open", "high", "low", "close"]:
         df[c] = df[c].astype(float).round(4)
