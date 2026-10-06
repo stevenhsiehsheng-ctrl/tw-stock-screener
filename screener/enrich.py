@@ -363,22 +363,27 @@ def update_warnings_history(s, d: dt.date) -> int:
 
 
 DISPO_LONG = DIR / "disposal_5y.csv.gz"
+ATTN_LONG = DIR / "attention_5y.csv.gz"
 
 
-def backfill_disposals(s, d: dt.date, years: float = 5) -> int:
-    """處置公告長歷史（研究用，只抓處置、不抓注意；一季查一次）→ data/extras/disposal_5y.csv.gz。
-    warnings_hist 只留 400 天給每日用，這份另外放。"""
+def backfill_warn_long(s, d: dt.date, years: float, flag: str, path: Path) -> int:
+    """注意／處置公告長歷史（研究用，一季查一次）。warnings_hist 只留 400 天給每日用，這份另外放。"""
     a = d - dt.timedelta(days=int(years * 365.25))
     parts = []
     while a <= d:
         b = min(a + dt.timedelta(days=91), d)
-        x = warnings_range(s, a, b, flags=("處置",))
-        log.info("處置 %s～%s：%d 筆", a, b, len(x))
+        x = warnings_range(s, a, b, flags=(flag,))
+        log.info("%s %s～%s：%d 筆", flag, a, b, len(x))
         parts.append(x)
         a = b + dt.timedelta(days=1)
     df = pd.concat(parts, ignore_index=True).drop_duplicates(["date", "code", "start"]).sort_values(["date", "code"])
-    df.to_csv(DISPO_LONG, index=False, compression="gzip")
+    df.to_csv(path, index=False, compression="gzip")
     return len(df)
+
+
+def backfill_disposals(s, d: dt.date, years: float = 5) -> int:
+    """處置公告長歷史 → data/extras/disposal_5y.csv.gz。"""
+    return backfill_warn_long(s, d, years, "處置", DISPO_LONG)
 
 
 def warn_at(code: str, day: str, hist: pd.DataFrame | None = None, prev_day: str | None = None) -> tuple[str, int]:
@@ -695,11 +700,15 @@ def main():
     ap.add_argument("--refresh", action="store_true",
                     help="只重抓消息面／籌碼面並存檔（傍晚補跑：15:20 時證交所法人、本益比常常還沒公布）")
     ap.add_argument("--dispo-years", type=float, metavar="N", help="處置公告往回補 N 年（研究用，存 disposal_5y.csv.gz）")
+    ap.add_argument("--attn-years", type=float, metavar="N", help="注意股公告往回補 N 年（研究用，存 attention_5y.csv.gz）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    if a.dispo_years:
+    if a.dispo_years or a.attn_years:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
-        print("處置長歷史", backfill_disposals(_session(), d, a.dispo_years), "筆")
+        if a.dispo_years:
+            print("處置長歷史", backfill_disposals(_session(), d, a.dispo_years), "筆")
+        if a.attn_years:
+            print("注意股長歷史", backfill_warn_long(_session(), d, a.attn_years, "注意", ATTN_LONG), "筆")
         return
     if a.refresh:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
