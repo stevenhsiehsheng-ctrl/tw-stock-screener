@@ -191,7 +191,7 @@ function render(d){
     <div class="bchart"><div class="t">大盤近 20 日等權報酬 ・ 跌超過 3% 不開新倉</div>${lineSvg(mm,Math.min(-6,...ok),Math.max(6,...ok),[[-3,'warnline','-3%'],[0,'midline','0%']],'var(--ink2)')}</div>`;}
   $('adv').textContent=m.advice||'';
   const g=d.global||{};
-  $('glob').innerHTML=(g.items||[]).map(x=>`<div class="k"><b class="${x.sym==='^VIX'?cls(-x.chg):cls(x.chg)}">${pct(x.chg)}</b><span>${esc(x.name)} ・ ${x.date}</span></div>`).join('')
+  $('glob').innerHTML=(g.items||[]).map(x=>`<div class="k"><b class="${x.sym==='^VIX'?cls(-x.chg):cls(x.chg)}">${pct(x.chg)}</b><span>${esc(x.name)} ・ ${x.date}${x.stale?' ⚠️舊':''}</span></div>`).join('')
     +(g.adr_premium!=null?k(`${g.adr_premium>0?'+':''}${g.adr_premium}%`,'台積電ADR溢價'):'')
     ||'<span class="meta">明天開盤後顯示</span>';
   const h=g.sox_hint;
