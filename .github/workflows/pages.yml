@@ -11,6 +11,8 @@ on:
       - screener/weekly.py
       - screener/gifts.py
       - screener/revdrift.py
+      - screener/us.py
+      - data/us/**
       - data/weekly/**
       - data/gifts/**
   workflow_dispatch:
