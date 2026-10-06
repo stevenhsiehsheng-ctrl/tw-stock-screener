@@ -9,6 +9,10 @@ on:
       source:
         description: "yahoo（還原權息，快）或 official（官方，慢）"
         default: "yahoo"
+      delisted_only:
+        description: "不重抓 Yahoo，只在現有回測檔上補期間內下市的股票"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,7 +28,15 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m screener.backfill --years ${{ inputs.years }} --source ${{ inputs.source }} --out /tmp/backtest.csv.gz
+      - name: 下載
+        run: |
+          if [ "${{ inputs.delisted_only }}" = "true" ]; then
+            git fetch origin backtest-data
+            git show origin/backtest-data:backtest.csv.gz > /tmp/old.csv.gz
+            python -m screener.backfill --append-delisted /tmp/old.csv.gz --out /tmp/backtest.csv.gz
+          else
+            python -m screener.backfill --years ${{ inputs.years }} --source ${{ inputs.source }} --out /tmp/backtest.csv.gz
+          fi
       - name: 存到 backtest-data 分支
         run: |
           git config user.name "github-actions[bot]"

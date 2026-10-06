@@ -104,16 +104,22 @@ def official_stock(s, code: str, market: str, start: dt.date, end: dt.date) -> p
             tabs = []
         for fields, data in tabs:
             f = [str(x).replace(" ", "") for x in fields]
-            ix = {k: next((i for i, x in enumerate(f) if k in x), None) for k in ("日期", "開盤", "最高", "最低", "收盤", "成交股數", "成交張數")}
+            ix = {k: next((i for i, x in enumerate(f) if k in x), None)
+                  for k in ("日期", "開盤", "最高", "最低", "收盤", "成交股數", "成交張數", "成交仟股")}
             if ix["日期"] is None or ix["收盤"] is None:
+                log.warning("%s %s 欄位對不上：%s", code, m, f)
                 continue
+            get = lambda r, k: _num(r[ix[k]]) if ix[k] is not None and ix[k] < len(r) else None
             for r in data:
-                c = _num(r[ix["收盤"]])
+                c = get(r, "收盤")
                 if not c:
                     continue
-                v = _num(r[ix["成交股數"]]) if ix["成交股數"] is not None else (_num(r[ix["成交張數"]]) or 0) * 1000
-                rows.append({"date": _roc(r[ix["日期"]]), "code": code, "open": _num(r[ix["開盤"]]), "high": _num(r[ix["最高"]]),
-                             "low": _num(r[ix["最低"]]), "close": c, "volume": v})
+                if ix["成交股數"] is not None:
+                    v = get(r, "成交股數")
+                else:   # 櫃買：成交張數／成交仟股，單位都是千股
+                    v = (get(r, "成交張數") or get(r, "成交仟股") or 0) * 1000
+                rows.append({"date": _roc(r[ix["日期"]]), "code": code, "open": get(r, "開盤"), "high": get(r, "最高"),
+                             "low": get(r, "最低"), "close": c, "volume": v})
         time.sleep(fetch.REQUEST_GAP)
         m = (m + dt.timedelta(days=32)).replace(day=1)
     return pd.DataFrame(rows, columns=fetch.COLS)
@@ -129,7 +135,12 @@ def add_delisted(df: pd.DataFrame, start: dt.date, end: dt.date, out_list: str) 
     parts, n = [], []
     for r in dl.itertuples():
         last = min(end, dt.date.fromisoformat(r.delist_date))
-        x = official_stock(s, r.code, r.market, start, last)
+        try:
+            x = official_stock(s, r.code, r.market, start, last)
+        except Exception as e:  # noqa: BLE001 — 單一檔壞掉不能拖垮全部
+            log.warning("下市 %s %s 補抓失敗：%s", r.code, r.name, e)
+            x = pd.DataFrame(columns=fetch.COLS)
+        x = x[x.date.notna() & (x.date <= r.delist_date)]
         n.append(len(x))
         if len(x):
             parts.append(x.assign(adjusted=0))
@@ -144,13 +155,18 @@ def main():
     ap.add_argument("--out", default="backtest.csv.gz")
     ap.add_argument("--source", default="yahoo", choices=["yahoo", "official"])
     ap.add_argument("--no-delisted", action="store_true", help="不補期間內下市的股票")
+    ap.add_argument("--append-delisted", metavar="CSV", help="不重抓 Yahoo：讀現有的回測檔，只補下市股")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     stocks = fetch.load_stock_list(["TWSE", "TPEX"])
     end = dt.date.today()
     start = end - dt.timedelta(days=int(a.years * 365.25))
     df = None
-    if a.source == "yahoo":
+    if a.append_delisted:
+        df = pd.read_csv(a.append_delisted, dtype={"code": str})
+        df = df[df.get("adjusted", 1) != 0] if "adjusted" in df else df   # 舊的下市股列先拿掉再重補
+        start = dt.date.fromisoformat(df.date.min())
+    elif a.source == "yahoo":
         try:
             df = yahoo_adjusted(stocks, start)
             df["adjusted"] = 1
@@ -162,7 +178,7 @@ def main():
         df = fetch.fetch_official_range(dates, ["TWSE", "TPEX"])
         df = df[df.code.isin(set(stocks.code))][fetch.COLS]
         df["adjusted"] = 0
-    if a.source == "yahoo" and not a.no_delisted:
+    if (a.source == "yahoo" or a.append_delisted) and not a.no_delisted:
         try:
             df = add_delisted(df, start, end, str(Path(a.out).with_name("delisted.csv")))
         except Exception as e:  # noqa: BLE001
