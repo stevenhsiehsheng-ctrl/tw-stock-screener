@@ -20,6 +20,9 @@ on:
       rev_months:
         description: "另外把月營收往回補幾個月（研究用，留空＝不補）"
         default: ""
+      exdiv_years:
+        description: "另外把除權息往回補幾年（研究用，存 exdiv_5y.csv.gz，幾分鐘；留空＝不補）"
+        default: ""
       inst_years:
         description: "另外把三大法人往回補幾年（研究用，一次最多 25 分鐘，沒補完就再跑一次；週末跑，別擋到平日 15:20）"
         default: ""
@@ -55,6 +58,9 @@ jobs:
       - name: 盤後零股回補
         if: ${{ inputs.oddlot_days != '' && inputs.oddlot_days != null }}
         run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days }}" --date "$(TZ=Asia/Taipei date +%F)"
+      - name: 除權息長歷史
+        if: ${{ inputs.exdiv_years != '' && inputs.exdiv_years != null }}
+        run: python -c "import logging; logging.basicConfig(level=logging.INFO); from screener import exdiv; print(exdiv.backfill_long(float('${{ inputs.exdiv_years }}')))"
       - name: 三大法人長歷史
         if: ${{ inputs.inst_years != '' && inputs.inst_years != null }}
         run: python -m screener.enrich --inst-years "${{ inputs.inst_years }}" --date "$(TZ=Asia/Taipei date +%F)"
