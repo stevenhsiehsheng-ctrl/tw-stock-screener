@@ -264,6 +264,28 @@ def update_revenue_history(s, today: dt.date, max_fetch: int = 30) -> int:
     return h.ym.nunique()
 
 
+REV_LONG = DIR / "rev_5y.csv.gz"
+
+
+def backfill_revenue_long(s, today: dt.date, months: int = 69) -> int:
+    """月營收長歷史（研究用，MOPS 每月彙總，上市＋上櫃）→ data/extras/rev_5y.csv.gz。
+    rev_hist 只留 24 個月給每日用，這份另外放；已有的月份不重抓（最近 2 個月照樣重抓）。回傳月份數。"""
+    h = pd.read_csv(REV_LONG, dtype={"code": str}) if REV_LONG.exists() else pd.DataFrame(columns=REV_COLS)
+    have = set(h.ym)
+    want = _months_back(today, months)
+    todo = want[:2] + [x for x in want[2:] if f"{x[0]}-{x[1]:02d}" not in have]
+    for y, m in todo:
+        df = revenue_month(s, y, m)
+        if df.empty:
+            log.info("月營收 %d-%02d 沒資料", y, m)
+            continue
+        h = pd.concat([h[h.ym != f"{y}-{m:02d}"], df[REV_COLS]], ignore_index=True)
+        log.info("月營收 %d-%02d：%d 家", y, m, len(df))
+    h = h.drop_duplicates(["code", "ym"], keep="last").sort_values(["code", "ym"])
+    h.to_csv(REV_LONG, index=False, compression="gzip")
+    return int(h.ym.nunique())
+
+
 def _ym_shift(ym: str, k: int) -> str:
     y, m = map(int, ym.split("-"))
     t = y * 12 + (m - 1) + k
