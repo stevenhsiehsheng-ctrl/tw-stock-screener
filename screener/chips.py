@@ -234,6 +234,17 @@ def _months_back(today: dt.date, n: int) -> list[tuple[int, int]]:
     return out
 
 
+def _upsert_month(h: pd.DataFrame, ym: str, df: pd.DataFrame) -> pd.DataFrame:
+    """把新抓的某月營收『按公司』換進去：新抓到的公司才換，沒抓到的保留舊列。
+    10/7 00:42 上櫃那邊只回 1 列，舊寫法整月替換，把 2026-08 上櫃 863 家洗掉（Cowork 0346）。
+    新抓列數 < 舊的 90% 時另外警告（多半是某個市場沒抓到）。"""
+    old = h[h.ym == ym]
+    if len(old) and len(df) < 0.9 * len(old):
+        log.warning("月營收 %s 這次只抓到 %d 家（原本 %d 家），沒抓到的保留舊資料", ym, len(df), len(old))
+    keep_old = old[~old.code.isin(df.code)]
+    return pd.concat([h[h.ym != ym], keep_old, df], ignore_index=True)
+
+
 def update_revenue_history(s, today: dt.date, max_fetch: int = 30) -> int:
     """最近兩個月每天重抓（公司陸續公布、可能更正），其餘缺的月份補齊到 24 個月。"""
     h = pd.read_csv(REV_HIST, dtype={"code": str}) if REV_HIST.exists() else pd.DataFrame(columns=REV_COLS)
@@ -255,7 +266,7 @@ def update_revenue_history(s, today: dt.date, max_fetch: int = 30) -> int:
         df["ann_date"] = df.code.map(seen).astype(object)
         if (y, m) in months[:2]:
             df.loc[~df.code.isin(seen.index), "ann_date"] = today.isoformat()
-        h = pd.concat([h[h.ym != ym], df], ignore_index=True)
+        h = _upsert_month(h, ym, df)
         log.info("月營收 %d-%02d：%d 家", y, m, len(df))
     keep = {f"{y}-{m:02d}" for y, m in months}
     h = h[h.ym.isin(keep)].drop_duplicates(["code", "ym"], keep="last").sort_values(["code", "ym"])
@@ -279,7 +290,7 @@ def backfill_revenue_long(s, today: dt.date, months: int = 69) -> int:
         if df.empty:
             log.info("月營收 %d-%02d 沒資料", y, m)
             continue
-        h = pd.concat([h[h.ym != f"{y}-{m:02d}"], df[REV_COLS]], ignore_index=True)
+        h = _upsert_month(h, f"{y}-{m:02d}", df[REV_COLS])
         log.info("月營收 %d-%02d：%d 家", y, m, len(df))
     h = h.drop_duplicates(["code", "ym"], keep="last").sort_values(["code", "ym"])
     h.to_csv(REV_LONG, index=False, compression="gzip")

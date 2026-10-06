@@ -51,9 +51,22 @@ def _batch_day(ym: str, days: list[str]) -> int | None:
     return None if i is None or j is None else max(i, j)
 
 
-def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n: int = N_PLACEBO) -> pd.DataFrame:
+COV_MIN = {"TWSE": 890, "TPEX": 775}  # 籃子窗內每個月營收至少要有這麼多家，不然當作資料有洞（Cowork 0346）
+
+
+def coverage(rev: pd.DataFrame) -> pd.DataFrame:
+    """每個月份上市／上櫃各有幾家 4 碼股的營收（市場別用 stock_list）。"""
+    mk = pd.read_csv(ROOT / "data" / "stock_list.csv", dtype=str).set_index("code").market
+    r = rev[rev.code.astype(str).str.fullmatch(r"[1-9]\d{3}")]
+    return r.assign(mk=r.code.map(mk)).groupby(["ym", "mk"]).size().unstack(fill_value=0)
+
+
+def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n: int = N_PLACEBO,
+            cov_min: dict | None = COV_MIN) -> pd.DataFrame:
+    """cov_min=None 不做覆蓋檢查（研究用的 5 年營收，舊年份公司本來就比較少）。"""
     hist = hist if hist is not None else pd.read_csv(HIST, dtype={"code": str})
     rev = rev if rev is not None else pd.read_csv(REV, dtype={"code": str})
+    cov = coverage(rev) if cov_min else None
     hist = hist[hist.code.str.fullmatch(r"[1-9]\d{3}")]
     piv = lambda c: hist.pivot(index="date", columns="code", values=c).sort_index()
     close, opn, vol = piv("close"), piv("open"), piv("volume").fillna(0)
@@ -78,6 +91,14 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
         avg = float(ex[b].mean())
         rng = np.random.default_rng(int(e.replace("-", "")))
         pick = list(rng.choice(sorted(b), size=min(3, len(b)), replace=False))
+        nt = np_ = None
+        cov_ok = True
+        if cov is not None:  # 12 個月新高要看 12 個月，窗內任一月某市場家數不足 → 那批可能漏股，不抽、不買
+            win = [m for m in cov.index if m <= ym][-12:]
+            nt, np_ = int(cov.loc[win].get("TWSE", pd.Series([0])).min()), int(cov.loc[win].get("TPEX", pd.Series([0])).min())
+            cov_ok = len(win) == 12 and nt >= cov_min["TWSE"] and np_ >= cov_min["TPEX"]
+        if not cov_ok:
+            pick = []
         # 配對安慰劑：同日同流動性五分位
         qe = q.loc[e]
         pools, pos = {}, []
@@ -94,7 +115,8 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
         rows.append({"rev_month": ym, "batch_date": e, "exit_date": x, "done": done, "n": len(b),
                      "avg": round(avg, 2), "median": round(float(ex[b].median()), 2),
                      "placebo_avg_median": round(pm, 2), "beat": bool(avg > pm) if not np.isnan(pm) else None,
-                     "pick3": " ".join(pick), "pick3_avg": round(float(ex[pick].mean()), 2)})
+                     "pick3": " ".join(pick), "pick3_avg": round(float(ex[pick].mean()), 2) if pick else np.nan,
+                     "n_twse": nt, "n_tpex": np_, "cov_ok": cov_ok})
     df = pd.DataFrame(rows)
     if df.empty:
         return df
@@ -126,7 +148,7 @@ def write(site_dir: Path) -> bool:
         f"<tr><td>{r.rev_month}</td><td>{r.batch_date}</td><td>{r.exit_date}{'' if r.done else '（未滿）'}</td><td>{r.n}</td>"
         f"<td>{f(r.avg)}</td><td>{f(r.median)}</td><td>{f(r.placebo_avg_median)}</td>"
         f"<td>{'' if r.beat is None or not r.done else ('贏' if r.beat else '輸')}</td><td>{r.lose_streak}</td><td>{f(r.avg6)}</td>"
-        f"<td>{html.escape(r.pick3)}</td><td>{f(r.pick3_avg)}</td><td>{'⚠️ 下架' if r.delist and r.done else ''}</td></tr>"
+        f"<td>{html.escape(r.pick3) if r.cov_ok else '⚠️ 營收資料有缺，這批不抽'}</td><td>{f(r.pick3_avg)}</td><td>{'⚠️ 下架' if r.delist and r.done else ''}</td></tr>"
         for r in df.iloc[::-1].itertuples())
     body = ("<h1>月營收漂移（revdrift）每批成績</h1>"
             "<p>籃子＝年增 ≥30% 且營收創 12 個月新高；11 日後第一個交易日（10 日期限遇假日順延時再往後）開盤進、第 20 個交易日收盤出；"
