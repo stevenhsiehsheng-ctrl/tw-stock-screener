@@ -280,6 +280,10 @@ def update_regime(notify: bool = True) -> dict | None:
     prev = json.loads(REGIME.read_text("utf-8")) if REGIME.exists() else None
     r["changed"] = bool(prev and prev.get("light") != r["light"])
     r["prev_light"] = prev.get("light") if prev else None
+    if r["changed"]:
+        r["prev_light_since"] = prev.get("light_since")
+        tw = pd.read_csv(LONG).query("sym == '^TWII'").date
+        r["prev_light_days"] = int(((tw >= prev.get("light_since", r["date"])) & (tw < r["light_since"])).sum())
     REGIME.write_text(json.dumps(r, ensure_ascii=False, indent=1), "utf-8")
     log.info("風險燈 %s（距一年高點 %+.1f%%，離 200 日線 %+.1f%%）", r["light"], r["dd52"], r["dev200"])
     if r["changed"] and notify:
@@ -292,6 +296,9 @@ def update_regime(notify: bool = True) -> dict | None:
         else:
             title = f"✅ 大盤風險燈轉綠（{r['date']}）"
             body = f"加權 {r['close']:,.0f}，距一年高點 {r['dd52']:+.1f}%，回到 −10% 以內。綠燈不等於安全。"
+        prev_txt = {"red": "紅燈", "green": "綠燈"}.get(r["prev_light"], r["prev_light"])
+        body += (f"\n\n上一段{prev_txt}從 {r['prev_light_since']} 起維持了 {r['prev_light_days']} 個交易日"
+                 + ("（很短，可能只是抖一下）。" if r["prev_light_days"] < 5 else "。"))
         nt.send(title, body + "\n\n<sub>自動產生，僅供參考，不構成投資建議。</sub>")
     return r
 
