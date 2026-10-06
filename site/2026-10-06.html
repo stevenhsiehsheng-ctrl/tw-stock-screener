@@ -29,6 +29,7 @@ h1{font-size:22px;margin:0 0 2px}
 .tile .n{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums}
 .tile .t{font-weight:600}
 .tile .d{color:var(--muted);font-size:12px}
+@media(max-width:560px){.tiles{grid-template-columns:1fr 1fr;gap:8px}.tile{padding:10px 11px}.tile .n{font-size:22px}}
 .bar{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
 .bar input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
   background:var(--surface);color:var(--ink);font:inherit}
@@ -139,7 +140,8 @@ details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
 <body>
 <div class="wrap">
   <h1>台股每日篩選</h1>
-  <p class="sub">資料日期 2026-10-06（2026 年第 4 季・第 4 個交易日）・ 共掃描 1,952 檔 ・ <a href='live.html'>⚡ 盤中即時</a> ・ <a href='#' onclick='return openClaude()'>🔒 Claude 研判＋虛擬帳戶</a> ・ <a href='weekly/2026-W40.html'>📅 市場週報</a> ・ <a href='gifts.html'>🎁 股東紀念品</a> ・ <a href='revdrift.html'>📈 營收漂移每批</a> ・ <a href='us.html'>🇺🇸 美股隔夜</a> ・ <a href='macro.html'>🌏 大環境</a> ・ <a href='archive.html'>歷史報表</a></p>
+  <p class="sub">資料日期 2026-10-06（2026 年第 4 季・第 4 個交易日）・ 共掃描 1,952 檔</p>
+  <style>.sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 16px;padding:0 0 12px;border-bottom:1px solid rgba(128,128,128,.25);font-size:13px;line-height:1.4}.sitenav a{padding:4px 11px;border-radius:999px;text-decoration:none;color:inherit;background:rgba(128,128,128,.13);white-space:nowrap;cursor:pointer}.sitenav a:hover{background:rgba(128,128,128,.24)}.sitenav a.on{background:#2f5bd3;color:#fff;font-weight:600}.sitenav i{width:1px;height:18px;background:rgba(128,128,128,.35);margin:0 4px}@media(max-width:560px){.sitenav i{display:none}}</style><nav class='sitenav'><a href='live.html'>⚡ 盤中即時</a><a class='on' href='index.html'>📊 每日篩選</a><a href='#' onclick='return openClaude()'>🔒 Claude 研判</a><i></i><a href='weekly/index.html'>📅 市場週報</a><a href='macro.html'>🌏 大環境</a><a href='us.html'>🇺🇸 美股隔夜</a><a href='revdrift.html'>📈 營收漂移</a><i></i><a href='gifts.html'>🎁 股東紀念品</a><a href='archive.html'>🗂 歷史報表</a></nav>
   <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
   <div class="breadth" id="breadth" hidden></div>
