@@ -7,6 +7,10 @@ on:
   schedule:
     - cron: "5 10 * * 1-5"   # 10:05 UTC = 台北 18:05
   workflow_dispatch:
+    inputs:
+      dispo_years:
+        description: "另外把處置公告往回補幾年（研究用，留空＝不補）"
+        default: ""
 
 permissions:
   contents: write
@@ -30,6 +34,9 @@ jobs:
       - run: pip install -r requirements.txt
       - name: 重抓
         run: python -m screener.enrich --refresh --date "$(TZ=Asia/Taipei date +%F)"
+      - name: 處置長歷史
+        if: ${{ inputs.dispo_years != '' && inputs.dispo_years != null }}
+        run: python -m screener.enrich --dispo-years "${{ inputs.dispo_years }}" --date "$(TZ=Asia/Taipei date +%F)"
       - name: 存檔
         run: |
           git config user.name "github-actions[bot]"
