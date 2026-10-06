@@ -1,0 +1,29 @@
+name: 測資料來源
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "網址，多個用空白分開；要看關鍵字附近就寫 網址|關鍵字"
+        required: true
+      width:
+        description: "每個印多少字"
+        default: "2500"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - env:
+          URLS: ${{ inputs.urls }}
+          PROBE_WIDTH: ${{ inputs.width }}
+        run: python tools/probe.py $URLS
