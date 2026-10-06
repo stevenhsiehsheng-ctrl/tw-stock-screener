@@ -556,6 +556,46 @@ def update_inst_history(s, d: dt.date, today_df: pd.DataFrame, backfill: int = 2
     return len(keep)
 
 
+INST_LONG = DIR / "inst_5y.csv.gz"
+
+
+def backfill_inst_long(s, d: dt.date, years: float, budget_min: float = 25) -> int:
+    """三大法人往回補 years 年（研究用，存 inst_5y.csv.gz；每天用的 inst_hist 仍只留一年）。
+    一天要打證交所 T86＋櫃買各一次（約 7 秒），5 年約 1,250 天、2.5 小時，所以每次只跑 budget_min 分鐘、
+    從最近往回補，已經有的日子跳過；同一個指令重跑幾次就會補完。交易日用 data/macro/long.csv.gz 的加權指數日期。"""
+    cols = INST_COLS
+    if INST_LONG.exists():
+        hist = pd.read_csv(INST_LONG, dtype={"code": str})
+    elif INST_HIST.exists():  # 第一次：近一年直接拿每天用的 inst_hist，省 250 天
+        hist = pd.read_csv(INST_HIST, dtype={"code": str}).reindex(columns=cols)
+    else:
+        hist = pd.DataFrame(columns=cols)
+    have = set(hist.date)
+    tw = pd.read_csv(ROOT / "data" / "macro" / "long.csv.gz").query("sym == '^TWII'").date
+    start = (d - dt.timedelta(days=int(years * 365.25))).isoformat()
+    need = sorted((x for x in tw if start <= x < d.isoformat() and x not in have), reverse=True)
+    t0, done, parts = time.time(), 0, [hist]
+    for x in need:
+        if time.time() - t0 > budget_min * 60:
+            break
+        try:
+            df = institutional(s, dt.date.fromisoformat(x))
+        except Exception as e:  # noqa: BLE001
+            log.warning("法人 %s 失敗：%s", x, e)
+            df = pd.DataFrame()
+        if len(df):
+            parts.append(df.assign(date=x).reindex(columns=cols))
+            done += 1
+        if done and done % 20 == 0:  # 中途存檔：跑到時間上限被砍也不會白跑
+            pd.concat(parts, ignore_index=True).to_csv(INST_LONG, index=False, compression="gzip")
+        time.sleep(3)
+    out = pd.concat(parts, ignore_index=True).drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
+    out.to_csv(INST_LONG, index=False, compression="gzip")
+    left = len(need) - done
+    log.info("法人長歷史：這次補 %d 天，還差 %d 天（%s 起）", done, left, start)
+    return out.date.nunique()
+
+
 def _streak(s: pd.Series) -> int:
     """最近連續同方向的天數：正 = 連續買超，負 = 連續賣超，0 = 最近一天沒進出。"""
     v = [x for x in s.tolist()]
@@ -724,6 +764,7 @@ def main():
     ap.add_argument("--attn-years", type=float, metavar="N", help="注意股公告往回補 N 年（研究用，存 attention_5y.csv.gz）")
     ap.add_argument("--oddlot-days", type=int, metavar="N", help="盤後零股往回補 N 個交易日（存 oddlot_hist.csv.gz）")
     ap.add_argument("--rev-months", type=int, metavar="N", help="月營收往回補 N 個月（研究用，存 rev_5y.csv.gz）")
+    ap.add_argument("--inst-years", type=float, metavar="N", help="三大法人往回補 N 年（研究用，存 inst_5y.csv.gz；每次最多 25 分鐘，重跑會接著補）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     if a.rev_months:
@@ -733,6 +774,10 @@ def main():
     if a.oddlot_days:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
         print("盤後零股歷史", backfill_oddlot(_session(), d, a.oddlot_days), "天")
+        return
+    if a.inst_years:
+        d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+        print("法人長歷史", backfill_inst_long(_session(), d, a.inst_years), "天")
         return
     if a.dispo_years or a.attn_years:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()

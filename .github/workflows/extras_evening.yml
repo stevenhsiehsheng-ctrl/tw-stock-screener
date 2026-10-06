@@ -20,6 +20,9 @@ on:
       rev_months:
         description: "另外把月營收往回補幾個月（研究用，留空＝不補）"
         default: ""
+      inst_years:
+        description: "另外把三大法人往回補幾年（研究用，一次最多 25 分鐘，沒補完就再跑一次；週末跑，別擋到平日 15:20）"
+        default: ""
 
 permissions:
   contents: write
@@ -52,6 +55,9 @@ jobs:
       - name: 盤後零股回補
         if: ${{ inputs.oddlot_days != '' && inputs.oddlot_days != null }}
         run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days }}" --date "$(TZ=Asia/Taipei date +%F)"
+      - name: 三大法人長歷史
+        if: ${{ inputs.inst_years != '' && inputs.inst_years != null }}
+        run: python -m screener.enrich --inst-years "${{ inputs.inst_years }}" --date "$(TZ=Asia/Taipei date +%F)"
       - name: 注意股長歷史
         if: ${{ inputs.attn_years != '' && inputs.attn_years != null }}
         run: python -m screener.enrich --attn-years "${{ inputs.attn_years }}" --date "$(TZ=Asia/Taipei date +%F)"
