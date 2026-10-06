@@ -33,5 +33,6 @@ jobs:
           git rm -rf --quiet . || true
           cp /tmp/backtest.csv.gz backtest.csv.gz
           git add backtest.csv.gz
+          if [ -e /tmp/delisted.csv ]; then cp /tmp/delisted.csv delisted.csv; git add delisted.csv; fi
           git commit -m "回測資料 $(date +%F)"
           git push -f origin backtest-data

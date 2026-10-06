@@ -1,6 +1,8 @@
 """下載多年歷史資料供回測用（不影響每日篩選）。
 
 優先用 Yahoo Finance（含除權息還原），失敗再改用證交所/櫃買官方資料（未還原、較慢）。
+Yahoo 只抓得到「現在還在」的股票，期間內下市的另外用證交所 STOCK_DAY／櫃買 tradingStock 逐月補（未還原，adjusted=0），
+名單存成 delisted.csv（code, name, market, delist_date, rows）。不補就是倖存者偏差（下市的最慘那群被剪掉）。
 用法：python -m screener.backfill --years 5 --out backtest.csv.gz
 """
 from __future__ import annotations
@@ -8,6 +10,10 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
+import re
+import time
+
+from pathlib import Path
 
 import pandas as pd
 
@@ -45,11 +51,97 @@ def yahoo_adjusted(stocks: pd.DataFrame, start: dt.date) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def _roc(t: str) -> str | None:
+    m = re.match(r"\s*(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})", str(t))
+    return f"{int(m[1]) + 1911}-{int(m[2]):02d}-{int(m[3]):02d}" if m else None
+
+
+def delisted(s, start: dt.date) -> pd.DataFrame:
+    """start 之後終止上市（證交所）／終止上櫃（櫃買）的四碼股票。"""
+    out = []
+    j = fetch._get_json(s, "https://www.twse.com.tw/rwd/zh/company/suspendListing", {"response": "json"})
+    for d, name, code in j.get("data") or []:
+        out.append({"code": str(code).strip(), "name": str(name).strip(), "market": "TWSE", "delist_date": _roc(d)})
+    for y in range(start.year, dt.date.today().year + 1):
+        try:
+            j = fetch._get_json(s, "https://www.tpex.org.tw/www/zh-tw/company/deListed", {"date": str(y), "response": "json"})
+        except fetch.SourceUnavailable as e:
+            log.warning("櫃買 %d 年下櫃名單抓不到：%s", y, e)
+            continue
+        for t in j.get("tables") or []:
+            for r in t.get("data") or []:
+                out.append({"code": str(r[0]).strip(), "name": str(r[1]).strip(), "market": "TPEX", "delist_date": _roc(r[2])})
+        time.sleep(fetch.REQUEST_GAP)
+    df = pd.DataFrame(out, columns=["code", "name", "market", "delist_date"]).dropna(subset=["delist_date"])
+    df = df[df.code.str.fullmatch(r"\d{4}") & (df.delist_date >= start.isoformat())]
+    return df.drop_duplicates("code", keep="first")
+
+
+def _num(x):
+    try:
+        return float(str(x).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def official_stock(s, code: str, market: str, start: dt.date, end: dt.date) -> pd.DataFrame:
+    """單一股票逐月抓官方日K（未還原）。"""
+    rows, m = [], dt.date(start.year, start.month, 1)
+    while m <= end:
+        try:
+            if market == "TWSE":
+                j = fetch._get_json(s, "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY",
+                                    {"date": m.strftime("%Y%m%d"), "stockNo": code, "response": "json"})
+                tabs = [(j.get("fields") or [], j.get("data") or [])]
+            else:
+                j = fetch._get_json(s, "https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock",
+                                    {"code": code, "date": m.strftime("%Y/%m/01"), "response": "json"})
+                tabs = [(t.get("fields") or [], t.get("data") or []) for t in j.get("tables") or []]
+        except fetch.SourceUnavailable as e:
+            log.warning("%s %s 抓不到：%s", code, m, e)
+            tabs = []
+        for fields, data in tabs:
+            f = [str(x).replace(" ", "") for x in fields]
+            ix = {k: next((i for i, x in enumerate(f) if k in x), None) for k in ("日期", "開盤", "最高", "最低", "收盤", "成交股數", "成交張數")}
+            if ix["日期"] is None or ix["收盤"] is None:
+                continue
+            for r in data:
+                c = _num(r[ix["收盤"]])
+                if not c:
+                    continue
+                v = _num(r[ix["成交股數"]]) if ix["成交股數"] is not None else (_num(r[ix["成交張數"]]) or 0) * 1000
+                rows.append({"date": _roc(r[ix["日期"]]), "code": code, "open": _num(r[ix["開盤"]]), "high": _num(r[ix["最高"]]),
+                             "low": _num(r[ix["最低"]]), "close": c, "volume": v})
+        time.sleep(fetch.REQUEST_GAP)
+        m = (m + dt.timedelta(days=32)).replace(day=1)
+    return pd.DataFrame(rows, columns=fetch.COLS)
+
+
+def add_delisted(df: pd.DataFrame, start: dt.date, end: dt.date, out_list: str) -> pd.DataFrame:
+    import requests
+    s = requests.Session()
+    s.headers.update(fetch.HEADERS)
+    dl = delisted(s, start)
+    dl = dl[~dl.code.isin(set(df.code))]
+    log.info("期間內下市 %d 檔要補（%s）", len(dl), ", ".join(dl.code.head(20)))
+    parts, n = [], []
+    for r in dl.itertuples():
+        last = min(end, dt.date.fromisoformat(r.delist_date))
+        x = official_stock(s, r.code, r.market, start, last)
+        n.append(len(x))
+        if len(x):
+            parts.append(x.assign(adjusted=0))
+        log.info("下市 %s %s：%d 筆", r.code, r.name, len(x))
+    dl.assign(rows=n).to_csv(out_list, index=False)
+    return pd.concat([df, *parts], ignore_index=True) if parts else df
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--years", type=float, default=5)
     ap.add_argument("--out", default="backtest.csv.gz")
     ap.add_argument("--source", default="yahoo", choices=["yahoo", "official"])
+    ap.add_argument("--no-delisted", action="store_true", help="不補期間內下市的股票")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     stocks = fetch.load_stock_list(["TWSE", "TPEX"])
@@ -68,6 +160,11 @@ def main():
         df = fetch.fetch_official_range(dates, ["TWSE", "TPEX"])
         df = df[df.code.isin(set(stocks.code))][fetch.COLS]
         df["adjusted"] = 0
+    if a.source == "yahoo" and not a.no_delisted:
+        try:
+            df = add_delisted(df, start, end, str(Path(a.out).with_name("delisted.csv")))
+        except Exception as e:  # noqa: BLE001
+            log.warning("補下市股失敗（回測資料仍只有存活股）：%s", e)
     for c in ["open", "high", "low", "close"]:
         df[c] = df[c].astype(float).round(3)
     df["volume"] = df["volume"].astype(float).round(0).astype("Int64")
