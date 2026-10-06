@@ -241,7 +241,9 @@ def update_shares_history(today_df: pd.DataFrame, d: dt.date) -> int:
     else:
         months = pd.period_range(SHARES_FROM, ym, freq="M").strftime("%Y-%m")
         h = pd.concat([cur.assign(ym=m, src="backfill") for m in months if m != ym], ignore_index=True)
-    h = pd.concat([h[h.ym != ym], cur], ignore_index=True)[["code", "ym", "shares", "src"]]
+    # 按公司更新：這次沒抓到的公司（例如櫃買那邊掛了）保留舊列，不整月洗掉（同 chips._upsert_month）
+    keep = h[(h.ym == ym) & ~h.code.isin(cur.code)]
+    h = pd.concat([h[h.ym != ym], keep, cur], ignore_index=True)[["code", "ym", "shares", "src"]]
     h.sort_values(["code", "ym"]).to_csv(SHARES_HIST, index=False)
     return h.ym.nunique()
 
