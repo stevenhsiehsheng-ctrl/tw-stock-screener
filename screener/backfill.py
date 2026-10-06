@@ -125,27 +125,48 @@ def official_stock(s, code: str, market: str, start: dt.date, end: dt.date) -> p
     return pd.DataFrame(rows, columns=fetch.COLS)
 
 
-def add_delisted(df: pd.DataFrame, start: dt.date, end: dt.date, out_list: str) -> pd.DataFrame:
+def _session():
     import requests
     s = requests.Session()
     s.headers.update(fetch.HEADERS)
-    dl = delisted(s, start)
-    dl = dl[~dl.code.isin(set(df.code))]
-    log.info("期間內下市 %d 檔要補（%s）", len(dl), ", ".join(dl.code.head(20)))
-    parts, n = [], []
-    for r in dl.itertuples():
-        last = min(end, dt.date.fromisoformat(r.delist_date))
-        try:
-            x = official_stock(s, r.code, r.market, start, last)
-        except Exception as e:  # noqa: BLE001 — 單一檔壞掉不能拖垮全部
-            log.warning("下市 %s %s 補抓失敗：%s", r.code, r.name, e)
-            x = pd.DataFrame(columns=fetch.COLS)
-        x = x[x.date.notna() & (x.date <= r.delist_date)]
-        n.append(len(x))
-        if len(x):
-            parts.append(x.assign(adjusted=0))
-        log.info("下市 %s %s：%d 筆", r.code, r.name, len(x))
-    dl.assign(rows=n).to_csv(out_list, index=False)
+    return s
+
+
+def add_delisted(df: pd.DataFrame, start: dt.date, end: dt.date, out_list: str, budget_min: float = 0) -> pd.DataFrame:
+    """補期間內下市的股票（官方逐月日線）。上市、上櫃是不同主機、各自限速，所以分兩條線同時抓。
+    budget_min > 0：超過這麼多分鐘就不再抓新的一檔，已抓到的照樣存（rows=-1 表示沒抓到）。"""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    t0 = time.monotonic()
+    dl = delisted(_session(), start)
+    dl = dl[~dl.code.isin(set(df.code))].reset_index(drop=True)
+    log.info("期間內下市 %d 檔要補（上市 %d、上櫃 %d）", len(dl), (dl.market == "TWSE").sum(), (dl.market == "TPEX").sum())
+    got: dict[str, pd.DataFrame] = {}
+    lock = threading.Lock()
+
+    def work(market):
+        s = _session()
+        todo = dl[dl.market == market]
+        for k, r in enumerate(todo.itertuples(), 1):
+            if budget_min and (time.monotonic() - t0) / 60 > budget_min:
+                log.warning("%s 超過時間預算 %.0f 分鐘，剩 %d 檔沒抓", market, budget_min, len(todo) - k + 1)
+                return
+            last = min(end, dt.date.fromisoformat(r.delist_date))
+            try:
+                x = official_stock(s, r.code, r.market, start, last)
+            except Exception as e:  # noqa: BLE001 — 單一檔壞掉不能拖垮全部
+                log.warning("下市 %s %s 補抓失敗：%s", r.code, r.name, e)
+                x = pd.DataFrame(columns=fetch.COLS)
+            x = x[x.date.notna() & (x.date <= r.delist_date)]
+            with lock:
+                got[r.code] = x
+            log.info("下市 %s %s %s：%d 筆（%s %d/%d）", r.market, r.code, r.name, len(x), market, k, len(todo))
+
+    with ThreadPoolExecutor(2) as ex:
+        list(ex.map(work, ["TWSE", "TPEX"]))
+    dl.assign(rows=[len(got[c]) if c in got else -1 for c in dl.code]).to_csv(out_list, index=False)
+    parts = [x.assign(adjusted=0) for x in got.values() if len(x)]
+    log.info("下市股補了 %d／%d 檔、%d 筆，花 %.0f 分鐘", len(got), len(dl), sum(map(len, parts)), (time.monotonic() - t0) / 60)
     return pd.concat([df, *parts], ignore_index=True) if parts else df
 
 
@@ -156,6 +177,7 @@ def main():
     ap.add_argument("--source", default="yahoo", choices=["yahoo", "official"])
     ap.add_argument("--no-delisted", action="store_true", help="不補期間內下市的股票")
     ap.add_argument("--append-delisted", metavar="CSV", help="不重抓 Yahoo：讀現有的回測檔，只補下市股")
+    ap.add_argument("--budget-min", type=float, default=0, help="補下市股最多花幾分鐘（0＝不限），超過就存已抓到的")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     stocks = fetch.load_stock_list(["TWSE", "TPEX"])
@@ -180,7 +202,7 @@ def main():
         df["adjusted"] = 0
     if (a.source == "yahoo" or a.append_delisted) and not a.no_delisted:
         try:
-            df = add_delisted(df, start, end, str(Path(a.out).with_name("delisted.csv")))
+            df = add_delisted(df, start, end, str(Path(a.out).with_name("delisted.csv")), a.budget_min)
         except Exception as e:  # noqa: BLE001
             log.warning("補下市股失敗（回測資料仍只有存活股）：%s", e)
     for c in ["open", "high", "low", "close"]:

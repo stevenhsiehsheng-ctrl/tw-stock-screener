@@ -29,16 +29,20 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: 下載
+        timeout-minutes: 330   # 留時間給下一步存檔
         run: |
           if [ "${{ inputs.delisted_only }}" = "true" ]; then
             git fetch origin backtest-data
             git show origin/backtest-data:backtest.csv.gz > /tmp/old.csv.gz
-            python -m screener.backfill --append-delisted /tmp/old.csv.gz --out /tmp/backtest.csv.gz
+            python -m screener.backfill --append-delisted /tmp/old.csv.gz --out /tmp/backtest.csv.gz --budget-min 300
           else
-            python -m screener.backfill --years ${{ inputs.years }} --source ${{ inputs.source }} --out /tmp/backtest.csv.gz
+            python -m screener.backfill --years ${{ inputs.years }} --source ${{ inputs.source }} --out /tmp/backtest.csv.gz --budget-min 240
           fi
       - name: 存到 backtest-data 分支
+        # 下載那步就算逾時或失敗，只要已經寫出檔案也存（不然幾個小時白抓）
+        if: always()
         run: |
+          if [ ! -s /tmp/backtest.csv.gz ]; then echo "沒有產出檔案，不存"; exit 1; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout --orphan backtest-data
