@@ -24,6 +24,7 @@ BENCH_F = ROOT / "data" / "extras" / "bench.csv"
 BENCH_CODES = {"0050": "TWSE"}
 # 全部上市櫃 ETF（代號 00 開頭）的每日行情：Cowork 的持股日報、虛擬帳戶結算用
 ETF_F = ROOT / "data" / "extras" / "etf.csv.gz"
+SRC_LOG = ROOT / "data" / "extras" / "src_log.csv"   # 每個交易日的行情來源
 ETF_FOCUS = {"0050": "TWSE", "009816": "TWSE", "00981A": "TWSE"}   # 第一次沒有就用 Yahoo 補一年
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -475,6 +476,21 @@ def _extend_back(hist: pd.DataFrame, stocks: pd.DataFrame, markets: list[str], k
     return pd.concat([old, hist], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
 
 
+def _log_source(new: pd.DataFrame, src: str) -> None:
+    """記下每個交易日的行情來源（official／yahoo），事後才分得出哪幾天走了 Yahoo 備援。"""
+    try:
+        days = sorted(new.date.unique())
+        if not days:
+            return
+        old = pd.read_csv(SRC_LOG) if SRC_LOG.exists() else pd.DataFrame(columns=["date", "src"])
+        df = pd.concat([old, pd.DataFrame({"date": days, "src": src})]).drop_duplicates("date", keep="last")
+        df.sort_values("date").to_csv(SRC_LOG, index=False)
+        if src != "official":
+            log.warning("這批行情走 Yahoo 備援：%s ~ %s（已記到 %s）", days[0], days[-1], SRC_LOG.name)
+    except Exception as e:  # noqa: BLE001
+        log.warning("記錄行情來源失敗：%s", e)
+
+
 def update_history(
     target: dt.date, markets: list[str], keep_days: int, source: str = "auto"
 ) -> pd.DataFrame:
@@ -514,9 +530,12 @@ def update_history(
             if source == "official":
                 raise
             log.warning("官方來源無法使用，改用 Yahoo Finance：%s", e)
+    src = "official"
     if new is None:
         new = fetch_yahoo(stocks, start)
         new = new[new.date <= target.isoformat()]
+        src = "yahoo"
+    _log_source(new, src)
 
     update_bench(new, keep_days)
     update_etf(new, keep_days)
