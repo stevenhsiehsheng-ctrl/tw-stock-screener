@@ -162,6 +162,25 @@ def shares(s) -> pd.DataFrame:
     return df[df.shares.notna() & (df.shares > 0)].drop_duplicates("code")
 
 
+SHARES_HIST = DIR / "shares_hist.csv"
+SHARES_FROM = "2025-09"   # 回補起點（history 從 2025-09 開始）
+
+
+def update_shares_history(today_df: pd.DataFrame, d: dt.date) -> int:
+    """每月一筆發行股數（code, ym, shares, src）。當月每天覆蓋成最新；src=snap 是當月真的抓到的，
+    src=backfill 是第一次建檔時拿當時的快照往回填（增資、減資、庫藏股註銷會有誤差，算市值時要知道）。回傳月份數。"""
+    ym = d.strftime("%Y-%m")
+    cur = today_df[["code", "shares"]].assign(ym=ym, src="snap")
+    if SHARES_HIST.exists():
+        h = pd.read_csv(SHARES_HIST, dtype={"code": str, "ym": str})
+    else:
+        months = pd.period_range(SHARES_FROM, ym, freq="M").strftime("%Y-%m")
+        h = pd.concat([cur.assign(ym=m, src="backfill") for m in months if m != ym], ignore_index=True)
+    h = pd.concat([h[h.ym != ym], cur], ignore_index=True)[["code", "ym", "shares", "src"]]
+    h.sort_values(["code", "ym"]).to_csv(SHARES_HIST, index=False)
+    return h.ym.nunique()
+
+
 # ------------------------------------------------------------ 月營收（最新一個月）
 def _openapi_rows(s, url):
     j = _json(s, url)
@@ -222,6 +241,103 @@ def warnings_list(s) -> pd.DataFrame:
     return df.sort_values("rank").drop_duplicates("code")[["code", "flag"]]
 
 
+# ------------------------------------------------------------ 注意／處置股歷史（證交所、櫃買公告，可查區間）
+WARN_HIST = DIR / "warnings_hist.csv.gz"
+WARN_COLS = ["date", "code", "flag", "start", "end"]   # date＝公告日；處置才有 start／end（處置期間）
+WARN_BACK = 90
+
+
+def _roc(t: str) -> str | None:
+    """115/10/05、115.10.05 → 2026-10-05。"""
+    m = re.match(r"\s*(\d{2,3})[./-](\d{1,2})[./-](\d{1,2})", str(t))
+    return f"{int(m[1]) + 1911}-{int(m[2]):02d}-{int(m[3]):02d}" if m else None
+
+
+def _rows(j) -> list[tuple[list, list]]:
+    if not isinstance(j, dict):
+        return []
+    if j.get("fields") and j.get("data") is not None:
+        return [(j["fields"], j["data"])]
+    return [(t.get("fields") or [], t.get("data") or []) for t in j.get("tables") or []]
+
+
+def warnings_range(s, start: dt.date, end: dt.date) -> pd.DataFrame:
+    """抓 start～end 公告的注意、處置股（上市＋上櫃，只留四碼股票）。"""
+    a, b = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+    A, B = start.strftime("%Y/%m/%d"), end.strftime("%Y/%m/%d")
+    src = [("注意", "https://www.twse.com.tw/rwd/zh/announcement/notice",
+            {"querytype": 1, "startDate": a, "endDate": b, "response": "json"}),
+           ("處置", "https://www.twse.com.tw/rwd/zh/announcement/punish",
+            {"startDate": a, "endDate": b, "response": "json"}),
+           ("注意", "https://www.tpex.org.tw/www/zh-tw/bulletin/attention",
+            {"startDate": A, "endDate": B, "response": "json"}),
+           ("處置", "https://www.tpex.org.tw/www/zh-tw/bulletin/disposal",
+            {"startDate": A, "endDate": B, "response": "json"})]
+    out = []
+    for flag, url, params in src:
+        for fields, data in _rows(_json(s, url, params)):
+            f = [str(x).replace(" ", "") for x in fields]
+            ic = next((i for i, x in enumerate(f) if x == "證券代號"), None)
+            idt = next((i for i, x in enumerate(f) if x in ("公布日期", "公告日期", "日期")), None)
+            ip = next((i for i, x in enumerate(f) if x.startswith("處置起")), None)
+            if ic is None or idt is None:
+                log.warning("注意處置欄位對不上：%s %s", url, f)
+                continue
+            for r in data:
+                code = re.sub(r"\(.*", "", str(r[ic])).strip()
+                if not re.fullmatch(r"\d{4}", code):
+                    continue
+                st = en = None
+                if ip is not None:
+                    p = re.split(r"[～~]", str(r[ip]))
+                    st, en = _roc(p[0]), _roc(p[-1])
+                out.append({"date": _roc(r[idt]), "code": code, "flag": flag, "start": st, "end": en})
+        time.sleep(2)
+    return pd.DataFrame(out, columns=WARN_COLS).dropna(subset=["date"])
+
+
+def update_warnings_history(s, d: dt.date) -> int:
+    """每天補最近 10 天的公告；檔案不夠 WARN_BACK 天就往回補。回傳筆數。"""
+    old = pd.read_csv(WARN_HIST, dtype=str) if WARN_HIST.exists() else pd.DataFrame(columns=WARN_COLS)
+    start = d - dt.timedelta(days=10)
+    if old.empty or old.date.min() > (d - dt.timedelta(days=WARN_BACK - 5)).isoformat():
+        start = d - dt.timedelta(days=WARN_BACK)
+    parts, a = [], start
+    while a <= d:   # 一次查一個月，回應不會太大
+        b = min(a + dt.timedelta(days=30), d)
+        parts.append(warnings_range(s, a, b))
+        a = b + dt.timedelta(days=1)
+    new = pd.concat(parts, ignore_index=True)
+    if new.empty:
+        return len(old)
+    df = pd.concat([old, new], ignore_index=True).drop_duplicates(["date", "code", "flag"], keep="last")
+    df = df[df.date >= (d - dt.timedelta(days=400)).isoformat()].sort_values(["date", "code"])
+    df.to_csv(WARN_HIST, index=False)
+    return len(df)
+
+
+def warn_at(code: str, day: str, hist: pd.DataFrame | None = None, prev_day: str | None = None) -> tuple[str, int]:
+    """某檔在某個交易日「開盤前就知道」的狀態：
+    - 處置：day 落在某次處置期間內（處置都是前一天以前公告的）
+    - 注意：前一個交易日（prev_day，沒給就用 day 的前一天以前最近一次）公告注意
+    另外回傳 day 之前 7 個日曆日（約 5 個交易日，不含 day）被公告注意幾天。"""
+    h = hist if hist is not None else (pd.read_csv(WARN_HIST, dtype=str) if WARN_HIST.exists() else None)
+    if h is None or h.empty:
+        return "", 0
+    h = h.reindex(columns=WARN_COLS).fillna("").astype(str)
+    g = h[(h.code == code) & (h.date < day)]
+    if g.empty:
+        return "", 0
+    p = g[(g.flag == "處置") & (g.start <= day) & (g.end >= day)]
+    n = g[(g.flag == "注意")]
+    lo = (dt.date.fromisoformat(day) - dt.timedelta(days=7)).isoformat()
+    n5 = int(n[n.date >= lo].date.nunique())
+    if len(p):
+        return "處置", n5
+    last = prev_day or g.date.max()
+    return ("注意" if (n.date == last).any() else ""), n5
+
+
 # ------------------------------------------------------------ 新聞（Google News RSS）
 def news(s, code: str, name: str, days: int = 3, limit: int = 3) -> list[dict]:
     q = quote(f"{code} {name}")
@@ -268,6 +384,11 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
         got[name] = len(df)
         if len(df):
             df.to_csv(DIR / f"{name}.csv", index=False)
+            if name == "shares":
+                try:
+                    got["shares_hist"] = update_shares_history(df, d)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("股數月檔更新失敗：%s", e)
             if name == "inst":
                 try:
                     got["inst_hist"] = update_inst_history(s, d, df)
@@ -282,6 +403,15 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
             got.update(fn())
         except Exception as e:  # noqa: BLE001
             log.warning("%s 歷史更新失敗：%s", name, e)
+    try:
+        from . import etfw
+        got.update(etfw.refresh(s))
+    except Exception as e:  # noqa: BLE001
+        log.warning("0050 權重失敗：%s", e)
+    try:
+        got["warn_hist"] = update_warnings_history(s, d)
+    except Exception as e:  # noqa: BLE001
+        log.warning("注意處置歷史更新失敗：%s", e)
     (DIR / "updated.json").write_text(json.dumps({"date": d.isoformat(), **got}, ensure_ascii=False))
     log.info("消息面資料：%s", got)
     return got
@@ -492,8 +622,14 @@ def main():
     ap.add_argument("--date")
     ap.add_argument("--backfill-chips", type=int, metavar="N",
                     help="融資融券／當沖往前補 N 個交易日、月營收補到 24 個月（存檔）")
+    ap.add_argument("--refresh", action="store_true",
+                    help="只重抓消息面／籌碼面並存檔（傍晚補跑：15:20 時證交所法人、本益比常常還沒公布）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    if a.refresh:
+        d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+        print(refresh(d))
+        return
     d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
     s = _session()
     if a.probe:

@@ -57,6 +57,7 @@ tr.off td{opacity:.55}
 .bchart svg{display:block;width:100%;height:110px}
 .warnline{stroke:var(--up);stroke-dasharray:4 3;stroke-width:1}.midline{stroke:var(--line);stroke-width:1}
 .bgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+.wl summary{cursor:pointer;font-weight:600;font-size:1.05em;margin:18px 0 6px}
 </style>
 </head>
 <body>
@@ -88,6 +89,9 @@ tr.off td{opacity:.55}
 
   <h2>📡 目前符合條件（每次掃描更新）</h2>
   <div class="tbl" id="cands"></div>
+  <details class="wl"><summary>⭐ 昨日觀察名單（<span id="wdate"></span> 收盤「準備突破觀察」<span id="wn"></span>，即時價量；點開）</summary>
+  <p class="meta">貼近 60 日高點、還沒突破、季線上揚、20 日區間 8～18% 的股票。不是買進訊號；爆量突破才會變成正式提醒。</p>
+  <div class="tbl" id="watch"></div></details>
 
   <p class="foot">預估全日量比 = 目前成交量 ÷ 依時間推估的全天比例 ÷ 前 5 日均量（早盤估計誤差較大）。
     資料來源：證交所即時報價，GitHub 每幾分鐘更新一次，網頁每 60 秒自動重新整理，實際延遲約 3～5 分鐘。僅供參考，不構成投資建議。
@@ -225,11 +229,18 @@ function render(d){
       <td class="l">${r.status==='可能量縮出場'?'<span class="tag w">可能量縮出場</span>':`<span class="tag">${esc(r.status)}</span>`}${r.drop_alert?'<span class="tag r">跌幅警示</span>':''}</td></tr>`),
     '目前沒有持有中的股票');
 
-  table($('cands'),[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']],
-    (d.candidates||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
-      <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
-      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${extra(r)}</td></tr>`),
+  const cols=[['股票','l'],['產業','l'],['現價'],['漲跌'],['目前量(張)'],['目前量比'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']];
+  $('wdate').textContent=d.watch_date||'';
+  const wl=d.watchlist||[], up=wl.filter(r=>(r.chg||0)>=3).length, hit=wl.filter(r=>r.hit).length;
+  document.querySelector('.wl').style.display=wl.length?'':'none';
+  $('wn').textContent=wl.length?` ${wl.length} 檔，漲 3% 以上 ${up} 檔${hit?`、符合條件 ${hit} 檔`:''}`:'';
+  table($('watch'),cols,(d.watchlist||[]).map(r=>candRow(r)),'沒有觀察名單');
+  table($('cands'),cols,
+    (d.candidates||[]).map(r=>candRow(r)),
     '目前沒有符合條件的股票');
+  function candRow(r){return `<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
+      <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
+      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${r.hit?'<span class="tag g">符合條件</span>':''}${peer(r)}${extra(r)}</td></tr>`}
 }
 
 async function tick(){

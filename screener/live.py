@@ -95,6 +95,13 @@ def watchlist() -> set[str]:
     return set(r[r.strategy == "準備突破觀察"].code)
 
 
+def watch_date() -> str | None:
+    """觀察名單是哪一天收盤報表的。"""
+    d = ROOT / "data" / "results"
+    files = sorted(d.glob("*.csv")) if d.exists() else []
+    return files[-1].stem if files else None
+
+
 # ------------------------------------------------------------------ 發佈
 def publish(payload: dict) -> None:
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -538,6 +545,9 @@ def main(argv=None) -> int:
             alerts = [stock_row(qi.loc[c], f) | {"lock_since": ls.get(c)} for c, f in st["alerts"].items() if c in qi.index]
             alerts.sort(key=lambda d: d["first_time"], reverse=True)
             cands = [stock_row(r) for r in q[q.hit].sort_values("proj_x", ascending=False).head(60).itertuples()]
+            # 昨天收盤報表的「準備突破觀察」整份名單，盤中即時價量（不管有沒有觸發）
+            wl = [stock_row(qi.loc[c]) for c in watch if c in qi.index]
+            wl.sort(key=lambda d: d["chg"] if d.get("chg") is not None else -99, reverse=True)
             holds = holdings_view(q, now, shrink, drop_pct)
             try:
                 heat = group_heat(q, st, hm, themes, int(lc.get("main_group_n", 5)), lc.get("main_group_by", "10:00"),
@@ -589,7 +599,8 @@ def main(argv=None) -> int:
                 "interval_min": interval / 60, "end": lc.get("end", "13:25"),
                 "vol_fraction": round(vol_fraction(now), 3), "alert_start": lc.get("alert_start", "09:30"),
                 "market": {**(senti or {}), "breadth": bh + ([[today, senti.get("above_ma20"), senti.get("mkt20")]] if senti else [])},
-                "alerts": alerts, "candidates": cands, "holdings": holds, "official": st.get("official"),
+                "alerts": alerts, "candidates": cands, "watchlist": wl, "watch_date": watch_date(),
+                "holdings": holds, "official": st.get("official"),
                 "quotes": len(q), "state": st, "global": glob, "qinfo": qinfo, "group_heat": heat[:20],
                 "breadth": bh + ([[today, senti.get("above_ma20"), senti.get("mkt20")]] if senti else []),
             }

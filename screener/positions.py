@@ -17,11 +17,13 @@ COLS = ["code", "name", "industry", "signal_date", "signal_time", "alert_price",
         "surge_volume", "status", "exit_signal_date", "exit_reason", "exit_close", "days_held", "est_return_pct",
         "exit_open", "close_lu", "lu_lock_min", "rev_yoy",
         # 排隊買漲停買不買得到：正式提醒時、收盤後的委買／委賣第一檔張數與累計成交張數
-        "bid1_lots_1312", "ask1_lots_1312", "vol_lots_1312", "bid1_lots_close", "ask1_lots_close", "vol_lots_close"]
+        "bid1_lots_1312", "ask1_lots_1312", "vol_lots_1312", "bid1_lots_close", "ask1_lots_close", "vol_lots_close",
+        # 訊號日開盤前就知道的注意／處置狀態（前一交易日以前的公告），與前 7 天被注意幾天
+        "warn", "warn_n5"]
 
 
 def load() -> pd.DataFrame:
-    text = ["code", "name", "industry", "signal_date", "signal_time", "status", "exit_signal_date", "exit_reason"]
+    text = ["code", "name", "industry", "signal_date", "signal_time", "status", "exit_signal_date", "exit_reason", "warn"]
     if FILE.exists():
         df = pd.read_csv(FILE, dtype={c: str for c in text})
     else:
@@ -160,3 +162,22 @@ def build_md(exits: list[dict], holding: list[dict]) -> str:
         lines.append("")
     lines.append("<sub>出場規則：收盤成交量低於爆量日的一半（買盤退潮，漲停那天不算）→ 隔天開盤賣出；最多持有 20 天。出場後的報酬以隔天開盤價計。清單包含所有盤中提醒過的股票（不代表你實際買了）。</sub>")
     return "\n".join(lines) + "\n\n"
+
+
+def fill_warn(dates: list[str]) -> int:
+    """把還沒填的 warn／warn_n5 補上（收盤後跑；用 enrich 的注意處置歷史，口徑是訊號日前一交易日以前公告的）。"""
+    from . import enrich
+    if not enrich.WARN_HIST.exists():
+        return 0
+    h = pd.read_csv(enrich.WARN_HIST, dtype=str)
+    df = load()
+    todo = df[df.warn_n5.isna() & df.signal_date.notna()].index
+    for i in todo:
+        day = df.at[i, "signal_date"]
+        prev = max((d for d in dates if d < day), default=None)
+        if prev is None or h.date.min() > prev:
+            continue   # 歷史還沒涵蓋到這天，不亂填
+        w, n = enrich.warn_at(df.at[i, "code"], day, h, prev)
+        df.at[i, "warn"], df.at[i, "warn_n5"] = w, n
+    save(df)
+    return len(todo)
