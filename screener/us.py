@@ -62,7 +62,36 @@ def fetch(period: str = "5y") -> pd.DataFrame:
     return pd.concat(out, ignore_index=True)
 
 
+BENCH_LONG = ROOT / "data" / "extras" / "bench_long.csv"
+LONG_TW = [("0050.TW", "0050"), ("2330.TW", "2330")]
+
+
+def update_bench_long(period: str = "6y") -> int:
+    """0050、台積電的長期還原價（含息，Yahoo auto_adjust）→ data/extras/bench_long.csv（date, code, close_adj, close）。
+    bench.csv 的 tr 只有近一年，五年的回測用這份。"""
+    import yfinance as yf
+
+    out = []
+    for sym, code in LONG_TW:
+        h = yf.Ticker(sym).history(period=period, interval="1d", auto_adjust=False)
+        if h.empty:
+            log.warning("%s 沒有資料", sym)
+            continue
+        h = h.reset_index()
+        out.append(pd.DataFrame({"date": pd.to_datetime(h["Date"]).dt.strftime("%Y-%m-%d"), "code": code,
+                                 "close_adj": h["Adj Close"].round(4), "close": h["Close"].round(4)}))
+    if not out:
+        return 0
+    df = pd.concat(out, ignore_index=True)
+    df.to_csv(BENCH_LONG, index=False)
+    return len(df)
+
+
 def update() -> dict:
+    try:
+        log.info("bench_long：%d 筆", update_bench_long())
+    except Exception as e:  # noqa: BLE001
+        log.warning("bench_long 失敗：%s", e)
     df = fetch()
     DATA.mkdir(parents=True, exist_ok=True)
     for c in ["open", "high", "low", "close"]:
