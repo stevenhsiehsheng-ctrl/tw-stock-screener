@@ -519,8 +519,13 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    from . import gifts, revdrift, weekly
+    from . import gifts, revdrift, us, weekly
     weeks = weekly.write(out_dir)
+    try:
+        has_us = us.write(out_dir)
+    except Exception as e:  # 美股頁壞掉不能拖垮每日報表
+        logging.warning("美股頁產生失敗：%s", e)
+        has_us = False
     try:
         has_rev = revdrift.write(out_dir)
     except Exception as e:  # 研究頁壞掉不能拖垮每日報表
@@ -535,6 +540,7 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
              + (f" ・ <a href='weekly/{weeks[0]}.html'>📅 市場週報</a>" if weeks else "")
              + (" ・ <a href='gifts.html'>🎁 股東紀念品</a>" if has_gifts else "")
              + (" ・ <a href='revdrift.html'>📈 營收漂移每批</a>" if has_rev else "")
+             + (" ・ <a href='us.html'>🇺🇸 美股隔夜</a>" if has_us else "")
              + " ・ <a href='archive.html'>歷史報表</a>")
     (out_dir / f"{date}.html").write_text(html_for(links), "utf-8")
     (out_dir / "index.html").write_text(html_for(links), "utf-8")

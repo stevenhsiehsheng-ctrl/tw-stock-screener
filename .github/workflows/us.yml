@@ -1,0 +1,54 @@
+name: 美股隔夜
+
+# 美股收盤後（台北 06:20，夏令時間收盤是 04:00、冬令 05:00）抓費半、台積電 ADR、供應鏈美股，
+# 存 data/us/history.csv.gz，再叫 pages.yml 重畫網站（site/us.html）。
+on:
+  schedule:
+    - cron: "20 22 * * 1-5"   # 22:20 UTC 週一～五＝台北週二～六 06:20（對應美股週一～五）
+  workflow_dispatch:
+    inputs:
+      research:
+        description: "只跑研究：爆量突破在美股大型股（S&P 500＋那斯達克 100）5 年回測，印在 log，不存檔"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: us
+  cancel-in-progress: false
+
+jobs:
+  us:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 研究（不存檔）
+        if: ${{ inputs.research }}
+        run: python -m screener.us --research
+      - name: 更新美股資料並重畫網頁
+        if: ${{ !inputs.research }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m screener.us
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/us
+          if git diff --cached --quiet; then echo "沒有變更"; exit 0; fi
+          git commit -m "美股隔夜 $(TZ=Asia/Taipei date +%F)"
+          ok=0; for i in 1 2 3; do
+            if git pull --rebase -X theirs && git push; then ok=1; break; fi
+            git rebase --abort 2>/dev/null || true; sleep 5
+          done; [ "$ok" = 1 ]
+          gh workflow run pages.yml --ref main
