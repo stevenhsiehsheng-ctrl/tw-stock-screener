@@ -101,7 +101,8 @@ def update() -> dict:
     for c in ["open", "high", "low", "close"]:
         df[c] = df[c].astype(float).round(4)
     df.sort_values(["sym", "date"]).to_csv(HIST, index=False)
-    meta = {"rows": len(df), "syms": int(df.sym.nunique()), "last": df.date.max()}
+    meta = {"rows": len(df), "syms": int(df.sym.nunique()), "last": df.date.max(),
+            "last_dates": df.groupby("sym").date.max().to_dict()}   # 每個代號抓到哪天（Cowork 0726：看得出誰沒更新）
     sox = df[df.sym == "^SOX"].sort_values("date")
     if len(sox) >= 2:   # 給 12:50／15:47 直接讀：最近一晚費半漲跌（%）
         meta["sox_chg_prev"] = round(float(sox.close.iloc[-1] / sox.close.iloc[-2] - 1) * 100, 2)

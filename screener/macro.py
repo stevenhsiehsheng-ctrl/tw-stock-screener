@@ -235,7 +235,11 @@ def write(site_dir: Path) -> bool:
                  + f"　加權距一年高點 {g['dd52']:+.1f}%（−10% 亮紅，R2）・{g['date']}"
                  + f"<div class='meta'>R2＝已經跌 10% 才亮，不是預知。綠燈不等於安全：加權現在離 200 日線 {g['dev200']:+.1f}%，"
                  f"在 {g['dev200_since'][:4]} 年以來排第 {g['dev200_pct_all']:.0f} 百分位。"
-                 + (f"另外亮著：{aux}。" if aux else "R1、R3 都沒亮。") + "燈亮只提醒、不自動賣。</div></div>")
+                 + (f"另外亮著：{aux}。" if aux else "R1、R3 都沒亮。") + "燈亮只提醒、不自動賣。</div>"
+                 + ("".join(f"<div class='meta'>⚠️ {html.escape(x['sym'])} 停在 {x['last']}（應該到 {x['ref']}）"
+                            + ("，<b>燈號用的就是它，燈可能是舊的</b>" if x["sym"] in CORE else "") + "</div>"
+                            for x in g.get("stale", [])))
+                 + "</div>")
     body = (css + "<h1>大環境</h1>" + light +
             "<blockquote>這頁只描述「現在在歷史上排在哪裡」，不是買賣訊號。我們用 1998 年以來的資料測過："
             "這些數字拿來<b>預測</b>台股空頭幾乎都沒用（假警報太多），唯一站得住的是「大盤已經從一年高點跌 10%」"
@@ -254,6 +258,36 @@ def write(site_dir: Path) -> bool:
 
 def _dev200(s: pd.Series) -> pd.Series:
     return (s / s.rolling(200).mean() - 1) * 100
+
+
+# 落後檢查（Cowork 0726）：同一組代號應該停在同一個交易日。每組的參考日＝組內最新的一天，
+# 台股另外比 daily 的 state.json、美股指數另外比 us/meta.json（整組一起沒更新也抓得到）。
+# 匯率、期貨跟美股假日不同，美國放假那天這組可能誤報一次，所以只當提醒；燈號用的是加權、費半。
+STALE_GROUPS = {"tw": ("^TWII", "0050.TW"), "us": ("^SOX", "^GSPC", "^VIX", "^TNX", "^IRX"),
+                "fx": ("DX-Y.NYB", "TWD=X", "HG=F", "CL=F")}
+CORE = ("^TWII", "^SOX")
+
+
+def _json_get(path: Path, key: str) -> str:
+    try:
+        return str(json.loads(path.read_text("utf-8")).get(key) or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def staleness(long: pd.DataFrame) -> tuple[dict, list]:
+    """回傳（每個代號最後一天, 落後清單）；落後＝比參考日少 ≥1 個平日（週一～五，不扣假日）。"""
+    last = long.groupby("sym").date.max().to_dict()
+    ext = {"tw": _json_get(ROOT / "data" / "state.json", "last_done"), "us": _json_get(ROOT / "data" / "us" / "meta.json", "last")}
+    stale = []
+    for g, syms in STALE_GROUPS.items():
+        ref = max([last[s] for s in syms if s in last] + [ext.get(g, "")])
+        for s in syms:
+            d = last.get(s)
+            lag = int(np.busday_count(d, ref)) if d else None
+            if d is None or lag >= 1:
+                stale.append({"sym": s, "last": d, "ref": ref, "lag": lag})
+    return last, stale
 
 
 def regime(long: pd.DataFrame) -> dict:
@@ -280,6 +314,10 @@ def regime(long: pd.DataFrame) -> dict:
         sox = px["^SOX"].dropna()
         out.update({"r3": bool(sox.iloc[-1] < sox.rolling(200).mean().iloc[-1]), "sox_date": sox.index[-1],
                     "sox_dev200": round(float(_dev200(sox).iloc[-1]), 2)})
+    last, stale = staleness(long)
+    out.update({"last_dates": last, "stale": stale, "stale_core": [x["sym"] for x in stale if x["sym"] in CORE]})
+    if stale:
+        log.warning("有代號沒更新到最新交易日：%s", stale)
     return out
 
 
