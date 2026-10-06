@@ -622,8 +622,14 @@ def main():
     ap.add_argument("--date")
     ap.add_argument("--backfill-chips", type=int, metavar="N",
                     help="融資融券／當沖往前補 N 個交易日、月營收補到 24 個月（存檔）")
+    ap.add_argument("--refresh", action="store_true",
+                    help="只重抓消息面／籌碼面並存檔（傍晚補跑：15:20 時證交所法人、本益比常常還沒公布）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    if a.refresh:
+        d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+        print(refresh(d))
+        return
     d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
     s = _session()
     if a.probe:

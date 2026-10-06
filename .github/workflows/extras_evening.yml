@@ -1,0 +1,43 @@
+name: 傍晚補抓消息面
+
+# 15:20 每日資料跑的時候，證交所的三大法人（T86）和本益比（BWIBBU）常常還沒公布，
+# 結果 inst.csv 只有上櫃、pe.csv 停在前幾天，隔天盤中頁上市股的外資、本益比就是空的。
+# 18:05 官方都公布了，再把消息面／籌碼面重抓一次。
+on:
+  schedule:
+    - cron: "5 10 * * 1-5"   # 10:05 UTC = 台北 18:05
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screener
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 重抓
+        run: python -m screener.enrich --refresh --date "$(TZ=Asia/Taipei date +%F)"
+      - name: 存檔
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/extras
+          if git diff --cached --quiet; then echo "沒有變更"; exit 0; fi
+          git commit -m "傍晚補抓消息面 $(TZ=Asia/Taipei date +%F)"
+          ok=0; for i in 1 2 3; do
+            if git pull --rebase -X theirs && git push; then ok=1; break; fi
+            git rebase --abort 2>/dev/null || true; sleep 5
+          done; [ "$ok" = 1 ]
