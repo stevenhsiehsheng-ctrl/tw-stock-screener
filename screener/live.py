@@ -512,6 +512,14 @@ def main(argv=None) -> int:
         glob = global_mkt.snapshot(float(tsmc.iloc[-1]) if len(tsmc) else None)
     except Exception as e:  # noqa: BLE001
         log.warning("美股隔夜資料失敗：%s", e)
+    try:   # 前一晚費半漲跌 → 過去一年台股隔天的平均（data/us/impact.json，us.yml 每天早上更新）
+        from . import us
+        sox = next((i["chg"] for i in (glob or {}).get("items", []) if i.get("sym") in ("^SOX", "SOXX")), None)
+        h = us.hint(sox)
+        if h:
+            glob["sox_hint"] = h
+    except Exception as e:  # noqa: BLE001
+        log.warning("費半隔夜統計失敗：%s", e)
     st = restore_state(today)
     interval = float(lc.get("interval_min", 3)) * 60
     alert_start = _hm(lc.get("alert_start", "09:30"), now)

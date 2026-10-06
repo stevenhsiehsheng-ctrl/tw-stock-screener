@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "us"
 HIST = DATA / "history.csv.gz"
 META = DATA / "meta.json"
+IMPACT = DATA / "impact.json"
 
 INDEXES = [("^SOX", "費城半導體"), ("^IXIC", "那斯達克"), ("^GSPC", "標普 500"), ("^VIX", "VIX 恐慌指數"), ("TWD=X", "美元兌台幣")]
 LINKED = [  # 跟台股供應鏈連動的美股（客戶、同業、指標）
@@ -69,6 +70,13 @@ def update() -> dict:
     df.sort_values(["sym", "date"]).to_csv(HIST, index=False)
     meta = {"rows": len(df), "syms": int(df.sym.nunique()), "last": df.date.max()}
     META.write_text(json.dumps(meta, ensure_ascii=False))
+    try:   # 給盤中頁用：前一晚費半漲跌分組 → 台股隔天的歷史平均（live.py 讀）
+        tw = pd.read_csv(ROOT / "data" / "history.csv.gz", dtype={"code": str})
+        bpath = ROOT / "data" / "extras" / "bench.csv"
+        imp = impact(df, tw, pd.read_csv(bpath, dtype={"code": str}) if bpath.exists() else None)
+        IMPACT.write_text(json.dumps(_clean(imp), ensure_ascii=False))
+    except Exception as e:  # noqa: BLE001
+        log.warning("美股隔夜影響統計失敗：%s", e)
     log.info("美股資料：%s", meta)
     return meta
 
@@ -169,6 +177,30 @@ def impact(us: pd.DataFrame, tw: pd.DataFrame, bench: pd.DataFrame | None = None
     corr_day = float(df[["sox", "ew_day"]].corr().iloc[0, 1])
     return {"rows": rows, "n": len(df), "start": df.date.min(), "end": df.date.max(), "corr_gap": corr, "corr_day": corr_day,
             "last": df.iloc[-1][["date", "us_date", "sox"]].to_dict() if len(df) else None}
+
+
+def _clean(o):
+    if isinstance(o, dict):
+        return {str(k): _clean(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_clean(v) for v in o]
+    if isinstance(o, (np.floating, float)):
+        return None if np.isnan(o) else round(float(o), 3)
+    if isinstance(o, np.integer):
+        return int(o)
+    return o
+
+
+def hint(sox_chg: float | None) -> dict | None:
+    """盤中頁用：前一晚費半漲跌落在哪一組、那一組過去一年台股隔天的平均。"""
+    if sox_chg is None or not IMPACT.exists():
+        return None
+    imp = json.loads(IMPACT.read_text())
+    lab = pd.cut([sox_chg], SOX_BINS, labels=SOX_LABELS)[0]
+    row = next((r for r in imp.get("rows", []) if r["bucket"] == lab), None)
+    if not row:
+        return None
+    return {"sox": round(sox_chg, 2), **row, "start": imp.get("start"), "end": imp.get("end")}
 
 
 # ------------------------------------------------------------------ 網頁
