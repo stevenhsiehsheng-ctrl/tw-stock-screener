@@ -723,8 +723,13 @@ def main():
     ap.add_argument("--dispo-years", type=float, metavar="N", help="處置公告往回補 N 年（研究用，存 disposal_5y.csv.gz）")
     ap.add_argument("--attn-years", type=float, metavar="N", help="注意股公告往回補 N 年（研究用，存 attention_5y.csv.gz）")
     ap.add_argument("--oddlot-days", type=int, metavar="N", help="盤後零股往回補 N 個交易日（存 oddlot_hist.csv.gz）")
+    ap.add_argument("--rev-months", type=int, metavar="N", help="月營收往回補 N 個月（研究用，存 rev_5y.csv.gz）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    if a.rev_months:
+        d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+        print("月營收長歷史", _chips().backfill_revenue_long(_session(), d, a.rev_months), "個月")
+        return
     if a.oddlot_days:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
         print("盤後零股歷史", backfill_oddlot(_session(), d, a.oddlot_days), "天")
