@@ -3,7 +3,8 @@
 用法（每一筆交易一列，報酬單位是 %，已扣成本、已減基準）：
 
     from screener import lottery
-    pl = lottery.placebo(close, trades, n=300)           # 同進同出、從當天有成交的股票隨機抽
+    trades = lottery.surge_trades(hist)                  # 地基：爆量突破新高收盤進、量縮一半隔天開盤出
+    pl = lottery.placebo(close, trades, n=300, exit_px=open_, volume=vol, match="liquidity")   # 同日同流動性五分位抽
     print(lottery.report(trades, placebo=pl))
 
 trades 欄位：entry（進場日 YYYY-MM-DD）、exit（出場日）、ret（超額報酬 %）。
@@ -65,26 +66,97 @@ def block_boot(df: pd.DataFrame, ret: str = "ret", key: str = "ym", n: int = 200
     return float(np.percentile(means, 5)), float(np.percentile(means, 95))
 
 
-def placebo(close: pd.DataFrame, trades: pd.DataFrame, n: int = 300, cost: float = COST, seed: int = 0) -> pd.DataFrame:
+def liquidity_quintile(close: pd.DataFrame, volume: pd.DataFrame) -> pd.DataFrame:
+    """每天每檔的流動性五分位（1～5，5 最大）：進場日前 60 日平均成交值（close×volume，不含當天），至少 40 天。"""
+    tv = (close * volume).shift(1).rolling(60, min_periods=40).mean()
+    return tv.rank(axis=1, pct=True).mul(5).apply(np.ceil).clip(1, 5)
+
+
+def placebo(close: pd.DataFrame, trades: pd.DataFrame, n: int = 300, cost: float = COST, seed: int = 0,
+            exit_px: pd.DataFrame | None = None, volume: pd.DataFrame | None = None, match: str | None = None) -> pd.DataFrame:
     """配對安慰劑：每筆交易同一個進場日、出場日，從當天有成交的股票隨機抽一檔，
-    報酬一樣減同段期間全市場等權、扣成本。回傳每次模擬的 median／trim_top／trim_both。"""
+    報酬一樣減同段期間全市場等權、扣成本。回傳每次模擬的 median／trim_top／trim_both。
+    exit_px：出場用的價格寬表（例如隔天開盤出場就傳 open），預設收盤。
+    match='liquidity'：只從同日、同流動性五分位抽（要傳 volume，trades 要有 code 欄）。"""
     close = close.sort_index()
+    xp = (exit_px if exit_px is not None else close).reindex_like(close)
+    q = liquidity_quintile(close, volume.reindex_like(close)) if match == "liquidity" else None
     rng = np.random.default_rng(seed)
-    pairs = trades[["entry", "exit"]].astype(str).to_numpy()
-    pool = {}
-    for e, x in {tuple(p) for p in pairs}:
+    keys, pool = [], {}
+    for r in trades.itertuples():
+        e, x = str(r.entry), str(r.exit)
         if e not in close.index or x not in close.index:
             continue
-        r = (close.loc[x] / close.loc[e] - 1).dropna()
-        r = r[r.abs() < 3]   # 沒還原的分割、減資會有離譜值
-        if len(r):
-            pool[(e, x)] = ((r - r.mean()) * 100 - cost).to_numpy()
-    keys = [tuple(p) for p in pairs if tuple(p) in pool]
+        g = None
+        if q is not None:
+            g = q.at[e, str(r.code)] if str(r.code) in q.columns else np.nan
+            if pd.isna(g):
+                continue
+        k = (e, x, g)
+        if k not in pool:
+            ret = (xp.loc[x] / close.loc[e] - 1)
+            ok = ret.notna() & (ret.abs() < 3)   # 沒還原的分割、減資會有離譜值
+            ex = (ret - ret[ok].mean()) * 100 - cost
+            if g is not None:
+                ok &= q.loc[e] == g
+            v = ex[ok].to_numpy()
+            if not len(v):
+                continue
+            pool[k] = v
+        keys.append(k)
     out = []
     for _ in range(n):
         v = np.array([pool[k][rng.integers(len(pool[k]))] for k in keys])
         out.append({"median": float(np.median(v)), "trim_top": _trim_top(v), "trim_both": _trim_both(v)})
     return pd.DataFrame(out)
+
+
+def surge_trades(hist: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, cost: float = COST,
+                 overlap: bool = False) -> pd.DataFrame:
+    """地基交易清單（跟網站 K 線買賣點、positions.csv 同一套規則）：
+    - 進場：爆量突破 60 日新高（tech.surge_frame）當天收盤買
+    - 出場訊號：之後第一次收盤量 < 爆量日 × shrink（漲停日不算），或持有滿 max_hold 天；隔天開盤賣
+    - overlap=False：同一檔持有中再出現訊號不重複進（跟 tech.signals 一樣）
+    - ret：（出場開盤 ÷ 進場收盤 − 1）減同段期間全市場等權（進場收盤→出場開盤），再扣 cost，單位 %
+    - lu：訊號日收在漲停價（官方檔位，前一天也有成交、漲幅 ≤10.5%）
+    - lu95：近似漲停（漲幅 ≥9.5% 且收＝最高）給沒有檔位的還原價資料用
+    回傳 entry、exit、code、ret、lu、lu95、hold（交易日數）。"""
+    from . import tech
+    from .rules import Panel
+    p = Panel(hist)
+    c, o, v, tr = p.close, p.open, p.volume, p.traded
+    surge = tech.surge_frame(p)
+    lu = (tr & tr.shift(1, fill_value=False) & (c >= p.limit_price(True) - 1e-6) & (p.change_pct.abs() <= 10.5))
+    lu95 = (p.change_pct >= 9.5) & ((p.high - c).abs() <= 1e-6 * c)
+    idx = list(c.index)
+    ret_eq = {}
+    rows = []
+    for code in c.columns:
+        s, l, vv, t = surge[code].values, lu[code].values, v[code].values, tr[code].values
+        busy_until = -1
+        for i in np.flatnonzero(s):
+            if not overlap and i <= busy_until:
+                continue
+            j = None
+            for k in range(i + 1, min(len(idx), i + max_hold + 1)):
+                if t[k] and ((vv[k] < vv[i] * shrink and not l[k]) or k - i >= max_hold):
+                    j = k
+                    break
+            if j is None or j + 1 >= len(idx):
+                continue   # 還沒出場
+            x = j + 1
+            px_in, px_out = c[code].iat[i], o[code].iat[x]
+            if not (px_in > 0 and px_out > 0):
+                continue
+            key = (i, x)
+            if key not in ret_eq:
+                r = o.iloc[x] / c.iloc[i] - 1
+                ret_eq[key] = r[r.abs() < 3].mean()
+            rows.append({"entry": idx[i], "exit": idx[x], "code": code,
+                         "ret": ((px_out / px_in - 1) - ret_eq[key]) * 100 - cost,
+                         "lu": bool(l[i]), "lu95": bool(lu95[code].iat[i]), "hold": x - i})
+            busy_until = x
+    return pd.DataFrame(rows, columns=["entry", "exit", "code", "ret", "lu", "lu95", "hold"]).sort_values(["entry", "code"], ignore_index=True)
 
 
 def lottery_check(trades: pd.DataFrame, ret: str = "ret", placebo: pd.DataFrame | None = None, boot: int = 2000) -> dict:
