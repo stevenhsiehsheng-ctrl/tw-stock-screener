@@ -12,7 +12,9 @@ on:
       - screener/gifts.py
       - screener/revdrift.py
       - screener/us.py
+      - screener/macro.py
       - data/us/**
+      - data/macro/**
       - data/weekly/**
       - data/gifts/**
   workflow_dispatch:
