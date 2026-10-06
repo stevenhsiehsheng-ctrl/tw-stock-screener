@@ -84,10 +84,14 @@ def from_quotes(q: pd.DataFrame, hist: pd.DataFrame) -> dict:
     ma20 = (liq.sum19 + liq.price) / 20
     above = float((liq.price > ma20).mean() * 100) if len(liq) else float("nan")
     d = d[d.vol_lots >= 100]
+    # 漲跌停價用官方檔位（跟收盤後 breadth／rules.limit_hits 同口徑），不用 ±9.5% 近似
+    from .rules import limit_price
+    yc = d[["yclose"]].astype(float)
+    lup, ldn = limit_price(yc, True)["yclose"], limit_price(yc, False)["yclose"]
     out = {"up_pct": round(float((d.price > d.yclose).mean() * 100), 1),
            "above_ma20": round(above, 1),
-           "limit_up": int((d.price / d.yclose - 1 >= 0.095).sum()),
-           "limit_down": int((d.price / d.yclose - 1 <= -0.095).sum())}
+           "limit_up": int((d.price >= lup - 1e-6).sum()),
+           "limit_down": int((d.price <= ldn + 1e-6).sum())}
     out.update(classify(above))
     return out
 

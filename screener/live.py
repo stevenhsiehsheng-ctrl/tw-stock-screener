@@ -295,7 +295,7 @@ def save_heat_log(today: str, heat: list[dict]) -> None:
     df.to_csv(HEAT_DIR / f"{today}.csv", index=False)
 
 
-def holdings_view(q: pd.DataFrame, now: dt.datetime, shrink: float, drop_pct: float) -> list[dict]:
+def holdings_view(q: pd.DataFrame, now: dt.datetime, shrink: float, drop_pct: float, max_hold: int = 20) -> list[dict]:
     pos = positions.load()
     if pos.empty:
         return []
@@ -319,9 +319,14 @@ def holdings_view(q: pd.DataFrame, now: dt.datetime, shrink: float, drop_pct: fl
             # 收盤收在漲停價的那天量縮不算（positions.update 同一條規則），盤中在漲停價上就先標續抱
             if proj_ratio < shrink and price and positions._limit_up(float(price), x.yclose):
                 status = "漲停續抱（量縮不算）"
+        surge_lots = float(r.surge_volume) / 1000 if pd.notna(r.surge_volume) else None
+        held = int(r.days_held) + 1 if pd.notna(r.days_held) else None   # days_held 是到昨天收盤，今天再算一天
         out.append({"code": r.code, "name": r.name, "signal_date": r.signal_date, "entry": _num(entry),
                     "price": _num(price), "ret": _num(ret), "chg": _num(x.chg),
                     "vol_lots": _num(x.vol_lots, 0), "proj_ratio": _num(proj_ratio),
+                    "proj_lots": _num(x.vol_lots / frac, 0) if frac else None,
+                    "shrink_lots": _num(surge_lots * shrink, 0) if surge_lots else None,
+                    "days_left": max(max_hold - held, 0) if held is not None else None,
                     "status": status, "drop_alert": ret is not None and ret <= -drop_pct})
     return sorted(out, key=lambda d: d["ret"] if d["ret"] is not None else 0)
 
@@ -548,7 +553,7 @@ def main(argv=None) -> int:
             # 昨天收盤報表的「準備突破觀察」整份名單，盤中即時價量（不管有沒有觸發）
             wl = [stock_row(qi.loc[c]) for c in watch if c in qi.index]
             wl.sort(key=lambda d: d["chg"] if d.get("chg") is not None else -99, reverse=True)
-            holds = holdings_view(q, now, shrink, drop_pct)
+            holds = holdings_view(q, now, shrink, drop_pct, int(ic.get("max_hold_days", 20)))
             try:
                 heat = group_heat(q, st, hm, themes, int(lc.get("main_group_n", 5)), lc.get("main_group_by", "10:00"),
                                   float(lc.get("main_group_pct", 5)))

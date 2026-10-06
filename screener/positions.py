@@ -107,7 +107,9 @@ def update(hist: pd.DataFrame, data_date: str, shrink: float = 0.5, max_hold: in
             df.at[i, "surge_volume"] = vol
             df.at[i, "days_held"] = 0
             df.at[i, "close_lu"] = int(_limit_up(close, prev.get(r.code)))  # 收盤鎖漲停的那群才有超額，要追蹤買不買得到
-            holding.append(df.loc[i].to_dict())
+            d = df.loc[i].to_dict()
+            d.update(vol_lots=vol / 1000, shrink_lots=shrink * vol / 1000, days_left=max_hold)
+            holding.append(d)
             continue
         if r.signal_date not in dates:
             continue
@@ -132,6 +134,8 @@ def update(hist: pd.DataFrame, data_date: str, shrink: float = 0.5, max_hold: in
         else:
             d = df.loc[i].to_dict()
             d["vol_ratio"] = vol / surge if surge else None
+            d.update(vol_lots=vol / 1000, shrink_lots=shrink * surge / 1000 if surge else None,
+                     days_left=max(max_hold - held, 0), lu_today=_limit_up(close, prev.get(r.code)))
             holding.append(d)
     save(df)
     log.info("出場訊號 %d 檔，持有中 %d 檔", len(exits), len(holding))
@@ -151,16 +155,20 @@ def build_md(exits: list[dict], holding: list[dict]) -> str:
         lines.append("")
     if holding:
         lines += ["## 🟡 持有中（尚未量縮）", "",
-                  "| 股票 | 進場日 | 進場價 | 已持有 | 估計報酬 | 今日量 / 爆量日 |", "|---|---|--:|--:|--:|--:|"]
+                  "| 股票 | 進場日 | 進場價 | 已持有 | 估計報酬 | 今日量 / 爆量日 | 今日量(張) | 出場門檻(張) | 最多再抱 |",
+                  "|---|---|--:|--:|--:|--:|--:|--:|--:|"]
+        n = lambda v: f"{v:,.0f}" if v is not None and pd.notna(v) else "—"  # noqa: E731
         for r in holding:
             vr = r.get("vol_ratio")
             ep = r.get("entry_price") if pd.notna(r.get("entry_price")) else r.get("alert_price")
+            lu = "（今天收漲停，量縮不算）" if r.get("lu_today") else ""
             lines.append(f"| {r['code']} {r['name']} | {r['signal_date']} | "
                          f"{ep:.2f} | {int(r['days_held']) if pd.notna(r.get('days_held')) else 0} 天 | "
                          f"{(str(r['est_return_pct']) + '%') if pd.notna(r.get('est_return_pct')) else '—'} | "
-                         f"{(f'{vr:.0%}') if vr else '—'} |")
+                         f"{(f'{vr:.0%}') if vr else '—'}{lu} | {n(r.get('vol_lots'))} | {n(r.get('shrink_lots'))} | "
+                         f"{(str(int(r['days_left'])) + ' 天') if r.get('days_left') is not None and pd.notna(r.get('days_left')) else '—'} |")
         lines.append("")
-    lines.append("<sub>出場規則：收盤成交量低於爆量日的一半（買盤退潮，漲停那天不算）→ 隔天開盤賣出；最多持有 20 天。出場後的報酬以隔天開盤價計。清單包含所有盤中提醒過的股票（不代表你實際買了）。</sub>")
+    lines.append("<sub>出場規則：收盤成交量低於爆量日的一半（買盤退潮，漲停那天不算）→ 隔天開盤賣出；最多持有 20 天。「出場門檻」＝爆量日成交量的一半，哪天收盤量低於它（而且沒收漲停）就出場。出場後的報酬以隔天開盤價計。清單包含所有盤中提醒過的股票（不代表你實際買了）。</sub>")
     return "\n".join(lines) + "\n\n"
 
 
