@@ -266,7 +266,8 @@ def inst_flow(hist: pd.DataFrame, inst: pd.DataFrame, industry: pd.Series, col: 
 
 
 def inst_flow_report(ev: pd.DataFrame, seed: int = 0) -> str:
-    """每個持有天數：N、有配對、訊號日、一天最多、同時持有中位／最大、ex 平均中位、diff 平均中位＋按日抽 5～95%、逐年。"""
+    """每個持有天數：N、有配對、訊號日、一天最多、同時持有中位／最大（用訊號日數近似持有天數，粗估）、
+    ex 平均中位、diff 平均中位＋按日抽 5～95%、逐年。"""
     lines = []
     for k, g in ev.groupby("hold"):
         dd = g.dropna(subset=["diff"])
