@@ -150,6 +150,27 @@ def update_oddlot_history(df: pd.DataFrame, d: dt.date) -> int:
     return int(h.date.nunique())
 
 
+def backfill_oddlot(s, d: dt.date, n: int = 60) -> int:
+    """盤後零股往回補 n 個交易日（交易日照 history），已經有的日子跳過。回傳歷史天數。"""
+    from . import fetch
+    days = sorted(x for x in fetch.load_history().date.unique() if x <= d.isoformat())[-n:]
+    have = set(pd.read_csv(ODD_HIST, usecols=["date"]).date) if ODD_HIST.exists() else set()
+    got = 0
+    for x in days:
+        if x in have:
+            continue
+        try:
+            df = oddlot(s, dt.date.fromisoformat(x))
+        except Exception as e:  # noqa: BLE001
+            log.warning("盤後零股 %s 失敗：%s", x, e)
+            continue
+        if len(df):
+            got = update_oddlot_history(df, dt.date.fromisoformat(x))
+            log.info("盤後零股 %s：%d 檔", x, len(df))
+        time.sleep(3)
+    return got
+
+
 # ------------------------------------------------------------ 三大法人（股數→張）
 def _lots(r, i):
     return (_num(r[i]) or 0) / 1000 if i is not None and i < len(r) else None
@@ -701,8 +722,13 @@ def main():
                     help="只重抓消息面／籌碼面並存檔（傍晚補跑：15:20 時證交所法人、本益比常常還沒公布）")
     ap.add_argument("--dispo-years", type=float, metavar="N", help="處置公告往回補 N 年（研究用，存 disposal_5y.csv.gz）")
     ap.add_argument("--attn-years", type=float, metavar="N", help="注意股公告往回補 N 年（研究用，存 attention_5y.csv.gz）")
+    ap.add_argument("--oddlot-days", type=int, metavar="N", help="盤後零股往回補 N 個交易日（存 oddlot_hist.csv.gz）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    if a.oddlot_days:
+        d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+        print("盤後零股歷史", backfill_oddlot(_session(), d, a.oddlot_days), "天")
+        return
     if a.dispo_years or a.attn_years:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
         if a.dispo_years:

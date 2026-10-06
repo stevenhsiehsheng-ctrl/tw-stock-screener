@@ -14,6 +14,9 @@ on:
       attn_years:
         description: "另外把注意股公告往回補幾年（研究用，留空＝不補）"
         default: ""
+      oddlot_days:
+        description: "另外把盤後零股往回補幾個交易日（留空＝不補）"
+        default: ""
 
 permissions:
   contents: write
@@ -40,6 +43,9 @@ jobs:
       - name: 處置長歷史
         if: ${{ inputs.dispo_years != '' && inputs.dispo_years != null }}
         run: python -m screener.enrich --dispo-years "${{ inputs.dispo_years }}" --date "$(TZ=Asia/Taipei date +%F)"
+      - name: 盤後零股回補
+        if: ${{ inputs.oddlot_days != '' && inputs.oddlot_days != null }}
+        run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days }}" --date "$(TZ=Asia/Taipei date +%F)"
       - name: 注意股長歷史
         if: ${{ inputs.attn_years != '' && inputs.attn_years != null }}
         run: python -m screener.enrich --attn-years "${{ inputs.attn_years }}" --date "$(TZ=Asia/Taipei date +%F)"
