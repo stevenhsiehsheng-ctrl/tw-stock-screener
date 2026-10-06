@@ -209,6 +209,34 @@ def bench_tr() -> int:
     return n
 
 
+EXDIV_LONG = DIR / "exdiv_5y.csv.gz"
+
+
+def backfill_long(years: float = 5, today: dt.date | None = None, s=None) -> int:
+    """除權息長歷史（研究用，data/extras/exdiv_5y.csv.gz；每天用的 exdiv.csv 不動）。
+    只要『哪天哪檔除權息、權值＋息值』：5 年回測用還原價看不出除息日，判斷假突破要用（Cowork 0425）。
+    證交所 TWT49U、櫃買 exDailyQ 都能一次查一段，半年一段，5 年約 10 段、幾分鐘。"""
+    s = s or _session()
+    today = today or dt.date.today()
+    out, a = [], today - dt.timedelta(days=int(years * 365.25))
+    while a <= today:
+        b = min(today, a + dt.timedelta(days=180))
+        try:
+            out.append(fetch_done(s, a, b))
+        except Exception as e:  # noqa: BLE001
+            log.warning("除權息 %s~%s 失敗：%s", a, b, e)
+        a = b + dt.timedelta(days=1)
+        time.sleep(3)
+    df = pd.concat(out, ignore_index=True) if out else pd.DataFrame(columns=COLS)
+    if EXDIV_LONG.exists():
+        df = pd.concat([pd.read_csv(EXDIV_LONG, dtype={"code": str}), df], ignore_index=True)
+    df = df.drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
+    df.reindex(columns=["date", "code", "market", "kind", "prev_close", "ref_price", "value"]).to_csv(
+        EXDIV_LONG, index=False, compression="gzip")
+    log.info("除權息長歷史：%d 筆（%s～%s）", len(df), df.date.min() if len(df) else "-", df.date.max() if len(df) else "-")
+    return len(df)
+
+
 def update(today: dt.date, s=None) -> dict:
     """第一次補兩年，之後每天重抓最近 30 天（避免漏掉晚公布的）＋即將除權息清單，順便更新 0050 含息指數。"""
     s = s or _session()
