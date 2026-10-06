@@ -519,7 +519,7 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    from . import gifts, revdrift, us, weekly
+    from . import gifts, macro, revdrift, us, weekly
     weeks = weekly.write(out_dir)
     try:
         has_us = us.write(out_dir)
@@ -532,6 +532,11 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
         logging.warning("營收漂移成績頁產生失敗：%s", e)
         has_rev = False
     try:
+        has_macro = macro.write(out_dir)
+    except Exception as e:  # 大環境頁壞掉不能拖垮每日報表
+        logging.warning("大環境頁產生失敗：%s", e)
+        has_macro = False
+    try:
         has_gifts = gifts.write(out_dir)
     except Exception as e:  # 紀念品頁壞掉不能拖垮每日報表
         logging.warning("股東紀念品頁產生失敗：%s", e)
@@ -541,6 +546,7 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
              + (" ・ <a href='gifts.html'>🎁 股東紀念品</a>" if has_gifts else "")
              + (" ・ <a href='revdrift.html'>📈 營收漂移每批</a>" if has_rev else "")
              + (" ・ <a href='us.html'>🇺🇸 美股隔夜</a>" if has_us else "")
+             + (" ・ <a href='macro.html'>🌏 大環境</a>" if has_macro else "")
              + " ・ <a href='archive.html'>歷史報表</a>")
     (out_dir / f"{date}.html").write_text(html_for(links), "utf-8")
     (out_dir / "index.html").write_text(html_for(links), "utf-8")
