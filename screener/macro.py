@@ -250,6 +250,7 @@ def regime(long: pd.DataFrame) -> dict:
     """大盤風險燈（協作板 2358 回測、Cowork 0026 條件）：
     R2 主燈＝加權收盤距 52 週（250 交易日）高 ≤ −10%；R1＝加權跌破 200 日線連 3 日；R3＝費半收盤 < 200 日線（輔助、假警報多）。
     R2 是『已經跌 10% 才亮』，不是預知；綠燈不等於安全，所以並列偏離 200 日線的歷史分位。"""
+    long = _drop_unfinished(long)  # 手動在盤中跑也不會拿到還沒收完的半根（Cowork 0349）
     px = long.pivot(index="date", columns="sym", values="close").sort_index()
     tw = px["^TWII"].dropna()
     dd = (tw / tw.rolling(250, min_periods=200).max() - 1) * 100
