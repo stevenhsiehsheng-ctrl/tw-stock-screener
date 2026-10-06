@@ -24,6 +24,20 @@ SYMS = [("^TWII", "加權指數"), ("0050.TW", "0050"), ("^SOX", "費城半導�
         ("DX-Y.NYB", "美元指數"), ("TWD=X", "美元兌台幣"), ("HG=F", "銅"), ("CL=F", "原油")]
 
 
+TW_SYMS = {"^TWII", "0050.TW"}
+
+
+def _drop_unfinished(df: pd.DataFrame, now: pd.Timestamp | None = None) -> pd.DataFrame:
+    """盤中抓會多一根還沒收完的當天 K（例如台北 23:53 抓，美股才開盤兩小時）：
+    台股代號台北 14:30 前、其他（美股、期貨、匯率）美東 17:00 前，當天那列切掉。"""
+    now = now if now is not None else pd.Timestamp.now(tz="UTC")
+    tpe, ny = now.tz_convert("Asia/Taipei"), now.tz_convert("America/New_York")
+    cut_tw = tpe.strftime("%Y-%m-%d") if (tpe.hour, tpe.minute) >= (14, 30) else (tpe - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    cut_us = ny.strftime("%Y-%m-%d") if ny.hour >= 17 else (ny - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    tw = df.sym.isin(TW_SYMS)
+    return df[(tw & (df.date <= cut_tw)) | (~tw & (df.date <= cut_us))]
+
+
 def update() -> int:
     import yfinance as yf
 
@@ -44,7 +58,7 @@ def update() -> int:
         log.info("%s：%s～%s，%d 筆", sym, out[-1].date.min(), out[-1].date.max(), len(out[-1]))
     if not out:
         return 0
-    df = pd.concat(out, ignore_index=True).dropna(subset=["close"])
+    df = _drop_unfinished(pd.concat(out, ignore_index=True).dropna(subset=["close"]))
     DATA.mkdir(parents=True, exist_ok=True)
     df.sort_values(["sym", "date"]).to_csv(LONG, index=False, compression="gzip")
     return len(df)

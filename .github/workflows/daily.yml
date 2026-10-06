@@ -66,7 +66,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data site 2>/dev/null || git add data 2>/dev/null || true
           if git diff --cached --quiet; then echo "沒有變更"; else
-            git commit -m "每日資料 $(TZ=Asia/Taipei date +%F)"
+            # 訊息用資料本身的最新交易日，不用跑的當下日期（GitHub 排程常延遲好幾小時，半夜跑出來會被誤認成隔天的資料）
+            D=$(python -c "import pandas as p; print(p.read_csv('data/history.csv.gz', usecols=['date']).date.max())" 2>/dev/null || TZ=Asia/Taipei date +%F)
+            git commit -m "每日資料 $D（跑於 $(TZ=Asia/Taipei date '+%m-%d %H:%M')）"
             # 別的排程剛好也推了資料時：重試，衝突的檔案以這次新產生的為準
             ok=0; for i in 1 2 3; do
               if git pull --rebase -X theirs && git push; then ok=1; break; fi
