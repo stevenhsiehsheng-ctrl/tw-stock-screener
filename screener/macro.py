@@ -64,6 +64,16 @@ def update() -> int:
     if not out:
         return 0
     df = _drop_unfinished(pd.concat(out, ignore_index=True).dropna(subset=["close"]))
+    if LONG.exists():
+        # Yahoo 偶爾會把最新一根暫時吃掉（10/7 07:16 抓，^TWII 少了 10/6），或整個代號下載失敗：
+        # 舊檔裡比這次最後一天還新的列、這次沒抓到的代號，都留著，不讓檔案倒退。
+        old = pd.read_csv(LONG)
+        last = df.groupby("sym").date.max()
+        keep = old[old.date > old.sym.map(last).fillna("")]
+        if len(keep):
+            log.warning("Yahoo 這次少了 %d 列，沿用舊檔：%s", len(keep),
+                        keep.groupby("sym").date.max().to_dict())
+            df = pd.concat([df, keep], ignore_index=True)
     DATA.mkdir(parents=True, exist_ok=True)
     df.sort_values(["sym", "date"]).to_csv(LONG, index=False, compression="gzip")
     return len(df)
