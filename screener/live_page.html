@@ -206,6 +206,10 @@ function render(d){
     `<td class="${cls(r.inst5)}">${r.inst5==null?'—':(r.inst5>0?'+':'')+r.inst5.toFixed(1)+'%'}</td>`+
     `<td>${r.dt==null?'—':r.dt.toFixed(0)+'%'}</td>`;
   const flag=r=>r.flag?`<span class="tag r">${esc(r.flag)}</span>`:'';
+  // 10/6 實測：盤中預警股的量集中在早盤，09:30 的「預估全日量」平均高估約 86%、10:30 約 47%、12:50 只剩約 5%（曲線校正前先標示）
+  const early=now.getHours()*60+now.getMinutes()<630;
+  const projCell=r=>`<td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}${early&&r.proj_x!=null?'<div class="meta" title="早盤量集中，09:30 的預估約高估 86%、10:30 約 47%">早盤未校正</div>':''}</td>`;
+  const earlyTag=r=>r.first_time&&r.first_time<'10:30'?'<span class="tag" title="10:30 前觸發時的預估量比偏高（早盤量集中），12:50 前的重算值比較可信">早盤觸發</span>':'';
   const chip=m=>`<span class="tag${m[3]?' r':''}" title="${m[3]?'漲停鎖住':''}">${esc(m[1])} <span class="${m[3]?'':cls(m[2])}">${pct(m[2])}</span></span>`;
   table($('heat'),[['族群','l'],['發動'],['發動占比'],['其中爆量'],['漲停'],['漲 7%+'],['平均漲跌'],['達 5 家','l'],['成員（漲幅排序）','l']],
     (d.group_heat||[]).map(h=>`<tr><td class="l">${h.kind==='題材'?'<span class="tag w">題材</span>':''}<b>${esc(h.name)}</b><div class="meta">${h.n} 檔</div></td>
@@ -218,8 +222,8 @@ function render(d){
     (d.alerts||[]).map(r=>`<tr class="${r.hit||r.noprice||r.split?'':'off'}"><td class="l">${r.first_time}</td><td class="l">${link(r)}</td>
       <td class="l meta">${esc(r.industry)}</td><td>${num(r.first_price)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.since)}">${pct(r.since)}</td><td class="${cls(r.chg)}">${pct(r.chg)}</td>
-      <td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td><td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}
-      <td class="l">${flag(r)}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.hit?'<span class="tag g">仍符合</span>':r.split&&(r.noprice||!r.hit)?'<span class="tag w" title="處置股分盤集中撮合，盤中成交價更新很慢">分盤</span>':r.noprice?'<span class="tag">暫無報價</span>':'<span class="tag">已不符合</span>'}${extra(r)}</td></tr>`),
+      <td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td>${projCell(r)}${fund(r)}
+      <td class="l">${flag(r)}${earlyTag(r)}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.hit?'<span class="tag g">仍符合</span>':r.split&&(r.noprice||!r.hit)?'<span class="tag w" title="處置股分盤集中撮合，盤中成交價更新很慢">分盤</span>':r.noprice?'<span class="tag">暫無報價</span>':'<span class="tag">已不符合</span>'}${extra(r)}</td></tr>`),
     `今天還沒有早期預警（${d.alert_start||'09:30'} 起記錄）`);
 
   table($('holds'),[['股票','l'],['進場日','l'],['進場價'],['現價'],['報酬'],['今日漲跌'],['目前量(張)'],['預估全日 / 出場門檻(張)'],['預估量 / 爆量日'],['最多再抱'],['狀態','l']],
@@ -242,7 +246,7 @@ function render(d){
     '目前沒有符合條件的股票');
   function candRow(r){return `<tr><td class="l">${link(r)}</td><td class="l meta">${esc(r.industry)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.chg)}">${pct(r.chg)}</td><td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td><td>${r.vol_x==null?'—':r.vol_x.toFixed(1)+'×'}</td>
-      <td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}</td>${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${r.hit?'<span class="tag g">符合條件</span>':''}${peer(r)}${extra(r)}</td></tr>`}
+      ${projCell(r)}${fund(r)}<td class="l">${flag(r)}${r.split?'<span class="tag w">分盤</span>':''}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${r.hit?'<span class="tag g">符合條件</span>':''}${peer(r)}${extra(r)}</td></tr>`}
 }
 
 async function tick(){
