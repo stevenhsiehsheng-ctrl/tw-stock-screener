@@ -96,7 +96,9 @@ def official_stock(s, code: str, market: str, start: dt.date, end: dt.date) -> p
             else:
                 j = fetch._get_json(s, "https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock",
                                     {"code": code, "date": m.strftime("%Y/%m/01"), "response": "json"})
-                tabs = [(t.get("fields") or [], t.get("data") or []) for t in j.get("tables") or []]
+                # 這支 API 的 table 沒有 fields，欄位順序固定（成交量單位是張）
+                tpx = ["日期", "成交張數", "成交仟元", "開盤", "最高", "最低", "收盤", "漲跌", "筆數"]
+                tabs = [(t.get("fields") or tpx, t.get("data") or []) for t in j.get("tables") or []]
         except fetch.SourceUnavailable as e:
             log.warning("%s %s 抓不到：%s", code, m, e)
             tabs = []
