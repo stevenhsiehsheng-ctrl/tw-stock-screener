@@ -233,7 +233,10 @@ def inst_flow(hist: pd.DataFrame, inst: pd.DataFrame, industry: pd.Series, col: 
     cond = (streak >= min_streak) & (ratio >= min_ratio) & liq
     if ret60_pos:
         cond &= (C / C.shift(60) - 1).loc[F.index] > 0
-    first = cond & ~cond.shift(1, fill_value=False)
+    # 每一段連買（賣）只取第一次達標那天：比率或流動性中途掉下去又回來，不算新事件（Cowork 0436；
+    # 原本 cond & ~cond.shift(1) 會在同一段裡重複進場，投信那題多 7.8%）
+    seg = (hit == 0).cumsum()
+    first = cond & (cond.astype(int).apply(lambda s: s.groupby(seg[s.name]).cumsum()) == 1)
     ret5 = (C / C.shift(5) - 1).loc[F.index]
     ind = industry.reindex(C.columns)
     alld = list(C.index)
@@ -262,6 +265,7 @@ def inst_flow(hist: pd.DataFrame, inst: pd.DataFrame, industry: pd.Series, col: 
                              "nctrl": len(ctrl)})
     out = pd.DataFrame(rows, columns=["date", "code", "hold", "ex", "ctrl", "nctrl"])
     out["diff"] = out.ex - out.ctrl
+    out["no_ind"] = out.code.map(ind).isna()  # 查不到產業（多半是下市股）→ 沒得配對、diff 空白（分身 0445-ac）
     return out
 
 
@@ -277,8 +281,10 @@ def inst_flow_report(ev: pd.DataFrame, seed: int = 0) -> str:
         days = pd.Index(sorted(ev.date.unique()))
         cnt = g.groupby("date").size().reindex(days, fill_value=0).rolling(k, min_periods=1).sum()
         yr = dd.groupby(dd.date.str[:4])["diff"].agg(["size", "median"]).round(2)
+        ni = int(g.no_ind.sum()) if "no_ind" in g else 0
         lines.append(f"抱 {k} 日：N={len(g)}（有配對 {len(dd)}）訊號日 {g.date.nunique()} 一天最多 {g.groupby('date').size().max()} 檔 "
                      f"同時持有中位 {cnt[cnt > 0].median():.0f}／最大 {cnt.max():.0f}｜訊號組 平均 {g.ex.mean():+.2f} 中位 {g.ex.median():+.2f}｜"
                      f"配對差 平均 {dd['diff'].mean():+.2f} 中位 {dd['diff'].median():+.2f}（按日抽 5～95% {lo:+.2f}～{hi:+.2f}）\n"
+                     f"   查不到產業、沒得配對被丟掉的事件 {ni} 筆（{ni / max(len(g), 1):.1%}）{'⚠️ 超過 3%' if ni > 0.03 * len(g) else ''}\n"
                      f"   逐年（筆數／配對差中位）：{ {y: (int(r['size']), float(r['median'])) for y, r in yr.iterrows()} }")
     return "\n".join(lines)
