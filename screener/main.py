@@ -197,6 +197,10 @@ def main(argv=None) -> int:
     exits, holding = positions.update(
         hist, data_date, ic.get("exit_shrink_ratio", 0.5), int(ic.get("max_hold_days", 20)),
         ic.get("stop_loss_pct"))
+    try:
+        positions.fill_warn(sorted(hist.date.unique()))
+    except Exception as e:  # noqa: BLE001
+        log.warning("持有訊號補注意處置欄失敗：%s", e)
     pos_md = positions.build_md(exits, holding)
     if senti:
         pos_md = sentiment.md_line(senti) + "\n" + pos_md
