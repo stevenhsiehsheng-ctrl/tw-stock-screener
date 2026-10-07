@@ -79,7 +79,7 @@ if len(sys.argv) < 4:
         for c in conds: m &= ev(c)
         stats(name, m)
     stats('鎖漲停近似（≥9.5%且收＝高）', base & lock95)
-elif sys.argv[3] == 'mom':
+elif sys.argv[3] in ('mom', 'hot'):
     # Cowork 0327-cw-talk-mommatch：基準改『同日 同流動性五分位 × 過去 20 日報酬五分位』25 格等權
     lp = rules.limit_price(pc, True)
     lock = base & (p.close >= lp - 1e-6) & (p.close / pc - 1 <= 0.105)
@@ -92,6 +92,32 @@ elif sys.argv[3] == 'mom':
         ewq[k] = pd.DataFrame({q: fwd[k].where(univ).where(cell == q).mean(axis=1) for q in range(1, 26)})
     stats('雙排序基準：鎖漲停收盤買', lock)
     stats('雙排序基準：鎖漲停扣一字', lock & ~(lock & (p.open >= lp - 1e-6) & (p.low >= lp - 1e-6)))
+    if sys.argv[3] == 'hot':
+        # Cowork 0356-cw-talk-hotday：逐年每筆等權 vs 每訊號日先平均；訊號日按當天鎖漲停家數三分位（冷／溫／熱）
+        m = lock.copy(); m.iloc[:61] = False; m.loc[m.index > last_sig] = False
+        st = m.stack(); ii = st[st].index; d_all = ii.get_level_values(0)
+        q = qn.stack().reindex(ii).to_numpy(); qi = np.nan_to_num(q, nan=0).astype(int)
+        ri = np.array([pos[x] for x in d_all])
+        raw = fwd['close'].stack().reindex(ii).to_numpy()
+        bq = np.where(qi > 0, ewq['close'].to_numpy()[ri, np.clip(qi - 1, 0, 24)], np.nan)
+        ex = (raw - bq) * 100 - COST
+        ok = np.isfinite(ex); v, d = ex[ok], d_all[ok]
+        S = pd.Series(v, index=d)
+        dm = S.groupby(level=0).mean()
+        print('逐年：N／訊號日／每筆等權／每日先平均再等權')
+        for y in sorted(set(d.str[:4])):
+            sy = S[S.index.str[:4] == y]; dy = dm[dm.index.str[:4] == y]
+            print(f"  {y}: N={len(sy)} 日={len(dy)} 每筆 {sy.mean():+.2f} 日等權 {dy.mean():+.2f}")
+        print(f"全期：每筆 {S.mean():+.2f}、日等權 {dm.mean():+.2f}（NW t {nw_t(dm, H - 1):+.2f}）")
+        cnt = lock.sum(axis=1)                       # 當天全市場鎖漲停家數（含不在名單的也算，用 base 範圍）
+        cd = cnt.reindex(dm.index)
+        t1, t2 = np.quantile(cd, [1 / 3, 2 / 3])
+        lab = pd.Series(np.where(cd <= t1, '冷', np.where(cd <= t2, '溫', '熱')), index=dm.index)
+        tot = S.sum()
+        for b in ['冷', '溫', '熱']:
+            days_b = lab[lab == b].index
+            sb = S[S.index.isin(days_b)]; db = dm[dm.index.isin(days_b)]
+            print(f"  {b}（當天鎖漲停 {int(cd[days_b].min())}～{int(cd[days_b].max())} 家）：N={len(sb)} 日={len(db)} 平均 {sb.mean():+.2f} 中位 {sb.median():+.2f} 日等權 {db.mean():+.2f} NW t {nw_t(db.reindex(dm.index).dropna(), H - 1):+.2f} 占總超額 {sb.sum() / tot:.0%}")
 elif sys.argv[3] == 'fill':
     # Cowork 0255-cw-fillmodel 上下界＋0256-cw-talk-luliq 流動性拆格
     lp = rules.limit_price(pc, True)
