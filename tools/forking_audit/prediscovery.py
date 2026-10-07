@@ -79,6 +79,23 @@ if len(sys.argv) < 4:
         for c in conds: m &= ev(c)
         stats(name, m)
     stats('鎖漲停近似（≥9.5%且收＝高）', base & lock95)
+elif sys.argv[3] == 'fill':
+    # Cowork 0255-cw-fillmodel 上下界＋0256-cw-talk-luliq 流動性拆格
+    lp = rules.limit_price(pc, True)
+    touch = base & (p.high >= lp - 1e-6) & (p.close / pc - 1 <= 0.105)
+    lock = touch & (p.close >= lp - 1e-6)
+    unlock = touch & ~lock
+    one = lock & (p.open >= lp - 1e-6) & (p.low >= lp - 1e-6)
+    print('觸及', int(touch.sum().sum()), '鎖', int(lock.sum().sum()), '沒鎖', int(unlock.sum().sum()), '一字', int(one.sum().sum()))
+    stats('上界：收盤鎖漲停全成交', lock)
+    stats('悲觀界：觸及沒鎖、收盤買', unlock)
+    stats('鎖漲停扣一字', lock & ~one)
+    for q in range(1, 6):
+        stats(f'鎖漲停 流動性Q{q}', lock & (qn == q))
+        stats(f'鎖漲停 流動性Q{q} 一字', lock & one & (qn == q))
+    t95 = base & (p.high / pc - 1 >= 0.095) & (p.close / pc - 1 <= 0.105)
+    l95 = t95 & (p.close >= p.high - 1e-9) & (p.close / pc - 1 >= 0.095)
+    stats('≥9.5% 悲觀界：觸及沒鎖', t95 & ~l95)
 else:
     lu = ev({'type': 'limit_up'})
     chg = p.close / pc - 1
