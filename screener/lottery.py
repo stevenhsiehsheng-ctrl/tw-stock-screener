@@ -212,13 +212,18 @@ def report(trades: pd.DataFrame, ret: str = "ret", placebo: pd.DataFrame | None 
 
 def inst_flow(hist: pd.DataFrame, inst: pd.DataFrame, industry: pd.Series, col: str = "foreign", side: str = "buy",
               min_streak: int = 5, min_ratio: float = 0.10, liq_lots: float = 500, ret60_pos: bool = False,
-              holds: tuple[int, ...] = (5, 20), cost: float = COST) -> pd.DataFrame:
+              holds: tuple[int, ...] = (5, 20), cost: float = COST, liq_fallback: bool = True,
+              split_at: dict | None = None) -> pd.DataFrame:
     """法人連買／連賣事件＋同日配對（協作板 0244／0319 定死的口徑，週末 5 年版三題都只准用這一支）：
     - 訊號：col（foreign／trust）連續 side（buy＝買超、sell＝賣超）≥ min_streak 天，且 min_streak 日累計買（賣）超 ÷ 同期成交量
       ≥ min_ratio；前一日為止 20 日均量 ≥ liq_lots 張；取第一次達標那天，連買（賣）中斷前不重複。ret60_pos：只留前 60 日報酬 >0。
     - 進出：訊號日 T（法人資料收盤後才公布）→ T+1 開盤進、T+k 收盤出；ex＝個股減同窗全市場等權、扣 cost（%）。
     - 配對：同日、同產業、前 5 日報酬差 ±1%、該法人沒有連買（賣）≥ min_streak 天、流動性同門檻的股票，取平均 ctrl。
       diff＝ex − ctrl（沒有配對的 diff 空白）。
+    - liq_fallback（0455-cw-industry-pick (b)）：查不到產業的（多半是下市股）改配『同日、前 5 日報酬 ±1%、前一日 20 日均量同五分位、
+      不看產業』，配對池含全部股票；match 欄記 ind／liq。主結果用 (b)，(a)＝丟掉 match==liq 的當敏感度。
+    - split_at（投信季底倒貨說 0254）：{訊號日: 中間日}；中間日落在進出之間時，另算『進場→中間日收盤』那段的配對差 diff_a，
+      後段 diff_b＝diff − diff_a。
     inst：date、code、col（張）。industry：code → 產業。回傳每個事件×持有天數一列：date、code、hold、ex、ctrl、nctrl、diff。"""
     h = hist[hist.code.astype(str).str.fullmatch(r"[1-9]\d{3}")]
     piv = lambda c: h.pivot(index="date", columns="code", values=c).sort_index()  # noqa: E731
@@ -239,6 +244,8 @@ def inst_flow(hist: pd.DataFrame, inst: pd.DataFrame, industry: pd.Series, col: 
     first = cond & (cond.astype(int).apply(lambda s: s.groupby(seg[s.name]).cumsum()) == 1)
     ret5 = (C / C.shift(5) - 1).loc[F.index]
     ind = industry.reindex(C.columns)
+    v20 = V.rolling(20).mean().shift(1)
+    volq = np.ceil(v20.rank(axis=1, pct=True) * 5).loc[F.index]
     alld = list(C.index)
     pos = {d: i for i, d in enumerate(alld)}
     rows = []
@@ -258,13 +265,27 @@ def inst_flow(hist: pd.DataFrame, inst: pd.DataFrame, industry: pd.Series, col: 
             for c in codes:
                 if not ok.get(c, False):
                     continue
-                m = pool & (ind == ind.get(c)).to_numpy() & ((ret5.loc[d] - ret5.loc[d, c]).abs() <= 0.01).to_numpy() & ok.to_numpy()
+                near = ((ret5.loc[d] - ret5.loc[d, c]).abs() <= 0.01).to_numpy() & ok.to_numpy()
+                if pd.isna(ind.get(c)) and liq_fallback:
+                    m, how = pool & near & (volq.loc[d] == volq.loc[d, c]).to_numpy(), "liq"
+                else:
+                    m, how = pool & (ind == ind.get(c)).to_numpy() & near, "ind"
                 m[C.columns.get_loc(c)] = False
                 ctrl = ex[m]
-                rows.append({"date": d, "code": c, "hold": k, "ex": ex[c], "ctrl": ctrl.mean() if len(ctrl) else np.nan,
-                             "nctrl": len(ctrl)})
-    out = pd.DataFrame(rows, columns=["date", "code", "hold", "ex", "ctrl", "nctrl"])
+                row = {"date": d, "code": c, "hold": k, "ex": ex[c], "ctrl": ctrl.mean() if len(ctrl) else np.nan,
+                       "nctrl": len(ctrl), "match": how}
+                mid = (split_at or {}).get(d)
+                if mid is not None and e < mid < x and len(ctrl):
+                    ra = C.loc[mid] / O.loc[e] - 1
+                    oka = ra.notna() & (ra.abs() < 3) & ok
+                    exa = (ra - ra[oka].mean()) * 100
+                    ma = m & oka.to_numpy()
+                    if oka.get(c, False) and ma.any():
+                        row["diff_a"] = exa[c] - exa[ma].mean()
+                rows.append(row)
+    out = pd.DataFrame(rows, columns=["date", "code", "hold", "ex", "ctrl", "nctrl", "match", "diff_a"])
     out["diff"] = out.ex - out.ctrl
+    out["diff_b"] = out["diff"] - out["diff_a"]
     out["no_ind"] = out.code.map(ind).isna()  # 查不到產業（多半是下市股）→ 沒得配對、diff 空白（分身 0445-ac）
     return out
 
@@ -282,9 +303,12 @@ def inst_flow_report(ev: pd.DataFrame, seed: int = 0) -> str:
         cnt = g.groupby("date").size().reindex(days, fill_value=0).rolling(k, min_periods=1).sum()
         yr = dd.groupby(dd.date.str[:4])["diff"].agg(["size", "median"]).round(2)
         ni = int(g.no_ind.sum()) if "no_ind" in g else 0
+        if "match" in g and (g.match == "liq").any():
+            da = dd[dd.match == "ind"]
+            lines.append(f"抱 {k} 日（敏感度 (a)：丟掉查不到產業的 {int((dd.match == 'liq').sum())} 筆）：配對差 平均 {da['diff'].mean():+.2f} 中位 {da['diff'].median():+.2f}")
         lines.append(f"抱 {k} 日：N={len(g)}（有配對 {len(dd)}）訊號日 {g.date.nunique()} 一天最多 {g.groupby('date').size().max()} 檔 "
                      f"同時持有中位 {cnt[cnt > 0].median():.0f}／最大 {cnt.max():.0f}｜訊號組 平均 {g.ex.mean():+.2f} 中位 {g.ex.median():+.2f}｜"
                      f"配對差 平均 {dd['diff'].mean():+.2f} 中位 {dd['diff'].median():+.2f}（按日抽 5～95% {lo:+.2f}～{hi:+.2f}）\n"
-                     f"   查不到產業、沒得配對被丟掉的事件 {ni} 筆（{ni / max(len(g), 1):.1%}）{'⚠️ 超過 3%' if ni > 0.03 * len(g) else ''}\n"
+                     f"   查不到產業的事件 {ni} 筆（{ni / max(len(g), 1):.1%}，(b) 改用流動性配對）{'⚠️ 超過 3%' if ni > 0.03 * len(g) else ''}\n"
                      f"   逐年（筆數／配對差中位）：{ {y: (int(r['size']), float(r['median'])) for y, r in yr.iterrows()} }")
     return "\n".join(lines)
