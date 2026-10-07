@@ -333,6 +333,25 @@ def write(site_dir: Path) -> bool:
     if got is None:
         return False
     last, strats, rows = rows_for_page(*got)
+    uni, _, fund, _ = got
+    cal = ""
+    if len(fund) and "next_earn" in fund:
+        f = fund.merge(uni[["code", "name", "name_zh", "group"]], on="code", how="left")
+        f = f[f.next_earn.fillna("").str.len() == 10]
+        end = (dt.date.fromisoformat(last) + dt.timedelta(days=15)).isoformat()
+        f = f[(f.next_earn > last) & (f.next_earn <= end) & ~f.group.fillna("").str.contains("ETF")]
+        f = f.sort_values(["next_earn", "mcap"], ascending=[True, False])
+        if len(f):
+            items = []
+            for d, g in f.groupby("next_earn", sort=True):
+                wd = "一二三四五六日"[dt.date.fromisoformat(d).weekday()]
+                names = "、".join(f"<a href='stock.html?code={html.escape(r.code)}'>{html.escape(r.name_zh if isinstance(r.name_zh, str) and r.name_zh else r.code)}</a>"
+                                 for r in g.head(12).itertuples())
+                more = f" 等 {len(g)} 家" if len(g) > 12 else ""
+                items.append(f"<li><b>{d[5:]}（{wd}）</b> {names}{more}</li>")
+            cal = (f"<details class='box' open><summary><b>📅 未來兩週財報</b>（{len(f)} 家，照市值排；日期是美東時間，"
+                   f"盤後公布的台北隔天早上才看得到反應）</summary><ul style='margin:6px 0;padding-left:20px'>{''.join(items)}</ul>"
+                   f"<div class='meta'>財報日來自 Yahoo，每天輪流更新一批，可能有幾天誤差；還沒補到基本面的公司不會出現。</div></details>")
     bt = json.loads(BT5.read_text("utf-8")) if BT5.exists() else {}
     cost = _cfg().get("cost_pct", 0.3)
     js = lambda o: json.dumps(o, ensure_ascii=False, default=str).replace("</", "<\\/")  # noqa: E731
@@ -340,6 +359,7 @@ def write(site_dir: Path) -> bool:
 <title>美股篩選</title><style>{PAGE_CSS}</style></head><body><main><!--SITENAV:usx-->
 <h1>🇺🇸 美股篩選</h1><div class="meta">{html.escape(last)} 美股收盤（台北隔天早上 06:20 更新）・S&amp;P 500＋那斯達克 100＋常用 ETF／ADR，{len(got[0])} 檔・價格為還原價（美元）</div>
 <div class="tiles" id="tiles"></div><p class="note" id="btnote"></p>
+{cal}
 <div class="box">💵 <b>台灣人買美股要知道的</b>：國泰複委託網路下單，<b>個股買賣各 0.08%、不設最低收費</b>（優惠到 2026/12/31）；ETF 每筆 3 美元（小額買 ETF 反而貴）。
 賣出另有美國 SEC 規費（約 0.003%）。換匯有價差，錢留在美元帳戶就只付一次。現金股利先扣 30% 美國稅。美股沒有漲跌停、一股就能買，交割 T+1。
 交易時間台北 21:30～04:00（夏令）／22:30～05:00（冬令），所以這裡的名單是「早上看、當晚開盤買」。回測成本抓來回 {cost}%（手續費 0.16%＋買賣價差）。</div>
