@@ -254,7 +254,7 @@ function btNote(){const L=BT5.strategies||[];if(!L.length)return;const P=BT5.per
    `<div class="gt"><table><tr><th>策略</th><th>今天檔數</th><th>20 日平均</th><th>中位</th><th>正的年份</th><th>5 日平均</th><th>收盤買 20 日</th><th>N</th></tr>`+
    R.map(s=>{const b=bt(s.name);if(!b)return`<tr><td>${s.name}</td><td>${s.codes.length}</td><td colspan="6">—</td></tr>`;const c=b.next_open_20;
      return `<tr><td>${s.name}</td><td>${s.codes.length}</td><td>${pc(c.ex)}</td><td>${pc(c.med)}</td><td>${(c.pos_years||[]).join('/')}</td><td>${pc(b.next_open_5.ex)}</td><td>${b.close_20?pc(b.close_20.ex)+(b.close_20.pass?' 🟨':''):'—'}</td><td>${b.n.toLocaleString()}</td></tr>`}).join('')+
-   `</table></div><p class="note">這些招還是每天算（例如「準備突破觀察」是盤中監控的觀察名單），只是不放在這裡；個股頁會照樣標出來。🟨＝當天收盤買過四關但假設買得到。漲停那招就是這樣：紙上很好看，但鎖住的排隊幾乎買不到，歷史上真的買得到的（摸到漲停、收盤沒鎖）只占 3 成，那批 20 日平均${(()=>{const l=(bt('漲停')||{}).close_20;return l&&l.low?' '+pc(l.low.ex):'是負的'})()}。漲停收盤買已扣動能：改跟『同流動性×同樣前 20 天漲幅』的股票比，2025-09 以前仍 +0.78%（NW t 2.5），所以不只是追動能，但前提還是要買得到。</p>`}
+   `</table></div><p class="note">這些招還是每天算（例如「準備突破觀察」是盤中監控的觀察名單），只是不放在這裡；個股頁會照樣標出來。🟨＝當天收盤買過四關但假設買得到。漲停那招就是這樣：紙上很好看，但鎖住的排隊幾乎買不到，歷史上真的買得到的（摸到漲停、收盤沒鎖）只占 3 成，那批 20 日平均${(()=>{const l=(bt('漲停')||{}).close_20;return l&&l.low?' '+pc(l.low.ex):'是負的'})()}。漲停收盤買已扣動能：改跟『同流動性×同樣前 20 天漲幅』的股票比，2025-09 以前帳面 +0.78%（假設買得到）；但去掉最好 3 個月只剩 +0.26%，主要靠少數月份撐起來，不是穩定的 0.78。</p>`}
 // 同源（分身 0245：月超額相關 0.88，算一招；Cowork 0325 定：不併卡，註明）
 const TWIN={'強勢創新高':['爆量突破新高（收盤確認）',0.88],'爆量突破新高（收盤確認）':['強勢創新高',0.88]};
 const twin=n=>TWIN[n]&&SHOWN.some(s=>s.name===TWIN[n][0])?`<div class="d">🔗 跟「${TWIN[n][0]}」同源（相關 ${TWIN[n][1]}），算同一招</div>`:'';
