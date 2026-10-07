@@ -359,6 +359,7 @@ def write(site_dir: Path) -> bool:
 <title>美股篩選</title><style>{PAGE_CSS}</style></head><body><main><!--SITENAV:usx-->
 <h1>🇺🇸 美股篩選</h1><div class="meta">{html.escape(last)} 美股收盤（台北隔天早上 06:20 更新）・S&amp;P 500＋那斯達克 100＋常用 ETF／ADR，{len(got[0])} 檔・價格為還原價（美元）</div>
 <div class="tiles" id="tiles"></div><p class="note" id="btnote"></p>
+<p class="note">⚠️ <b>成分股為現在名單，回測可能高估</b>（只測到活下來、還在指數裡的公司）；含被踢出／下市公司的版本重跑中。</p>
 {cal}
 <div class="box">💵 <b>台灣人買美股要知道的</b>：國泰複委託網路下單，<b>個股買賣各 0.08%、不設最低收費</b>（優惠到 2026/12/31）；ETF 每筆 3 美元（小額買 ETF 反而貴）。
 賣出另有美國 SEC 規費（約 0.003%）。換匯有價差，錢留在美元帳戶就只付一次。現金股利先扣 30% 美國稅。美股沒有漲跌停、一股就能買，交割 T+1。
