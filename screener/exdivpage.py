@@ -25,6 +25,12 @@ def _r(v, nd=2):
     return None if v is None or not np.isfinite(v) else round(float(v), nd)
 
 
+def _med(fill: pd.Series):
+    """填息天數中位：還沒填的當成無限大（不能丟掉，不然只是『有填的那批』的中位）；中位落在沒填的那半就回 None。"""
+    m = fill.fillna(np.inf).median()
+    return None if not np.isfinite(m) else _r(m, 0)
+
+
 def fill_days(done: pd.DataFrame, C: pd.DataFrame) -> pd.DataFrame:
     """每筆已除權息：填息天數（沒填完＝NaN）、到今天經過幾個交易日、現在離填息還差幾 %。"""
     days = list(C.index)
@@ -73,7 +79,14 @@ def build() -> dict | None:
     stats = {"n": int(len(old)), "since": old.date.min() if len(old) else None,
              "d1": _r((old.fill <= 1).mean() * 100, 0), "d5": _r((old.fill <= 5).mean() * 100, 0),
              "d20": _r((old.fill <= 20).mean() * 100, 0), "d60": _r((old.fill <= 60).mean() * 100, 0),
-             "med": _r(old.fill.median(), 0)}
+             "med": _med(old.fill)}
+    # 殖利率分組（分身 0345：殖利率越高，要漲回去的幅度越大，越難填；不能只給全市場數字）
+    yl = old.value / old.prev_close * 100
+    stats["groups"] = []
+    for lab, lo, hi in [("≤2%", -1, 2), ("2～4%", 2, 4), ("4～6%", 4, 6), (">6%", 6, 1e9)]:
+        g = old[(yl > lo) & (yl <= hi)]
+        if len(g):
+            stats["groups"].append([lab, int(len(g)), _r((g.fill <= 20).mean() * 100, 0), _r((g.fill <= 60).mean() * 100, 0), _med(g.fill)])
     # 每檔最近一次的填息紀錄，給預告表參考
     prev = fd.sort_values("date").groupby("code").tail(1).set_index("code")   # tail 不會像 last() 跳過空值
 
@@ -121,7 +134,8 @@ label{font-size:13.5px;color:var(--muted);margin-left:10px;white-space:nowrap}
 <div class="meta">資料日 __DATE__・預告來自證交所／櫃買中心除權息預告表・殖利率＝這次現金股利 ÷ 最近收盤</div>
 <div class="box">📌 <b>除息不是送錢</b>：除息當天股價會先扣掉股利，帳面總值不變；之後漲回除息前價格才叫「填息」。
 領到的股利要併入綜合所得稅（或選 28% 分開計稅），單次領 2 萬元以上還要扣 2.11% 二代健保補充保費。
-所以「為了領股利才買」通常不划算，除非你本來就想長期持有。</div>
+所以「為了領股利才買」通常不划算，除非你本來就想長期持有。
+另外<b>殖利率越高越難填</b>（要漲回去的幅度越大）：過去一年殖利率 6% 以上的，60 天內填回的只有約 2 成。</div>
 
 <h2>過去一年填息統計</h2>
 <div class="tiles" id="stats"></div>
@@ -140,8 +154,10 @@ const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,
 const f=(v,d=2)=>v==null?'—':v.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}),WD='日一二三四五六';
 const S=D.stats;
 $('stats').innerHTML=[['當天就填息',S.d1],['5 天內',S.d5],['20 天內',S.d20],['60 天內',S.d60]].map(([k,v])=>`<div class="tile"><div class="k">${k}</div><div class="v">${v==null?'—':v+'%'}</div></div>`).join('')+
- `<div class="tile"><div class="k">填息天數中位</div><div class="v">${S.med==null?'—':S.med+' 天'}</div></div>`;
-$('statnote').textContent=`${S.since||''} 起、已經過 60 個交易日以上的 ${S.n} 筆除權息。60 天內沒填的約 ${S.d60==null?'—':100-S.d60}%。`;
+ `<div class="tile"><div class="k">填息天數中位</div><div class="v">${S.med==null?'過半還沒填':S.med+' 天'}</div></div>`;
+$('statnote').innerHTML=`${S.since||''} 起、已經過 60 個交易日以上的 ${S.n} 筆除權息。60 天內沒填的約 ${S.d60==null?'—':100-S.d60}%。中位數把還沒填的也算進去（當成無限久）。`+
+ (S.groups&&S.groups.length?`<div class="tbl" style="margin-top:8px"><table><tr><th class="l">這次殖利率</th><th>筆數</th><th>20 天內填息</th><th>60 天內填息</th><th>填息天數中位</th></tr>`+
+  S.groups.map(g=>`<tr><td class="l">${g[0]}</td><td>${g[1]}</td><td>${g[2]}%</td><td>${g[3]}%</td><td>${g[4]==null?'過半還沒填':g[4]+' 天'}</td></tr>`).join('')+'</table></div>':'');
 function up(){const q=$('q').value.trim().toLowerCase(),hy=$('hy').checked;let last='',h='';
  D.upcoming.filter(r=>(!q||(r.c+r.n+r.i).toLowerCase().includes(q))&&(!hy||(r.y||0)>=3)).forEach(r=>{
   if(r.d!==last){last=r.d;const w=WD[new Date(r.d+'T00:00:00+08:00').getDay()];h+=`<tr class="day"><td colspan="9">${r.d.slice(5)}（${w}）</td></tr>`}
