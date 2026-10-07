@@ -42,7 +42,7 @@ h1{font-size:22px;margin:0 0 2px}
 .tile .bt b{color:var(--text,inherit);font-weight:600}
 .btnote{color:var(--muted);font-size:12.5px;margin:4px 0 10px;line-height:1.6}
 .badge{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-bottom:4px}
-.badge.ok{background:#0ca30c;color:#fff}.badge.no{background:rgba(128,128,128,.2);color:var(--muted)}
+.badge.ok{background:#0ca30c;color:#fff}.badge.warn{background:#f2c94c;color:#3a2c00}.badge.no{background:rgba(128,128,128,.2);color:var(--muted)}
 .tile .bt3{display:flex;gap:10px;font-size:12px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--line);color:var(--muted);font-variant-numeric:tabular-nums}
 .tile .bt3 b{display:block;font-size:14px;color:var(--text,inherit)}
 @media(max-width:560px){.tiles{grid-template-columns:1fr 1fr;gap:8px}.tile{padding:10px 11px}.tile .n{font-size:22px}}
@@ -235,17 +235,28 @@ function bt(name){return (BT5.strategies||[]).find(x=>x.name===name)}
 function pass(b){const c=b&&b.next_open_20;if(c&&c.pass!==undefined)return !!c.pass;return !!c&&c.ex>=0.5&&c.med>=0&&c.pos_years&&c.pos_years[0]>=4}
 function btLine(name){const b=bt(name);if(!b)return'';const c=b.next_open_20,a=b.next_open_5;
   return `<div class="bt3"><span>20 日平均<b>${pc(c.ex)}</b></span><span>中位<b>${pc(c.med)}</b></span><span>正的年份<b>${c.pos_years?c.pos_years.join('/'):'—'}</b></span></div>`+
-   `<details class="d" onclick="event.stopPropagation()"><summary>更多</summary>5 日平均 ${pc(a.ex)}・20 日勝率 ${c.win.toFixed(0)}%・NW t ${c.t_nw!=null?c.t_nw.toFixed(1):'—'}・拿掉最好 3 個月 ${c.mo_drop3!=null?pc(c.mo_drop3):'—'}・N ${b.n.toLocaleString()}${c.ex_ew!=null?`・比全市場平均 ${pc(c.ex_ew)}`:''}</details>`}
-function badge(name){const b=bt(name);if(!b)return'';return pass(b)?'<span class="badge ok">5 年有贏</span>':'<span class="badge no">未通過驗證・僅供參考</span>'}
+   `<details class="d" onclick="event.stopPropagation()"><summary>更多</summary><b>隔天開盤買</b> 20 日${seg(c)}・5 日 ${pc(a.ex)}・勝率 ${c.win.toFixed(0)}%・NW t ${c.t_nw!=null?c.t_nw.toFixed(1):'—'}・拿掉最好 3 個月 ${c.mo_drop3!=null?pc(c.mo_drop3):'—'}・N ${b.n.toLocaleString()}${c.ex_ew!=null?`・比全市場 ${pc(c.ex_ew)}`:''}${closeMore(b)}</details>`}
+function closeMore(b){const k=b.close_20;if(!k)return'';const l=k.low;
+  return `<br><b>當天收盤買</b> 20 日 ${pc(k.ex)}${seg(k)}・NW t ${k.t_nw!=null?k.t_nw.toFixed(1):'—'}・${k.pass?'四關過':'沒過'}`+
+   (l?`<br><b>扣掉買不到的</b>（歷史上買得到 ${Math.round(l.buyable_pct)}%）${pc(l.ex)}・${l.pass?'四關過':'沒過'}`:'')}
+// 收盤買（Cowork 0255-cw-badge）：黃＝四關過但假設收盤一定買得到；綠＝悲觀界（收盤鎖漲停的算買不到）也過
+const cpass=b=>!!(b&&b.close_20&&b.close_20.pass),lpass=b=>!!(b&&b.close_20&&b.close_20.low&&b.close_20.low.pass);
+function badge(name){const b=bt(name);if(!b)return'';if(pass(b))return'<span class="badge ok">5 年有贏</span>';
+  if(lpass(b))return'<span class="badge ok">收盤買 5 年有贏</span>';
+  if(cpass(b))return'<span class="badge warn" title="當天收盤買才過關，而且假設收盤一定買得到；鎖漲停的其實很難買到">收盤買過關・假設買得到</span>';
+  return'<span class="badge no">未通過驗證・僅供參考</span>'}
+function seg(c){const s=c&&c.split;if(!s||!s.pre)return'';return `（發現前 ${pc(s.pre.ex)}／後 ${s.post?pc(s.post.ex):'—'}）`}
 function btNote(){const L=BT5.strategies||[];if(!L.length)return;const P=BT5.period||[];const ok=SHOWN.filter(s=>pass(bt(s.name)));
   $('btnote').innerHTML=(ok.length?`✅ 5 年驗證過的：<b>${ok.map(s=>s.name).join('、')}</b>。`:`🔍 <b>觀察清單</b>：目前<b>沒有</b>一招通過 5 年驗證，名單只用來找值得看的股票，不是買進訊號；進場看盤中 13:12。`)+
-   `<br><span>驗證口徑：5 年含下市股（${P[0]||''}～${P[1]||''}），名單收盤後出來、隔天開盤買，持有 20 天，扣來回 0.38%，跟<b>同一天、成交金額差不多的股票</b>平均比（不然買到熱門股也算功勞）。四關都過才算：5 年至少 4 年是正的、拿掉最好 3 個月還是正的、扣掉持有期重疊後統計上站得住（Newey-West t ≥ 2）、砍掉最好 5% 的大賺之後仍比隨便買同類股票好 0.5% 以上。除權息對這個比法的影響 <0.1%（2025-10～2026-09 實測）。</span>`;
+   `<br><span>驗證口徑：5 年含下市股（${P[0]||''}～${P[1]||''}），名單收盤後出來、隔天開盤買，持有 20 天，扣來回 0.38%，跟<b>同一天、成交金額差不多的股票</b>平均比（不然買到熱門股也算功勞）。四關都過才算：5 年至少 4 年是正的、拿掉最好 3 個月還是正的、扣掉持有期重疊後統計上站得住（Newey-West t ≥ 2）、砍掉最好 5% 的大賺之後仍比隨便買同類股票好 0.5% 以上。除權息對這個比法的影響 <0.1%（2025-10～2026-09 實測）。`+
+   `<br>🟨 黃章＝改成<b>當天收盤買</b>才過四關，但前提是收盤一定買得到。多出來的那截幾乎都來自鎖漲停的股票，而鎖漲停排隊很難買到；把買不到的扣掉，目前沒有一招過關，所以沒有綠章。`+
+   `${BT5.split?`<br>「發現前」＝${BT5.split} 以前（這些招是在那之後的一年看出來的，所以發現前才是真正沒看過的資料）。`:''}</span>`;
   const R=STRATS.filter(s=>HIDDEN.includes(s.name));if(!R.length)return;const el=$('retired');el.hidden=false;$('showhid').hidden=false;
   el.innerHTML=`<summary>已撤 ${R.length} 招：5 年隔天開盤買沒贏全市場平均（${R.map(s=>s.name).join('、')}）<span>點開看成績</span></summary>`+
-   `<div class="gt"><table><tr><th>策略</th><th>今天檔數</th><th>20 日平均</th><th>中位</th><th>正的年份</th><th>5 日平均</th><th>N</th></tr>`+
-   R.map(s=>{const b=bt(s.name);if(!b)return`<tr><td>${s.name}</td><td>${s.codes.length}</td><td colspan="5">—</td></tr>`;const c=b.next_open_20;
-     return `<tr><td>${s.name}</td><td>${s.codes.length}</td><td>${pc(c.ex)}</td><td>${pc(c.med)}</td><td>${(c.pos_years||[]).join('/')}</td><td>${pc(b.next_open_5.ex)}</td><td>${b.n.toLocaleString()}</td></tr>`}).join('')+
-   `</table></div><p class="note">這些招還是每天算（例如「準備突破觀察」是盤中監控的觀察名單），只是不放在這裡；個股頁會照樣標出來。漲停那招當天收盤買才有數字，但鎖漲停買不到，不可用。</p>`}
+   `<div class="gt"><table><tr><th>策略</th><th>今天檔數</th><th>20 日平均</th><th>中位</th><th>正的年份</th><th>5 日平均</th><th>收盤買 20 日</th><th>N</th></tr>`+
+   R.map(s=>{const b=bt(s.name);if(!b)return`<tr><td>${s.name}</td><td>${s.codes.length}</td><td colspan="6">—</td></tr>`;const c=b.next_open_20;
+     return `<tr><td>${s.name}</td><td>${s.codes.length}</td><td>${pc(c.ex)}</td><td>${pc(c.med)}</td><td>${(c.pos_years||[]).join('/')}</td><td>${pc(b.next_open_5.ex)}</td><td>${b.close_20?pc(b.close_20.ex)+(b.close_20.pass?' 🟨':''):'—'}</td><td>${b.n.toLocaleString()}</td></tr>`}).join('')+
+   `</table></div><p class="note">這些招還是每天算（例如「準備突破觀察」是盤中監控的觀察名單），只是不放在這裡；個股頁會照樣標出來。🟨＝當天收盤買過四關但假設買得到。漲停那招就是這樣：紙上很好看，但鎖住的排隊幾乎買不到，歷史上真的買得到的（摸到漲停、收盤沒鎖）只占 3 成，那批 20 日平均${(()=>{const l=(bt('漲停')||{}).close_20;return l&&l.low?' '+pc(l.low.ex):'是負的'})()}。</p>`}
 function tiles(){
   $('tiles').innerHTML=SHOWN.map((s,i)=>`<div class="tile${sel===i?' on':''}" data-i="${i}" role="button" tabindex="0">${badge(s.name)}
    <div class="n">${s.codes.length}</div><div class="t">${s.name}</div><div class="d">${s.desc}</div>${btLine(s.name)}</div>`).join('');
