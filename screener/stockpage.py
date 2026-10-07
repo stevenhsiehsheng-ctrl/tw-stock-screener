@@ -96,6 +96,16 @@ def build(out_dir: Path) -> int:
 
     rev = _read(EX / "rev_hist.csv.gz")
     inst = _read(EX / "inst_hist.csv.gz")
+    # 長期法人：inst_5y 每週累計買賣超（張），個股頁畫外資／投信累計線
+    il = _read(EX / "inst_5y.csv.gz", usecols=["date", "code", "foreign", "trust"])
+    inst_long = {}
+    if il is not None and not il.empty:
+        il["wk"] = pd.to_datetime(il.date).dt.to_period("W-FRI")
+        wk = il.groupby(["code", "wk"], sort=True).agg(date=("date", "max"), f=("foreign", "sum"), t=("trust", "sum")).reset_index()
+        wk[["f", "t"]] = wk.groupby("code")[["f", "t"]].cumsum()
+        inst_long = {c: g for c, g in wk.groupby("code")}
+    shares = _read(EX / "shares.csv")
+    sh = shares.drop_duplicates("code").set_index("code").shares if shares is not None and not shares.empty else pd.Series(dtype=float)
     marg = _read(EX / "margin_hist.csv.gz")
     dtr = _read(EX / "daytrade_hist.csv.gz")
     pe = _read(EX / "pe.csv")
@@ -168,6 +178,9 @@ def build(out_dir: Path) -> int:
         if (x := G["inst"].get(c)) is not None:
             x = x.sort_values("date").tail(60)
             o["inst"] = [[d, _r(f, 0), _r(t, 0), _r(dd, 0)] for d, f, t, dd in zip(x.date, x.foreign, x.trust, x.dealer)]
+        if (x := inst_long.get(c)) is not None and len(x) >= 8:
+            o["inst_long"] = {"d": x.date.tolist(), "f": [_r(v, 0) for v in x.f], "t": [_r(v, 0) for v in x.t],
+                              "lots": _r(sh.get(c) / 1000, 0) if c in sh.index else None}
         if (x := G["marg"].get(c)) is not None:
             x = x.sort_values("date").tail(60)
             o["margin"] = [[d, _r(m, 0), _r(s, 0)] for d, m, s in zip(x.date, x.margin_bal, x.short_bal)]
