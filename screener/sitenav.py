@@ -10,6 +10,7 @@ from pathlib import Path
 
 # (key, 檔名, 文字)；None＝分組間隔
 ITEMS = [("live", "live.html", "⚡ 盤中即時"), ("daily", "index.html", "📊 每日篩選"),
+         ("stock", "stock.html", "🔎 個股查詢"),
          ("claude", None, "🔒 Claude 研判"), None,
          ("weekly", "weekly/index.html", "📅 市場週報"), ("macro", "macro.html", "🌏 大環境"),
          ("us", "us.html", "🇺🇸 美股隔夜"), ("revdrift", "revdrift.html", "📈 營收漂移"),
