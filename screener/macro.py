@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "macro"
 LONG = DATA / "long.csv.gz"
 REGIME = DATA / "regime.json"
+SOURCES = DATA / "sources.json"   # 每個代號 Yahoo 最近一次實際給到哪天
 
 SYMS = [("^TWII", "加權指數"), ("0050.TW", "0050"), ("^SOX", "費城半導體"), ("^GSPC", "標普 500"),
         ("^VIX", "VIX 恐慌指數"), ("^TNX", "美國 10 年債殖利率"), ("^IRX", "美國 3 個月國庫券殖利率"),
@@ -41,6 +42,18 @@ def _drop_unfinished(df: pd.DataFrame, now: pd.Timestamp | None = None) -> pd.Da
     cut_us = ny.strftime("%Y-%m-%d") if ny.hour >= 17 else (ny - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     tw = df.sym.isin(TW_SYMS)
     return df[(tw & (df.date <= cut_tw)) | (~tw & (df.date <= cut_us))]
+
+
+def _save_sources(yahoo_last: dict) -> None:
+    """記下 Yahoo 這次實際給到每個代號的哪一天（sources.json）；這次整個沒抓到的代號沿用上次記的。
+    regime 拿它跟 long.csv.gz 的最後一天比，就知道最後那幾根是 Yahoo 給的還是從舊檔沿用的（carried）。"""
+    try:
+        prev = json.loads(SOURCES.read_text("utf-8"))
+    except Exception:  # noqa: BLE001
+        prev = {}
+    prev.update({k: str(v) for k, v in yahoo_last.items()})
+    DATA.mkdir(parents=True, exist_ok=True)
+    SOURCES.write_text(json.dumps(prev, ensure_ascii=False, indent=1, sort_keys=True), "utf-8")
 
 
 def update() -> int:
@@ -64,11 +77,12 @@ def update() -> int:
     if not out:
         return 0
     df = _drop_unfinished(pd.concat(out, ignore_index=True).dropna(subset=["close"]))
+    last = df.groupby("sym").date.max()
+    _save_sources(last.to_dict())
     if LONG.exists():
         # Yahoo 偶爾會把最新一根暫時吃掉（10/7 07:16 抓，^TWII 少了 10/6），或整個代號下載失敗：
         # 舊檔裡比這次最後一天還新的列、這次沒抓到的代號，都留著，不讓檔案倒退。
         old = pd.read_csv(LONG)
-        last = df.groupby("sym").date.max()
         keep = old[old.date > old.sym.map(last).fillna("")]
         if len(keep):
             log.warning("Yahoo 這次少了 %d 列，沿用舊檔：%s", len(keep),
@@ -236,7 +250,9 @@ def write(site_dir: Path) -> bool:
                  + f"<div class='meta'>R2＝已經跌 10% 才亮，不是預知。綠燈不等於安全：加權現在離 200 日線 {g['dev200']:+.1f}%，"
                  f"在 {g['dev200_since'][:4]} 年以來排第 {g['dev200_pct_all']:.0f} 百分位。"
                  + (f"另外亮著：{aux}。" if aux else "R1、R3 都沒亮。") + "燈亮只提醒、不自動賣。</div>"
-                 + ("".join(f"<div class='meta'>⚠️ {html.escape(x['sym'])} 停在 {x['last']}（應該到 {x['ref']}）"
+                 + ("".join(f"<div class='meta'>⚠️ {html.escape(x['sym'])} "
+                            + (f"已經連 {x.get('carried_days')} 個交易日沒從 Yahoo 抓到新資料、沿用舊檔" if x.get("reason") == "carried"
+                               else f"停在 {x['last']}（應該到 {x['ref']}）")
                             + ("，<b>燈號用的就是它，燈可能是舊的</b>" if x["sym"] in CORE else "") + "</div>"
                             for x in g.get("stale", [])))
                  + "</div>")
@@ -260,12 +276,19 @@ def _dev200(s: pd.Series) -> pd.Series:
     return (s / s.rolling(200).mean() - 1) * 100
 
 
-# 落後檢查（Cowork 0726）：同一組代號應該停在同一個交易日。每組的參考日＝組內最新的一天，
+# 落後檢查（Cowork 0726、0755、0825）：同一組代號應該停在同一個交易日。每組的參考日＝組內最新的一天，
 # 台股另外比 daily 的 state.json、美股指數另外比 us/meta.json（整組一起沒更新也抓得到）。
-# 匯率、期貨跟美股假日不同，美國放假那天這組可能誤報一次，所以只當提醒；燈號用的是加權、費半。
+# 美股、匯率期貨兩組數落後天數時跳過美國股市＋債市假日（債市多放哥倫布日、退伍軍人節，美債殖利率那兩天沒資料），
+# 不會因為放假誤報；台股組靠 state.json，不用假日表。燈號用的是加權、費半（CORE）。
 STALE_GROUPS = {"tw": ("^TWII", "0050.TW"), "us": ("^SOX", "^GSPC", "^VIX", "^TNX", "^IRX"),
                 "fx": ("DX-Y.NYB", "TWD=X", "HG=F", "CL=F")}
 CORE = ("^TWII", "^SOX")
+# NYSE 休市＋SIFMA 債市休市（2026～2027；過了要補）
+US_HOLIDAYS = ["2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25", "2026-06-19", "2026-07-03",
+               "2026-09-07", "2026-10-12", "2026-11-11", "2026-11-26", "2026-12-25",
+               "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05",
+               "2027-09-06", "2027-10-11", "2027-11-11", "2027-11-25", "2027-12-24"]
+CARRIED_MAX = 3   # 連續沿用舊檔幾個交易日以上就算落後
 
 
 def _json_get(path: Path, key: str) -> str:
@@ -275,19 +298,37 @@ def _json_get(path: Path, key: str) -> str:
         return ""
 
 
-def staleness(long: pd.DataFrame) -> tuple[dict, list]:
-    """回傳（每個代號最後一天, 落後清單）；落後＝比參考日少 ≥1 個平日（週一～五，不扣假日）。"""
+def _lag(d: str, ref: str, hol: list[str]) -> int:
+    """d 之後到 ref（含）之間有幾個交易日（平日、扣掉 hol）。"""
+    one = np.timedelta64(1, "D")
+    return int(np.busday_count(np.datetime64(d) + one, np.datetime64(ref) + one, holidays=hol))
+
+
+def staleness(long: pd.DataFrame) -> tuple[dict, dict, list]:
+    """回傳（每個代號最後一天, 每個代號來源, 落後清單）。
+    來源：yahoo＝最後一根是 Yahoo 這次給的；carried＝Yahoo 少給、沿用舊檔（carried_days＝沿用了幾個交易日）。
+    落後：比參考日少 ≥1 個交易日（behind），或沿用舊檔 ≥CARRIED_MAX 個交易日（carried）。"""
     last = long.groupby("sym").date.max().to_dict()
     ext = {"tw": _json_get(ROOT / "data" / "state.json", "last_done"), "us": _json_get(ROOT / "data" / "us" / "meta.json", "last")}
-    stale = []
+    try:
+        ylast = json.loads(SOURCES.read_text("utf-8"))
+    except Exception:  # noqa: BLE001
+        ylast = {}
+    src, stale = {}, []
     for g, syms in STALE_GROUPS.items():
+        hol = [] if g == "tw" else US_HOLIDAYS
         ref = max([last[s] for s in syms if s in last] + [ext.get(g, "")])
         for s in syms:
             d = last.get(s)
-            lag = int(np.busday_count(d, ref)) if d else None
+            y = ylast.get(s)
+            cd = _lag(y, d, hol) if d and y and y < d else 0
+            src[s] = {"source": "carried" if cd else "yahoo", "yahoo_last": y, "carried_days": cd}
+            lag = _lag(d, ref, hol) if d else None
             if d is None or lag >= 1:
-                stale.append({"sym": s, "last": d, "ref": ref, "lag": lag})
-    return last, stale
+                stale.append({"sym": s, "last": d, "ref": ref, "lag": lag, "reason": "behind"})
+            elif cd >= CARRIED_MAX:
+                stale.append({"sym": s, "last": d, "ref": ref, "lag": 0, "reason": "carried", "carried_days": cd})
+    return last, src, stale
 
 
 def regime(long: pd.DataFrame) -> dict:
@@ -314,8 +355,8 @@ def regime(long: pd.DataFrame) -> dict:
         sox = px["^SOX"].dropna()
         out.update({"r3": bool(sox.iloc[-1] < sox.rolling(200).mean().iloc[-1]), "sox_date": sox.index[-1],
                     "sox_dev200": round(float(_dev200(sox).iloc[-1]), 2)})
-    last, stale = staleness(long)
-    out.update({"last_dates": last, "stale": stale, "stale_core": [x["sym"] for x in stale if x["sym"] in CORE]})
+    last, src, stale = staleness(long)
+    out.update({"last_dates": last, "sources": src, "stale": stale, "stale_core": [x["sym"] for x in stale if x["sym"] in CORE]})
     if stale:
         log.warning("有代號沒更新到最新交易日：%s", stale)
     return out

@@ -26,6 +26,63 @@
   "^TWII": "2026-10-06",
   "^VIX": "2026-10-06"
  },
+ "sources": {
+  "^TWII": {
+   "source": "carried",
+   "yahoo_last": "2026-10-05",
+   "carried_days": 1
+  },
+  "0050.TW": {
+   "source": "carried",
+   "yahoo_last": "2026-10-05",
+   "carried_days": 1
+  },
+  "^SOX": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  },
+  "^GSPC": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  },
+  "^VIX": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  },
+  "^TNX": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  },
+  "^IRX": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  },
+  "DX-Y.NYB": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  },
+  "TWD=X": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  },
+  "HG=F": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  },
+  "CL=F": {
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
+  }
+ },
  "stale": [],
  "stale_core": [],
  "changed": false,
