@@ -393,9 +393,44 @@ if(BT5.strategies){{const L=BT5.strategies,lose=L.filter(x=>x.next_open_5.ex<=0)
     return True
 
 
+def sp500_changes() -> pd.DataFrame:
+    """維基百科 S&P 500「Selected changes」表：date, added, removed（還原每天當時的成分股用，Cowork 大題 E）。"""
+    import requests
+    r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+                     headers={"User-Agent": "Mozilla/5.0 (tw-stock-screener research)"}, timeout=30)
+    for t in pd.read_html(io.StringIO(r.text)):
+        if not isinstance(t.columns, pd.MultiIndex):
+            continue
+        cols = [" ".join(map(str, c)).lower() for c in t.columns]
+        try:
+            idate = next(i for i, c in enumerate(cols) if "date" in c)
+            iadd = next(i for i, c in enumerate(cols) if c.startswith("added") and "ticker" in c)
+            irem = next(i for i, c in enumerate(cols) if c.startswith("removed") and "ticker" in c)
+        except StopIteration:
+            continue
+        out = pd.DataFrame({"date": pd.to_datetime(t.iloc[:, idate], errors="coerce").dt.strftime("%Y-%m-%d"),
+                            "added": t.iloc[:, iadd].astype(str).str.strip().str.replace(".", "-", regex=False),
+                            "removed": t.iloc[:, irem].astype(str).str.strip().str.replace(".", "-", regex=False)})
+        out = out.dropna(subset=["date"]).replace({"nan": ""})
+        log.info("S&P 500 成分變動：%d 筆（%s～%s）", len(out), out.date.min(), out.date.max())
+        return out
+    raise RuntimeError("找不到 S&P 500 成分變動表")
+
+
 def backtest_download(years: int, out: str) -> None:
     uni = fetch_universe()
-    h = fetch_history(list(uni.code), period=f"{years}y")
+    syms = list(uni.code)
+    try:   # 含下市／被踢出：期間內被移出 S&P 500 的也一起抓（抓得到價的才有）
+        ch = sp500_changes()
+        start = (dt.date.today() - dt.timedelta(days=365 * years + 40)).isoformat()
+        ch = ch[ch.date >= start]
+        ch.to_csv(Path(out).with_name("sp500_changes.csv"), index=False)
+        extra = sorted({x for x in ch.removed if x and x not in set(syms)})
+        log.info("期間被移出的 %d 檔也抓", len(extra))
+        syms += extra
+    except Exception as e:  # noqa: BLE001
+        log.warning("成分變動表失敗（只抓現在名單）：%s", e)
+    h = fetch_history(syms, period=f"{years}y")
     h.to_csv(out, index=False)
     uni.to_csv(Path(out).with_name("universe.csv"), index=False)
     log.info("美股 %d 年日 K：%d 列、%d 檔 → %s", years, len(h), h.code.nunique(), out)
