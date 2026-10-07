@@ -15,6 +15,7 @@ on:
       - screener/macro.py
       - screener/longterm.py
       - screener/stockpage.py
+      - screener/chipspage.py
       - screener/usx.py
       - screener/stock_page.html
       - screener/sitenav.py
