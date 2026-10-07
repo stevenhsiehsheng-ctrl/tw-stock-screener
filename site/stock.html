@@ -235,6 +235,10 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   if(o.odd&&o.odd.price)tiles.push(`<div class="tile"><div class="k">盤後零股</div><div class="v">${fmt(o.odd.price)}</div><div class="meta">比整股收盤 ${sgn((o.odd.price/last-1)*100,2)}%</div></div>`);
   if(tiles.length)h.push(`<div class="grid">${tiles.join('')}</div>`);
   if(!(o.inst&&o.inst.length)&&!tiles.length)h.push('<p class="empty">沒有籌碼資料。</p>');
+  /* 同產業比較 */
+  if(o.peers&&o.peers.rows.length){const P=o.peers;
+    h.push(`<h2>同產業比較</h2><div class="meta">${esc(o.industry)}共 ${P.n} 檔，照市值排${P.rank?`，這檔排第 ${P.rank}`:''}。營收年增＝近 3 個月平均。</div>`);
+    h.push(`<div class="tbl"><table><tr><th>股票</th><th class="n">市值（億）</th><th class="n">20 日%</th><th class="n">本益比</th><th class="n">殖利率%</th><th class="n">營收年增%</th></tr>${P.rows.map(r=>`<tr${r[0]===o.code?' style="font-weight:700;background:rgba(128,128,128,.1)"':''}><td>${r[0]===o.code?esc(r[1]):`<a href="stock.html?code=${esc(r[0])}">${esc(r[1])}</a>`} <span class="meta">${esc(r[0])}</span></td><td class="n">${fmt(r[2],0)}</td><td class="n ${cls(r[3])}">${sgn(r[3],1)}</td><td class="n">${r[4]==null?'—':fmt(r[4],1)}</td><td class="n">${r[5]==null?'—':fmt(r[5],2)}</td><td class="n ${cls(r[6])}">${r[6]==null?'—':sgn(r[6],1)}</td></tr>`).join('')}</table></div>`)}
   /* 估值與股利 */
   h.push('<h2>估值與股利</h2>');
   if(o.pe)h.push(`<div class="grid"><div class="tile"><div class="k">本益比</div><div class="v">${fmt(o.pe.pe,1)}</div></div><div class="tile"><div class="k">股價淨值比</div><div class="v">${fmt(o.pe.pb,2)}</div></div><div class="tile"><div class="k">殖利率</div><div class="v">${fmt(o.pe.yield,2)}%</div></div></div>`);
