@@ -52,8 +52,8 @@ details summary{cursor:pointer;color:var(--muted);font-size:13.5px}
 </head>
 <body>
 <main>
-<style>.sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 16px;padding:0 0 12px;border-bottom:1px solid rgba(128,128,128,.25);font-size:13px;line-height:1.4}.sitenav a{padding:4px 11px;border-radius:999px;text-decoration:none;color:inherit;background:rgba(128,128,128,.13);white-space:nowrap;cursor:pointer}.sitenav a:hover{background:rgba(128,128,128,.24)}.sitenav a.on{background:#2f5bd3;color:#fff;font-weight:600}.sitenav i{width:1px;height:18px;background:rgba(128,128,128,.35);margin:0 4px}@media(max-width:560px){.sitenav i{display:none}}</style><nav class='sitenav'><a href='live.html'>⚡ 盤中即時</a><a href='index.html'>📊 每日篩選</a><a class='on' href='stock.html'>🔎 個股查詢</a><a href='#' onclick='return openClaude()'>🔒 Claude 研判</a><i></i><a href='weekly/index.html'>📅 市場週報</a><a href='macro.html'>🌏 大環境</a><a href='us.html'>🇺🇸 美股隔夜</a><a href='revdrift.html'>📈 營收漂移</a><a href='longterm.html'>🌱 長期 Top 20</a><i></i><a href='gifts.html'>🎁 股東紀念品</a><a href='archive.html'>🗂 歷史報表</a></nav><script src='claude_link.js'></script>
-<form class="search" id="f"><input id="q" list="dl" placeholder="輸入代號或名稱，例如 2330、台玻" autocomplete="off"><button>查詢</button></form>
+<style>.sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 16px;padding:0 0 12px;border-bottom:1px solid rgba(128,128,128,.25);font-size:13px;line-height:1.4}.sitenav a{padding:4px 11px;border-radius:999px;text-decoration:none;color:inherit;background:rgba(128,128,128,.13);white-space:nowrap;cursor:pointer}.sitenav a:hover{background:rgba(128,128,128,.24)}.sitenav a.on{background:#2f5bd3;color:#fff;font-weight:600}.sitenav i{width:1px;height:18px;background:rgba(128,128,128,.35);margin:0 4px}@media(max-width:560px){.sitenav i{display:none}}</style><nav class='sitenav'><a href='live.html'>⚡ 盤中即時</a><a href='index.html'>📊 每日篩選</a><a class='on' href='stock.html'>🔎 個股查詢</a><a href='#' onclick='return openClaude()'>🔒 Claude 研判</a><i></i><a href='weekly/index.html'>📅 市場週報</a><a href='macro.html'>🌏 大環境</a><a href='us.html'>🌙 美股隔夜</a><a href='revdrift.html'>📈 營收漂移</a><a href='longterm.html'>🌱 長期 Top 20</a><i></i><a href='gifts.html'>🎁 股東紀念品</a><a href='archive.html'>🗂 歷史報表</a></nav><script src='claude_link.js'></script>
+<form class="search" id="f"><input id="q" list="dl" placeholder="代號或名稱：2330、台玻、NVDA、蘋果" autocomplete="off"><button>查詢</button></form>
 <datalist id="dl"></datalist>
 <div class="recent" id="recent"></div>
 <div id="out"><p class="meta">資料每天收盤後更新。輸入代號或名稱開始。</p></div>
@@ -69,8 +69,8 @@ function addRecent(c,n){try{const r=getRecent().filter(x=>x[0]!==c);r.unshift([c
 function drawRecent(){$('#recent').innerHTML=getRecent().map(([c,n])=>`<a href="?code=${esc(c)}">${esc(c)} ${esc(n)}</a>`).join('')}
 async function loadIndex(){if(INDEX)return INDEX;try{INDEX=await (await fetch('stocks/index.json')).json()}catch(e){INDEX={s:[]}}
   $('#dl').innerHTML=INDEX.s.map(([c,n])=>`<option value="${esc(c)} ${esc(n)}">`).join('');return INDEX}
-function resolve(q){q=q.trim();if(!q)return null;const code=q.split(/\s+/)[0];
-  const s=INDEX.s;let h=s.find(x=>x[0]===code)||s.find(x=>x[1]===q)||s.find(x=>x[1].includes(q))||s.find(x=>x[0].startsWith(code));return h?h[0]:null}
+function resolve(q){q=q.trim();if(!q)return null;const code=q.split(/\s+/)[0].toUpperCase();const ql=q.toLowerCase();
+  const s=INDEX.s;let h=s.find(x=>x[0]===code)||s.find(x=>x[1]===q)||s.find(x=>x[1].toLowerCase().includes(ql))||s.find(x=>x[0].startsWith(code));return h?h[0]:null}
 $('#f').onsubmit=async e=>{e.preventDefault();await loadIndex();const c=resolve($('#q').value);
   if(!c){$('#out').innerHTML=`<p class="empty">找不到「${esc($('#q').value)}」。</p>`;return}
   history.pushState(null,'','?code='+c);show(c)};
@@ -106,7 +106,7 @@ function priceChart(box,o){fitW(box);const d=o.px.d,c=o.px.c,v=o.px.v,n=c.length
   s+=`<line class="cross" y1="${T}" y2="${H+VH}" stroke="var(--ref)" style="display:none"/>`;
   const vy0=H+8;s+=v.map((x,i)=>{const h=VH*x/vmax;return `<rect x="${X(i)-bw/2}" y="${vy0+VH-h}" width="${bw}" height="${Math.max(h,.5)}" fill="var(--ref)" opacity=".55"/>`}).join('');
   s+=`<text x="${W-R+4}" y="${vy0+10}">量</text></svg>`;box.innerHTML=s;
-  hover(box,box.querySelector('svg'),n,X,i=>`${d[i]}<br>收盤 <b>${fmt(c[i])}</b><br>成交 ${fmt(v[i],0)} 張`)}
+  hover(box,box.querySelector('svg'),n,X,i=>`${d[i]}<br>收盤 <b>${fmt(c[i])}</b><br>成交 ${fmt(v[i],0)} ${o.market==='US'?'千股':'張'}`)}
 function divBars(box,rows,label,unit,dp){/* rows: [[x, v]] 正＝紅、負＝藍 */fitW(box);const n=rows.length;if(!n){box.innerHTML='<p class="empty">沒有資料</p>';return}
   const H=150,L=8,R=46,T=8,B=18;const vs=rows.map(r=>r[1]??0);let lo=Math.min(0,...vs),hi=Math.max(0,...vs);if(lo===hi)hi=1;
   const X=i=>L+(W-L-R)*(i+.5)/n,Y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo)),bw=Math.max(2,(W-L-R)/n-2);
@@ -119,11 +119,38 @@ function divBars(box,rows,label,unit,dp){/* rows: [[x, v]] 正＝紅、負＝藍
   const step=Math.ceil(n/6);s+=rows.map((r,i)=>i%step===0?`<text x="${X(i)-10}" y="${H-3}">${esc(String(r[0]).slice(2))}</text>`:'').join('');
   s+='</svg>';box.innerHTML=s;hover(box,box.querySelector('svg'),n,X,i=>`${esc(rows[i][0])}<br>${esc(label)} <b>${sgn(rows[i][1],dp)}</b>${unit}`)}
 
+
+function showUS(o){const c=o.px.c,last=c[c.length-1],F=o.fund||{};const h=[];const money=v=>v==null?'—':'$'+fmt(v,2);
+  h.push(`<h1>${esc(o.name)} <span class="meta">${esc(o.code)}・美股${o.name_en&&o.name_en!==o.name?'・'+esc(o.name_en):''}</span></h1>`);
+  h.push(`<div class="meta">${esc(o.industry||'')}</div>`);
+  h.push(`<div class="hero"><span class="px">$${fmt(last)}</span><span class="chg ${cls(o.chg)}">${o.chg>0?'▲':o.chg<0?'▼':''} ${sgn(o.chg)}%</span><span class="meta">${esc(o.last)} 美股收盤（還原價）</span></div>`);
+  const b=[];(o.group||'').split('+').filter(Boolean).forEach(g=>b.push(`<span class="b">${{SP500:'S&P 500',NDX:'那斯達克 100',ETF:'ETF',ADR:'ADR'}[g]||esc(g)}</span>`));
+  if(F.next_earn){const dd=(new Date(F.next_earn)-new Date(o.asof))/864e5;b.push(`<span class="b ${dd>=0&&dd<=14?'warn':''}">📅 下次財報 ${esc(F.next_earn)}${dd>=0&&dd<=14?'（兩週內）':''}</span>`)}
+  (o.strats||[]).filter(x=>x[0]===o.asof).forEach(x=>b.push(`<span class="b">📊 今天上榜：${esc(x[1])}</span>`));
+  if(b.length)h.push(`<div class="badges">${b.join('')}</div>`);
+  h.push('<h2>近一年走勢</h2>');
+  h.push(`<div class="grid"><div class="tile"><div class="k">一年最高</div><div class="v">${money(o.hi52)}</div></div><div class="tile"><div class="k">一年最低</div><div class="v">${money(o.lo52)}</div></div><div class="tile"><div class="k">距一年高</div><div class="v">${sgn((last/o.hi52-1)*100,1)}%</div></div></div>`);
+  h.push('<div class="chart" id="cpx"></div>');
+  h.push('<h2>基本面</h2>');
+  if(o.fund){const T=(k,v)=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`,P=(v,d=1)=>v==null?'—':fmt(v,d)+'%';
+    h.push(`<div class="grid">${T('市值',F.mcap==null?'—':fmt(F.mcap,1)+' 十億美元')}${T('本益比',F.pe==null?'—':fmt(F.pe,1))}${T('預估本益比',F.fpe==null?'—':fmt(F.fpe,1))}${T('股價淨值比',F.pb==null?'—':fmt(F.pb,2))}
+      ${T('殖利率',P(F.yield,2))}${T('營收年增',P(F.rev_g))}${T('獲利年增',P(F.eps_g))}${T('毛利率',P(F.gross_m))}${T('營益率',P(F.op_m))}${T('ROE',P(F.roe))}
+      ${T('Beta',F.beta==null?'—':fmt(F.beta,2))}${T('空單占流通股',P(F.short_pct))}
+      ${T('分析師目標價',F.target==null?'—':money(F.target)+`<div class="meta">${sgn((F.target/last-1)*100,1)}%・${F.n_analyst||'?'} 位</div>`)}${T('分析師評等',esc({strong_buy:'強力買進',buy:'買進',hold:'持有',underperform:'表現落後',sell:'賣出',none:'—'}[F.rec]||F.rec||'—'))}</div>`);
+    if(F.summary)h.push(`<p class="meta">${esc(F.summary)}…</p>`);
+    h.push(`<p class="meta">基本面資料更新於 ${esc(F.updated||'—')}（Yahoo Finance，每天輪流補一批）。</p>`)}
+  else h.push('<p class="empty">基本面還沒補到這檔（每天輪流補一批）。</p>');
+  h.push('<h2>美股篩選紀錄</h2>');
+  const S=(o.strats||[]).slice().reverse();
+  h.push(S.length?`<div class="tbl"><table><tr><th>日期</th><th>策略</th></tr>${S.slice(0,30).map(x=>`<tr><td>${esc(x[0])}</td><td>📊 ${esc(x[1])}</td></tr>`).join('')}</table></div> <a href="usx.html">看今天的美股篩選 →</a>`:'<p class="empty">最近沒有出現在美股篩選裡。<a href="usx.html">看今天的美股篩選 →</a></p>');
+  h.push(`<p class="meta">資料日 ${esc(o.asof)}（美股收盤）。用複委託買賣，手續費約 0.1%～0.25%、有最低收費；股利先扣 30% 美國稅。不構成投資建議。</p>`);
+  $('#out').innerHTML=h.join('');CUR=o;charts()}
 /* ---------- 頁面 ---------- */
 function sum(a){return a.reduce((s,x)=>s+(x||0),0)}
 async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta">讀取中…</p>';
-  let o;try{const r=await fetch(`stocks/${encodeURIComponent(code)}.json`);if(!r.ok)throw 0;o=await r.json()}catch(e){$('#out').innerHTML=`<p class="empty">沒有 ${esc(code)} 的資料（只收上市櫃普通股與 ETF）。</p>`;return}
+  let o;try{const r=await fetch(`stocks/${encodeURIComponent(code)}.json`);if(!r.ok)throw 0;o=await r.json()}catch(e){$('#out').innerHTML=`<p class="empty">沒有 ${esc(code)} 的資料（台股收上市櫃普通股與 ETF；美股收 S&amp;P 500、那斯達克 100 與常用 ETF／ADR）。</p>`;return}
   document.title=`${o.name} ${o.code}｜個股查詢`;$('#q').value='';addRecent(o.code,o.name);drawRecent();
+  if(o.market==='US'){showUS(o);return}
   const c=o.px.c,last=c[c.length-1],stale=o.last!==o.asof;const h=[];
   h.push(`<h1>${esc(o.name)} <span class="meta">${esc(o.code)}・${o.market==='TWSE'?'上市':o.market==='TPEX'?'上櫃':esc(o.market)}${o.industry?'・'+esc(o.industry):''}</span></h1>`);
   h.push(`<div class="hero"><span class="px">${fmt(last)}</span><span class="chg ${cls(o.chg)}">${o.chg>0?'▲':o.chg<0?'▼':''} ${sgn(o.chg)}%</span><span class="meta">${esc(o.last)} 收盤${stale?'（這檔最近沒有交易）':''}</span></div>`);
