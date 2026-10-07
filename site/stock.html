@@ -239,7 +239,8 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   h.push('<h2>估值與股利</h2>');
   if(o.pe)h.push(`<div class="grid"><div class="tile"><div class="k">本益比</div><div class="v">${fmt(o.pe.pe,1)}</div></div><div class="tile"><div class="k">股價淨值比</div><div class="v">${fmt(o.pe.pb,2)}</div></div><div class="tile"><div class="k">殖利率</div><div class="v">${fmt(o.pe.yield,2)}%</div></div></div>`);
   const ex=[...(o.exdiv_next||[]).map(e=>[...e,'即將']),...(o.exdiv||[]).slice().reverse().map(e=>[...e,''])];
-  h.push(ex.length?`<div class="tbl"><table><tr><th>除權息日</th><th>類別</th><th class="n">現金股利</th><th class="n">配股比例</th><th></th></tr>${ex.map(e=>`<tr><td>${esc(e[0])}</td><td>${esc(e[1])}</td><td class="n">${e[2]?fmt(e[2],2):'—'}</td><td class="n">${e[3]?fmt(e[3],4):'—'}</td><td>${e[4]}</td></tr>`).join('')}</table></div>`:'<p class="empty">近年沒有除權息紀錄。</p>');
+  const fillTxt=e=>e[4]==='即將'?'即將':e[4]==null||e[4]===''?'':e[4]===0?'還沒填':`${e[4]} 天填息`;
+  h.push(ex.length?`<div class="tbl"><table><tr><th>除權息日</th><th>類別</th><th class="n">現金股利</th><th class="n">配股比例</th><th>填息</th></tr>${ex.map(e=>`<tr><td>${esc(e[0])}</td><td>${esc(e[1])}</td><td class="n">${e[2]?fmt(e[2],2):'—'}</td><td class="n">${e[3]?fmt(e[3],4):'—'}</td><td>${fillTxt(e)}</td></tr>`).join('')}</table></div><p class="meta">填息天數：除息當天算第 1 天，收盤回到除息前一天收盤那天；只算近一年。<a href="exdiv.html">除權息行事曆 →</a></p>`:'<p class="empty">近年沒有除權息紀錄。</p>');
   if(o.warn_hist&&o.warn_hist.length){h.push('<h2>注意／處置紀錄</h2>');
     h.push(`<div class="tbl"><table><tr><th>公告日</th><th>類別</th><th>期間</th></tr>${o.warn_hist.slice().reverse().map(w=>`<tr><td>${esc(w[0])}</td><td>${esc(w[1])}</td><td>${esc(w[2])}${w[3]?' ～ '+esc(w[3]):''}</td></tr>`).join('')}</table></div>`)}
   h.push(`<p class="meta">資料日 ${esc(o.asof)}。不構成投資建議。</p>`);
