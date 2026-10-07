@@ -71,20 +71,24 @@ def tracking(top: dict) -> dict | None:
     pf = DATA / top["peers"] if top.get("peers") else None
     if pf is not None and pf.exists():
         peers = json.loads(pf.read_text("utf-8"))["peers"]
-        def ex(c):   # 每檔對自己 10 檔同類等權的超額（同類下市：最後價轉現金，報酬停在那天）
+        import numpy as np
+        def ex(c):   # 每檔對自己 10 檔同類中位數的 log 超額（Cowork 1655）；同類下市：最後價轉現金，報酬停在那天
             pp = [x for x in peers.get(c, {}).get("peers", [])]
             pr_ = allr.reindex(pp).dropna()
-            return (allr[c] - pr_.mean(), allr[c] > pr_.median()) if c in allr.index and len(pr_) else (None, None)
+            if c not in allr.index or not len(pr_):
+                return (None, None)
+            med = float(pr_.median())
+            return (100 * (np.log1p(allr[c] / 100) - np.log1p(med / 100)), allr[c] > med)
         res = {c: ex(c) for c in peers}
         res = {c: v for c, v in res.items() if v[0] is not None}
         mine = [res[c] for c in codes if c in res]
         if mine:
-            import numpy as np
-            exs = np.clip(np.array([m[0] for m in mine]), -50, 50)
+            cap_ = 100 * np.log(2)   # 截在 ±ln2（翻倍／腰斬）
+            exs = np.clip(np.array([m[0] for m in mine]), -cap_, cap_)
             n = len(exs)
             sd = float(exs.std(ddof=1)) if n > 1 else float("nan")
             beat = int(sum(bool(m[1]) for m in mine))
-            allx = np.clip(np.array([v[0] for v in res.values()]), -50, 50)
+            allx = np.clip(np.array([v[0] for v in res.values()]), -cap_, cap_)
             allb = np.array([bool(v[1]) for v in res.values()])
             rng = np.random.default_rng(int(asof.replace("-", "")))
             keys = list(res)
@@ -138,11 +142,11 @@ def write(site_dir: Path) -> bool:
                 + (f"<div>對同產業別配置（排除名單本身）{f(tr['ew'] - tr['ind'], 2)}"
                    + (f"<span class='meta'>（{esc('、'.join(tr['ind_fallback']))} 那類不到 5 檔，改比電子／非電子）</span>" if tr.get("ind_fallback") else "")
                    + f"</div><div>對電子／非電子配置（電子 {tr['elec_w']:.0%}）{f(tr['ew'] - tr['matched'], 2)}</div>" if "ind" in tr else "")
-                + (f"<div><b>對每檔自己的 10 檔同類（相關最高、名單外）：平均超額 {f(tr['peer_ex'], 2)}"
-                   f"（截在 ±50 點，t＝{tr['peer_t'] if tr['peer_t'] is not None else '—'}），{tr['peer_beat']}/{tr['peer_n']} 檔贏同類中位數</b>"
-                   f"<div class='meta'>← 只有這條算選股。成績單：跟同一池子隨機抽 1 萬組 20 檔比，平均超額贏過 {tr['rand_pct']:.0f}% 的隨機組、"
+                + (f"<div><b>對每檔自己的 10 檔同類（相關最高、名單外）：平均 log 超額 {f(tr['peer_ex'], 2)}"
+                   f"（對同類中位數、截在翻倍／腰斬，t＝{tr['peer_t'] if tr['peer_t'] is not None else '—'}），{tr['peer_beat']}/{tr['peer_n']} 檔贏同類中位數</b>"
+                   f"<div class='meta'>← 只有這條算選股。成績單：跟同一池子隨機抽 1 萬組 20 檔比，平均 log 超額贏過 {tr['rand_pct']:.0f}% 的隨機組、"
                    f"贏同類的檔數贏過 {tr['rand_beat_pct']:.0f}% 的隨機組"
-                   + (f"；照名單的市值大小、電子／非電子配對抽：{tr['rand_m_pct']:.0f}%／{tr['rand_m_beat_pct']:.0f}%" if tr.get("rand_m_pct") is not None else "")
+                   + (f"；（參考，不進判準）照起點市值大小、電子／非電子配對抽：{tr['rand_m_pct']:.0f}%／{tr['rand_m_beat_pct']:.0f}%" if tr.get("rand_m_pct") is not None else "")
                    + "。</div></div>" if "peer_ex" in tr else "")
                 + "<div class='meta'>股價報酬、不含息（兩邊都不含）。0050 約六成是台積電，比它、比同池都混了產業配置，不是選股。"
                   "幾天、幾週的差距幾乎都是雜訊。</div></div>")
