@@ -385,8 +385,8 @@ function render(){{const q=$('q').value.trim().toLowerCase();let R=DATA.filter(r
  <td>${{f(r.mcap,1)}}</td><td>${{f(r.pe,1)}}</td><td>${{f(r.fpe,1)}}</td><td>${{esc(r.next_earn||'—')}}</td><td class="l">${{r.tags.map(t=>`<span class="tag">${{esc(t)}}</span>`).join('')}}</td></tr>`).join('')}}
 document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{{const k=th.dataset.k;if(sk===k)sd*=-1;else{{sk=k;sd=(k==='code'||k==='name'||k==='sector'||k==='next_earn')?1:-1}}render()}});
 $('q').oninput=render;tiles();render();
-if(BT5.strategies){{const L=BT5.strategies,lose=L.filter(x=>x.next_open_5.ex<=0).length;const w20=L.filter(x=>x.next_open_20.ex>0.5&&x.next_open_20.t>=2).map(x=>`${{x.name}}（${{pc(x.next_open_20.ex)}}）`);
- $('btnote').innerHTML=`📏 5 年回測（${{(BT5.period||[]).join('～')}}，${{BT5.members==="pit"?"當時成分股":"現成分股"}}、扣來回 ${{BT5.cost}}%、比同期成分股等權）：隔天開盤買持有 5 天，${{lose}}/${{L.length}} 招輸平均；`+
+if(BT5.strategies){{const L=BT5.strategies,lose=L.filter(x=>x.next_open_5.ex<=0).length;const w20=L.filter(x=>x.next_open_20.pass!==undefined?x.next_open_20.pass:(x.next_open_20.ex>0.5&&x.next_open_20.t>=2)).map(x=>`${{x.name}}（${{pc(x.next_open_20.ex)}}）`);
+ $('btnote').innerHTML=`📏 5 年回測（${{(BT5.period||[]).join('～')}}，${{BT5.members==="pit"?"當時成分股":"現成分股"}}、扣來回 ${{BT5.cost}}%、比同日同流動性的成分股）：隔天開盤買持有 5 天，${{lose}}/${{L.length}} 招輸平均；`+
  (w20.length?`持有 20 天站得住的是 <b>${{w20.join('、')}}</b>。`:'持有 20 天也<b>沒有一招</b>站得住。')+(BT5.members==='pit'?'':'股票池是現在的成分股，有存活者偏差。');
  if(BT5.members==='pit')$('btpit').innerHTML=`🔍 回測用每天<b>當時</b>的成分股（含後來被踢出的），避免只測到贏家。${{esc(BT5.note||'')}}。之前只用現在名單時，財報跳空 20 日看起來 +1.42%，改成當時名單只剩 +0.34%——多出來的是存活者偏差。名單只當觀察用。`}}
 </script></body></html>"""
