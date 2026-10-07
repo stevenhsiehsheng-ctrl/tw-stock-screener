@@ -122,7 +122,21 @@ def oddlot(s, d: dt.date) -> pd.DataFrame:
     for k, (mkt, url, params) in enumerate(srcs):
         if k:
             time.sleep(3)
-        for t in _tables(_json(s, url, params)):
+        n0 = len(out)
+        for attempt in range(2):   # 10/7 上櫃整批 0 列（Cowork 1555）：某市場 0 列就隔 20 秒再抓一次
+            if attempt:
+                log.warning("%s 盤後零股 %s 0 列，20 秒後重抓", mkt, d)
+                time.sleep(20)
+            try:
+                tabs = _tables(_json(s, url, params))
+            except Exception as e:  # noqa: BLE001
+                log.warning("%s 盤後零股 %s 失敗：%s", mkt, d, e)
+                tabs = []
+            if tabs and any(t.get("data") for t in tabs):
+                break
+        if not tabs or not any(t.get("data") for t in tabs):
+            log.warning("⚠️ %s 盤後零股 %s 重抓後還是 0 列", mkt, d)
+        for t in tabs:
             f = t["fields"]
             ic, iq, ia = _col(f, "代號"), _col(f, "成交股數"), _col(f, "成交金額")
             ip = _col(f, "成交價")
@@ -138,6 +152,8 @@ def oddlot(s, d: dt.date) -> pd.DataFrame:
                             "bid": (_num(r[ib]) or None) if ib is not None else None,
                             "ask": (_num(r[ix]) or None) if ix is not None else None})
             break
+        if len(out) == n0:
+            log.warning("⚠️ %s 盤後零股 %s 沒有資料", mkt, d)
     return pd.DataFrame(out, columns=ODD_COLS[1:])
 
 
@@ -145,7 +161,9 @@ def update_oddlot_history(df: pd.DataFrame, d: dt.date) -> int:
     """當天盤後零股併進歷史檔（只留有成交或有掛價的），回傳天數。"""
     old = pd.read_csv(ODD_HIST, dtype={"code": str}) if ODD_HIST.exists() else pd.DataFrame(columns=ODD_COLS)
     x = df[df.price.notna() | df.bid.notna() | df.ask.notna()].assign(date=d.isoformat())[ODD_COLS]
-    h = pd.concat([old[old.date != d.isoformat()], x], ignore_index=True).sort_values(["date", "code"])
+    # 只換這次有抓到的市場；某市場這次 0 列就留舊的（不讓一邊失敗把另一邊或舊資料洗掉）
+    drop = (old.date == d.isoformat()) & old.market.isin(set(x.market))
+    h = pd.concat([old[~drop], x], ignore_index=True).sort_values(["date", "code"])
     h.to_csv(ODD_HIST, index=False, compression="gzip")
     return int(h.date.nunique())
 
@@ -154,7 +172,9 @@ def backfill_oddlot(s, d: dt.date, n: int = 60) -> int:
     """盤後零股往回補 n 個交易日（交易日照 history），已經有的日子跳過。回傳歷史天數。"""
     from . import fetch
     days = sorted(x for x in fetch.load_history().date.unique() if x <= d.isoformat())[-n:]
-    have = set(pd.read_csv(ODD_HIST, usecols=["date"]).date) if ODD_HIST.exists() else set()
+    # 「有了」＝上市、上櫃兩邊都有；只有一邊的日子（例如 10/7 上櫃 0 列）要補
+    have = (set(pd.read_csv(ODD_HIST, usecols=["date", "market"]).groupby("date").market.nunique().loc[lambda x: x >= 2].index)
+            if ODD_HIST.exists() else set())
     got = 0
     for x in days:
         if x in have:
