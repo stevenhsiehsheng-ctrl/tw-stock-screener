@@ -242,7 +242,7 @@ function render(){
   $('cnt').textContent=`顯示 ${rows.length} 檔`;
   $('empty').hidden=rows.length>0;
   $('bd').innerHTML=rows.map(r=>`<tr>
-   <td class="l code"><a href="${r.url}" target="_blank" rel="noopener">${r.code}</a></td>
+   <td class="l code"><a href="stock.html?code=${r.code}" title="個股頁">${r.code}</a></td>
    <td class="l"><div class="name"><span class="nm" data-code="${r.code}" title="看 K 線">${r.name}</span></div><div class="meta">${r.market==='TWSE'?'上市':'上櫃'}${r.industry?' ・ '+r.industry:''}</div></td>
    <td class="l">${spark(r.spark,r.spark_ma)}</td>
    ${cols.filter(c=>!c.l).map(c=>{const v=r[c.k];return `<td class="${v!=null&&c.c?c.c(v):''}">${v==null?'—':c.f(v)}</td>`}).join('')}
@@ -285,7 +285,7 @@ function largeBox(){
   const p=v=>v==null?'—':`<span class="${v>0?'up':v<0?'down':''}">${v>0?'+':''}${(+v).toFixed(1)}%</span>`;
   el.innerHTML=`<summary>大型股觀察表<span>近 20 日平均成交值前 ${LARGE.length} 大・ 核心持股檢查用</span></summary>
   <div class="gt"><table><thead><tr><th class="l">#</th><th class="l">股票</th><th>收盤</th><th>漲跌</th><th>成交值(億)</th><th>本益比</th><th>月營收年增</th><th>近3月年增</th><th>外資20日(張)</th><th>離52週高</th><th>樣板</th><th>RS</th></tr></thead><tbody>
-  ${LARGE.map(r=>`<tr><td class="l">${r.rank}</td><td class="l">${r.code} ${esc(r.name)}<div class="meta">${esc(r.industry)}</div></td><td>${r.close.toFixed(2)}</td><td>${p(r.chg)}</td>
+  ${LARGE.map(r=>`<tr><td class="l">${r.rank}</td><td class="l"><a href="stock.html?code=${r.code}">${r.code}</a> ${esc(r.name)}<div class="meta">${esc(r.industry)}</div></td><td>${r.close.toFixed(2)}</td><td>${p(r.chg)}</td>
    <td>${r.turnover.toFixed(1)}</td><td>${r.pe==null?'—':r.pe<=0?'虧損':(+r.pe).toFixed(1)}</td><td>${p(r.rev_yoy)}</td><td>${p(r.rev_yoy_3m)}</td>
    <td class="${r.foreign_20d>0?'up':r.foreign_20d<0?'down':''}">${r.foreign_20d==null?'—':(r.foreign_20d>0?'+':'')+Math.round(r.foreign_20d).toLocaleString()}</td>
    <td>${p(r.hi52_dist)}</td><td>${r.tpl==null?'—':r.tpl?'✓':'✗'}</td><td>${r.rs==null?'—':r.rs.toFixed(0)}</td></tr>`).join('')}</tbody></table></div>`;
@@ -319,7 +319,7 @@ const loadJS=src=>new Promise((ok,no)=>{const s=document.createElement('script')
 async function openK(code){
   const r=DATA.find(x=>x.code===code);if(!r)return;
   $('modal').hidden=false;document.body.style.overflow='hidden';
-  $('mt').innerHTML=`${esc(r.name)} <span style="color:var(--muted);font-size:14px">${r.code} ・ ${r.market==='TWSE'?'上市':'上櫃'}${r.industry?' ・ '+esc(r.industry):''}</span>`;
+  $('mt').innerHTML=`${esc(r.name)} <span style="color:var(--muted);font-size:14px">${r.code} ・ ${r.market==='TWSE'?'上市':'上櫃'}${r.industry?' ・ '+esc(r.industry):''}</span> <a href="stock.html?code=${r.code}" style="font-size:14px">完整個股頁 →</a>`;
   const f=(v,fn)=>v==null?'—':fn(v);
   $('mi').innerHTML=[`收盤 <b>${f(r.close,v=>v.toFixed(2))}</b>`,`漲跌 <b class="${r.change_pct>0?'up':r.change_pct<0?'down':''}">${f(r.change_pct,v=>(v>0?'+':'')+v.toFixed(2)+'%')}</b>`,
    `本益比 <b>${f(r.pe,v=>v<=0?'虧損':v.toFixed(1))}</b>`,`月營收年增 <b>${f(r.rev_yoy,v=>(v>0?'+':'')+v.toFixed(0)+'%')}</b>`,

@@ -144,11 +144,12 @@ def write(site_dir: Path) -> bool:
     df.to_csv(OUT, index=False)
     from .weekly import _page
     f = lambda v: "" if pd.isna(v) else f"{v:+.2f}%"
+    links = lambda s: " ".join(f"<a href='stock.html?code={html.escape(c)}'>{html.escape(c)}</a>" for c in str(s).split() if c != "nan")
     trs = "".join(
         f"<tr><td>{r.rev_month}</td><td>{r.batch_date}</td><td>{r.exit_date}{'' if r.done else '（未滿）'}</td><td>{r.n}</td>"
         f"<td>{f(r.avg)}</td><td>{f(r.median)}</td><td>{f(r.placebo_avg_median)}</td>"
         f"<td>{'' if r.beat is None or not r.done else ('贏' if r.beat else '輸')}</td><td>{r.lose_streak}</td><td>{f(r.avg6)}</td>"
-        f"<td>{html.escape(r.pick3) if r.cov_ok else '⚠️ 營收資料有缺，這批不抽'}</td><td>{f(r.pick3_avg)}</td><td>{'⚠️ 下架' if r.delist and r.done else ''}</td></tr>"
+        f"<td>{links(r.pick3) if r.cov_ok else '⚠️ 營收資料有缺，這批不抽'}</td><td>{f(r.pick3_avg)}</td><td>{'⚠️ 下架' if r.delist and r.done else ''}</td></tr>"
         for r in df.iloc[::-1].itertuples())
     body = ("<h1>月營收漂移（revdrift）每批成績</h1>"
             "<p>籃子＝年增 ≥30% 且營收創 12 個月新高；11 日後第一個交易日（10 日期限遇假日順延時再往後）開盤進、第 20 個交易日收盤出；"
