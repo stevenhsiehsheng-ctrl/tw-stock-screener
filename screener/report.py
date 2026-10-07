@@ -151,6 +151,7 @@ details.box td,details.box th{padding:6px 12px}
 details.box th{position:static;cursor:default}
 details.box td:first-child,details.box th:first-child,details.box td:nth-child(2),details.box th:nth-child(2){position:static;box-shadow:none;width:auto;min-width:0}
 details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
+/*__TODAY_CSS__*/
 </style>
 </head>
 <body>
@@ -158,6 +159,7 @@ details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
   <h1>__TITLE__</h1>
   <p class="sub">資料日期 __DATE__（__QDAY__）・ 共掃描 __SCANNED__ 檔</p>
   __ARCHIVE__
+  __TODAY_HTML__
   <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
   <p class="btnote" id="btnote"></p>
@@ -187,6 +189,7 @@ details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
 <script>
 const DATA=__DATA__;
 const GROUPS=__GROUPS__;
+const TODAY=__TODAY__;
 const STRATS=__STRATS__;
 const HIDDEN=__HIDDEN__;
 const SHOWN=STRATS.filter(s=>!HIDDEN.includes(s.name)),SHOWN_N=new Set(SHOWN.map(s=>s.name));
@@ -399,6 +402,7 @@ $('mx').onclick=closeK;$('modal').addEventListener('click',e=>{if(e.target.id===
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('modal').hidden)closeK();});
 $('bd').addEventListener('click',e=>{const n=e.target.closest('.nm');if(n)openK(n.dataset.code);});
 $('q').oninput=render;$('hidchk').onchange=render;senti();tiles();btNote();breadthBox();groupsBox();largeBox();astatsBox();render();
+/*__TODAY_JS__*/
 // 上方捲軸與表格同步
 (function(){const top=$('topscroll'),tb=$('tbl');
  function size(){top.firstElementChild.style.width=tb.scrollWidth+'px';top.hidden=tb.scrollWidth<=tb.clientWidth+2;}
@@ -506,6 +510,20 @@ def _bt5() -> dict:
         return {}
 
 
+def _today() -> dict:
+    try:
+        from . import today
+        return _clean(today.build())
+    except Exception as e:  # noqa: BLE001
+        logging.warning("今天重點失敗：%s", e)
+        return {}
+
+
+def _today_parts() -> tuple[str, str, str]:
+    from . import today
+    return today.TEMPLATE_HTML, today.CSS, today.JS
+
+
 def _hidden() -> list:
     """每日篩選頁不顯示的策略（config.yaml report.hidden_strategies；照樣每天算，只是不放首頁）。"""
     try:
@@ -535,6 +553,10 @@ def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link
         .replace("__ASTATS__", js(_clean(astats or {})))
         .replace("__BT5__", js(_bt5()))
         .replace("__HIDDEN__", js(_hidden()))
+        .replace("__TODAY__", js(_today()))
+        .replace("__TODAY_HTML__", _today_parts()[0])
+        .replace("/*__TODAY_CSS__*/", _today_parts()[1])
+        .replace("/*__TODAY_JS__*/", _today_parts()[2])
     )
 
 
