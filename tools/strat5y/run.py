@@ -112,7 +112,23 @@ def main(bt_path: str, market: str = "tw", members: str = "", cost_override: flo
     else:
         lu_open = (nxo >= rules.limit_price(p.close, True) - 1e-9)
     entry = {"next_open": nxo, "close": C}
-    fwd = {(k, h): (C.shift(-h) / e - 1).where(lambda r: r.abs() < 3) for k, e in entry.items() for h in H}
+    # 資料錯（分身 0515-cc-ac、Cowork 0525）：還原價裡沒還原的拆股／減資會出現一天 −95% 或 ×4 的跳空。
+    # 收盤 ÷ 前一個有成交日收盤 <0.6 或 >1.6（台股漲跌幅 10%，連兩個交易日也不可能）→ 持有期內碰到就剔掉那筆訊號，清單寫 jumps.csv
+    tc = p.close.where(p.traded)
+    ratio = tc / tc.ffill().shift(1)
+    jump = ((ratio < 0.6) | (ratio > 1.6)).fillna(False)
+    if jump.values.any():
+        first5 = p.traded.cumsum() <= 5
+        js = jump.stack()
+        js = js[js]
+        jl = pd.DataFrame({"date": js.index.get_level_values(0), "code": js.index.get_level_values(1)})
+        jl["ratio"] = [round(float(ratio.at[d, c]), 4) for d, c in zip(jl.date, jl.code)]
+        jl["reason"] = ["新股（上市 5 日內，可能是真的）" if first5.at[d, c] else ("疑似拆股未還原" if r < 0.6 else "疑似減資／併股未還原")
+                        for d, c, r in zip(jl.date, jl.code, jl.ratio)]
+        (dst.parent / "strat5y_jumps.csv").write_text(jl.to_csv(index=False), "utf-8")
+        print(f"跳空資料錯 {len(jl)} 筆（持有期內碰到的訊號剔除），清單寫 {dst.parent / 'strat5y_jumps.csv'}")
+    jump_in = {h: jump.astype(int)[::-1].rolling(h, min_periods=1).max()[::-1].shift(-1).fillna(0).astype(bool) for h in H}
+    fwd = {(k, h): (C.shift(-h) / e - 1).where(lambda r: r.abs() < 3).where(~jump_in[h]) for k, e in entry.items() for h in H}
     ew = {k: (r if mem is None else r.where(mem)).mean(axis=1) for k, r in fwd.items()}   # 比同一天的成分股等權（並列，不判章）
     # 判章基準（Cowork 0057／0059）：同日同流動性五分位等權；流動性＝D−1 以前 20 日均成交金額（不含訊號當天的爆量）
     univ = p.traded if mem is None else (p.traded & mem)
@@ -151,7 +167,7 @@ def main(bt_path: str, market: str = "tw", members: str = "", cost_override: flo
         r = {"n": int(len(v)), "ex": round(float(v.mean()), 2), "med": round(float(np.median(v)), 2),
              "ex_ew": round(float(ve.mean()), 2) if len(ve) else None,
              "trim95": round(float(np.sort(v)[: int(len(v) * 0.95)].mean()), 2),
-             "win": round(float((v > 0).mean() * 100), 1),
+             "win": round(float((v > 0).mean() * 100), 1), "worst": round(float(v.min()), 1),
              "t": round(float(dd.mean() / (dd.std(ddof=1) / len(dd) ** .5)), 2) if len(dd) > 2 else None}
         if h in (5, 20):
             yr = pd.Series(v, index=d.str[:4]).groupby(level=0).agg(["mean", "size"])

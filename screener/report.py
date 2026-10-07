@@ -235,7 +235,7 @@ function bt(name){return (BT5.strategies||[]).find(x=>x.name===name)}
 function pass(b){const c=b&&b.next_open_20;if(c&&c.pass!==undefined)return !!c.pass;return !!c&&c.ex>=0.5&&c.med>=0&&c.pos_years&&c.pos_years[0]>=4}
 function btLine(name){const b=bt(name);if(!b)return'';const c=b.next_open_20,a=b.next_open_5;
   return `<div class="bt3"><span>20 日平均<b>${pc(c.ex)}</b></span><span>中位<b>${pc(c.med)}</b></span><span>正的年份<b>${c.pos_years?c.pos_years.join('/'):'—'}</b></span></div>`+
-   `<details class="d" onclick="event.stopPropagation()"><summary>更多</summary><b>隔天開盤買</b> 20 日${seg(c)}・5 日 ${pc(a.ex)}・勝率 ${c.win.toFixed(0)}%・NW t ${c.t_nw!=null?c.t_nw.toFixed(1):'—'}・拿掉最好 3 個月 ${c.mo_drop3!=null?pc(c.mo_drop3):'—'}・N ${b.n.toLocaleString()}${c.ex_ew!=null?`・比全市場 ${pc(c.ex_ew)}`:''}${closeMore(b)}</details>`}
+   `<details class="d" onclick="event.stopPropagation()"><summary>更多</summary><b>隔天開盤買</b> 20 日${seg(c)}・5 日 ${pc(a.ex)}・勝率 ${c.win.toFixed(0)}%・NW t ${c.t_nw!=null?c.t_nw.toFixed(1):'—'}・拿掉最好 3 個月 ${c.mo_drop3!=null?pc(c.mo_drop3):'—'}・N ${b.n.toLocaleString()}${c.ex_ew!=null?`・比全市場 ${pc(c.ex_ew)}`:''}${c.worst!=null?`・最差一筆 ${pc(c.worst)}`:''}${closeMore(b)}</details>`}
 function closeMore(b){const k=b.close_20;if(!k)return'';const l=k.low;
   return `<br><b>當天收盤買</b> 20 日 ${pc(k.ex)}${seg(k)}・NW t ${k.t_nw!=null?k.t_nw.toFixed(1):'—'}・${k.pass?'四關過':'沒過'}`+
    (l?`<br><b>扣掉買不到的</b>（歷史上買得到 ${Math.round(l.buyable_pct)}%）${pc(l.ex)}・${l.pass?'四關過':'沒過'}`:'')}
