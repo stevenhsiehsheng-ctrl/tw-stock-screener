@@ -124,7 +124,7 @@ function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉�
   add('💼',`系統訊號持倉（非虛擬帳戶）<b class="num">${H.length}</b> 檔・平均 <b class="num">${P(avg)}</b>${worst?`・最差 <a href="${S(worst.code)}">${E(worst.name)}</a> <b class="num">${P(worst.ret)}</b>`:''}`,ts,stale)}
 function exitsLine(when){const X=T.exits||[];if(!X.length)return;add('🚪',`${when}開盤要賣 <b>${X.length}</b> 檔：${X.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${X.length>4?' 等':''}`,T.tw_date)}
 function eventsLine(){const V=T.events||[];if(!V.length)return;add('📌',V.slice(0,4).map(v=>`${v.date?E(v.date.slice(5))+' ':''}<a href="${S(v.code)}">${E(v.name)}</a> ${E(v.kind)}${v.note?'（'+E(v.note)+'）':''}`).join('、')+(V.length>4?` 等 ${V.length} 件`:'')+'（只列持倉與長期 Top 20）',T.tw_date)}
-function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 正式訊號 <b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
+function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 訊號（<b>觀察</b>，5 年回測買得到的那 3 成平均 −0.7%）<b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
 function draw(title){el.innerHTML=`<h2>📍 今天重點<span>${title}</span></h2>`+(rows.length?rows.slice(0,6).join(''):'<div class="row"><span class="ic">✅</span><span class="tx">今天沒事</span></div>')+'<div id="wlrow"></div>';el.hidden=false;watch()}
 // 自選股（存在這台瀏覽器；個股頁按 ☆ 加入）：最近收盤漲跌、今天上榜的策略、處置／除權息
 async function watch(){let W=[];try{W=JSON.parse(localStorage.getItem('watchlist')||'[]')}catch(e){}if(!W.length)return;

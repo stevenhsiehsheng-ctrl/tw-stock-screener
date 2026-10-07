@@ -60,6 +60,19 @@ def build() -> dict | None:
     # 市場：每天三大法人買賣超金額（近 120 個交易日）
     mk = pd.DataFrame({k: amt[k].sum(axis=1, min_count=1) for k in K}).tail(120)
     market = [[d, _r(r.foreign), _r(r.trust), _r(r.dealer)] for d, r in mk.iterrows()]
+    # ETF（分身 0315：官方外資買賣超含 ETF）：etf.csv 只有部分 ETF 有整年收盤，缺的用最近一個收盤往回補，標『估』
+    etf = {}
+    try:
+        ie = pd.read_csv(f, dtype={"code": str})
+        ie = ie[ie.code.str.startswith("00") & ie.date.isin(days)]
+        ep = pd.read_csv(EX / "etf.csv.gz", dtype={"code": str}, usecols=["date", "code", "close"])
+        EP = ep.pivot(index="date", columns="code", values="close").reindex(days).ffill().bfill()
+        for k in ("foreign", "trust"):
+            q = ie.pivot_table(index="date", columns="code", values=k, aggfunc="sum").reindex(index=days)
+            a = (q * EP.reindex(columns=q.columns) * 1000 / 1e8).sum(axis=1, min_count=1)
+            etf[k] = [_r(a.iloc[-1]), _r(a.tail(5).sum()), _r(a.tail(20).sum())]
+    except Exception as e:  # noqa: BLE001
+        log.warning("ETF 法人金額失敗：%s", e)
 
     # 個股
     v20 = V.tail(20).mean()
@@ -92,7 +105,7 @@ def build() -> dict | None:
     ind = (df[df.i != ""].groupby("i")[["fa5", "ta5"]].sum().assign(tot=lambda x: x.fa5 + x.ta5)
            .sort_values("tot"))
     industry = [[i, _r(r.fa5), _r(r.ta5)] for i, r in ind.iterrows()]
-    return {"date": last, "days": len(days), "first": days[0], "market": market, "rows": rows, "industry": industry}
+    return {"date": last, "days": len(days), "first": days[0], "market": market, "etf": etf, "rows": rows, "industry": industry}
 
 
 PAGE = """<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -116,7 +129,7 @@ svg text{fill:var(--muted);font-size:11px}.ind{display:grid;grid-template-column
 </style></head><body><main>
 <!--SITENAV:chips-->
 <h1>🏦 法人籌碼</h1>
-<div class="meta">資料日 __DATE__・三大法人買賣超（張）來自證交所／櫃買中心・金額＝張數×當天收盤</div>
+<div class="meta">資料日 __DATE__・三大法人買賣超（張）來自證交所／櫃買中心・金額＝張數×當天收盤・圖和排行只含個股（不含 ETF）</div>
 <div class="box">🔍 <b>這頁只看籌碼在誰手上，不是買賣訊號。</b>我們用一年資料驗過，以下說法都沒有證據：
 ① 外資連買 5 天以上：20 天後沒有比同產業、前 5 天漲一樣多的股票好（配對差平均 −0.02%、中位 −0.96%）；
 ② 投信買超、季底作帳：沒有獨立超額；
@@ -179,7 +192,10 @@ function mkt(){const M=D.market,W=Math.max(320,Math.min(1060,$('mkt').clientWidt
  [[0,'start'],[Math.floor(M.length/2),'middle'],[M.length-1,'end']].forEach(([i,a])=>s+=`<text x="${pl+(i+.5)*bw}" y="${H-3}" text-anchor="${a}">${M[i][0].slice(5)}</text>`);
  $('mkt').innerHTML=s+'</svg>';
  const sum=(j,n)=>M.slice(-n).reduce((a,r)=>a+(r[j]||0),0),L=M[M.length-1];
- $('mktsum').innerHTML=`今天 外資 <b class="${cl(L[1])}">${sg(L[1],1)}</b> 億、投信 <b class="${cl(L[2])}">${sg(L[2],1)}</b> 億、自營商 <b class="${cl(L[3])}">${sg(L[3],1)}</b> 億｜近 5 日外資 <b class="${cl(sum(1,5))}">${sg(sum(1,5),0)}</b> 億、近 20 日 <b class="${cl(sum(1,20))}">${sg(sum(1,20),0)}</b> 億`}
+ $('mktsum').innerHTML=`今天 外資 <b class="${cl(L[1])}">${sg(L[1],1)}</b> 億、投信 <b class="${cl(L[2])}">${sg(L[2],1)}</b> 億、自營商 <b class="${cl(L[3])}">${sg(L[3],1)}</b> 億｜近 5 日外資 <b class="${cl(sum(1,5))}">${sg(sum(1,5),0)}</b> 億、近 20 日 <b class="${cl(sum(1,20))}">${sg(sum(1,20),0)}</b> 億`+
+  (()=>{const A=M.slice(-20).map(r=>r[1]||0),big=A.reduce((a,b)=>Math.abs(b)>Math.abs(a)?b:a,0),i=A.indexOf(big),tot=A.reduce((a,b)=>a+b,0),med=A.slice().sort((a,b)=>a-b)[Math.floor(A.length/2)];
+    return `<br>⚠️ 20 日加總會被單一天綁架：窗內最大一天是 ${M.slice(-20)[i][0].slice(5)} 的 ${sg(big,0)} 億${Math.abs(big)>Math.abs(tot)/2?'（超過 20 日合計的一半）':''}，單日中位 ${sg(med,0)} 億。`})()+
+  (D.etf&&D.etf.foreign?`<br>以上只算個股。ETF 另計（部分 ETF 用最近收盤估）：外資今天 <b class="${cl(D.etf.foreign[0])}">${sg(D.etf.foreign[0],1)}</b> 億、5 日 ${sg(D.etf.foreign[1],0)} 億、20 日 ${sg(D.etf.foreign[2],0)} 億；新聞的「外資買賣超」通常含 ETF。`:'')}
 function ind(){const I=D.industry,t=(L,h)=>`<div><div class="meta">${h}</div><div class="tbl"><table><tr><th class="l">產業</th><th>外資</th><th>投信</th><th>合計</th></tr>`+
   L.map(r=>`<tr><td>${esc(r[0])}</td><td class="${cl(r[1])}">${sg(r[1],1)}</td><td class="${cl(r[2])}">${sg(r[2],1)}</td><td class="${cl(r[1]+r[2])}"><b>${sg(r[1]+r[2],1)}</b></td></tr>`).join('')+'</table></div></div>';
  $('ind').innerHTML=t(I.slice().reverse().slice(0,10),'買最多的 10 個產業')+t(I.slice(0,10),'賣最多的 10 個產業')}

@@ -159,7 +159,7 @@ def tw_flows(root: Path = ROOT) -> list[dict]:
     try:
         h = pd.read_csv(root / "data" / "history.csv.gz", dtype={"code": str}, usecols=["date", "code", "close"])
         px = h.pivot(index="date", columns="code", values="close")
-        for f, col, name, note in [("inst_hist.csv.gz", "foreign", "外資近 20 日買賣超（億元）", "個股買賣超張數×收盤價加總，估算"),
+        for f, col, name, note in [("inst_hist.csv.gz", "foreign", "外資近 20 日買賣超（億元）", "個股買賣超張數×收盤價加總，估算；不含 ETF，20 日加總會被單日大額綁架（詳見法人籌碼頁）"),
                                    ("margin_hist.csv.gz", "margin_bal", "融資餘額近 20 日變化", "散戶槓桿；快速增加＝追價的人變多")]:
             d = pd.read_csv(ex / f, dtype={"code": str}, usecols=["date", "code", col])
             v = d.pivot_table(index="date", columns="code", values=col, aggfunc="sum")
