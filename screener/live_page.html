@@ -58,12 +58,16 @@ tr.off td{opacity:.55}
 .warnline{stroke:var(--up);stroke-dasharray:4 3;stroke-width:1}.midline{stroke:var(--line);stroke-width:1}
 .bgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
 .wl summary{cursor:pointer;font-weight:600;font-size:1.05em;margin:18px 0 6px}
+.regime{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 14px;margin:0 0 14px}
+.regime .meta{display:block;margin-top:2px}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <!--SITENAV:live-->
   <h1>⚡ 盤中即時監控</h1>
   <p class="sub" id="status">載入中…</p>
+  <div class="regime" id="regime" hidden></div>
   <div class="kpis" id="mkt"></div>
   <p class="adv" id="adv"></p>
   <div class="bgrid" id="breadth"></div>
@@ -146,6 +150,20 @@ function floatBar(el){
 const tpeStr=()=>new Date().toLocaleString('sv-SE',{timeZone:'Asia/Taipei'});
 const tpeNow=()=>new Date(tpeStr().replace(' ','T'));
 
+// 大盤風險燈：每天 06:20 美股排程算好的 data/macro/regime.json（main 分支），一天載入一次就好
+async function regime(){
+  try{
+    const r=await fetch(`https://raw.githubusercontent.com/${repo}/main/data/macro/regime.json?t=${Date.now()}`,{cache:'no-store'});
+    if(!r.ok)return;
+    const g=await r.json(), red=g.light==='red';
+    const aux=[g.r1?'加權跌破 200 日線連 3 日（R1）':'',g.r3?'費半跌破 200 日線（R3，輔助、假警報多）':''].filter(Boolean).join('、');
+    $('regime').innerHTML=`${red?'🔴 <b>大盤風險燈：紅</b>':'🟢 <b>大盤風險燈：綠</b>'}　加權距一年高點 <b>${g.dd52>0?'+':''}${g.dd52.toFixed(1)}%</b>（−10% 亮紅）・ ${esc(g.date)} 收盤`
+      +`<span class="meta">R2＝已經跌 10% 才亮，不是預知。綠燈不等於安全：加權離 200 日線 ${g.dev200>0?'+':''}${g.dev200.toFixed(1)}%，${esc(String(g.dev200_since).slice(0,4))} 年以來第 ${Math.round(g.dev200_pct_all)} 百分位。${aux?'另外亮著：'+aux+'。':''}燈亮只提醒、不自動賣。<a href="macro.html">大環境 →</a></span>`
+      +((g.stale_core||[]).length?`<span class="meta">⚠️ ${esc(g.stale_core.join('、'))} 資料沒更新到最新交易日，燈可能是舊的</span>`:'');
+    $('regime').hidden=false;
+  }catch(e){}
+}
+
 async function get(){
   try{
     const r=await fetch(`https://api.github.com/repos/${repo}/contents/live.json?ref=live`,
@@ -175,7 +193,7 @@ function render(d){
   else if(inSession&&age<=10){dot='live';txt='監控中';}
   else if(inSession){dot='stale';txt=`資料延遲（${age} 分鐘沒更新）`;}
   else{txt='今日盤中監控已結束，收盤結果請看每日報表（約 15:30 後）';}
-  $('status').innerHTML=`<span class="dot ${dot}"></span>${txt}${d.qinfo?' ・ <b>'+d.qinfo.text+'</b>':''} ・ 最後更新 ${d.updated.slice(5,16)}（${age<1?'剛剛':age+' 分鐘前'}）・ 第 ${d.scans} 次掃描 ・ 共 ${d.quotes} 檔 ・ <a href="index.html">每日報表</a> ・ <a href="#" onclick="return openClaude()">🔒 Claude 研判＋虛擬帳戶</a>`;
+  $('status').innerHTML=`<span class="dot ${dot}"></span>${txt}${d.qinfo?' ・ <b>'+d.qinfo.text+'</b>':''} ・ 最後更新 ${d.updated.slice(5,16)}（${age<1?'剛剛':age+' 分鐘前'}）・ 第 ${d.scans} 次掃描 ・ 共 ${d.quotes} 檔`;
   $('astart').textContent=d.alert_start||'09:30';
 
   const m=d.market||{};
@@ -260,7 +278,7 @@ async function tick(){
   }catch(e){$('status').innerHTML=`<span class="err">讀取失敗：${esc(e.message)}，60 秒後重試</span>`;}
 }
 document.querySelectorAll(".tbl").forEach(floatBar);
-tick();setInterval(tick,60000);
+regime();tick();setInterval(tick,60000);
 </script>
 </body>
 </html>

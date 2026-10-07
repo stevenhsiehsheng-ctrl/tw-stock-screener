@@ -53,7 +53,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for f in data/positions.csv data/intraday_state.json data/live_state.json data/alerts data/group_heat data/vol_curve data/book; do [ -e "$f" ] && git add "$f"; done
+          for f in data/positions.csv data/intraday_state.json data/live_state.json data/alerts data/group_heat data/vol_curve data/book data/touch; do [ -e "$f" ] && git add "$f"; done
           if git diff --cached --quiet; then echo "沒有變更"; else
             git commit -m "盤中監控 $(TZ=Asia/Taipei date +%F)"
             # 別的排程剛好也推了資料時：重試，衝突的檔案以這次新產生的為準
