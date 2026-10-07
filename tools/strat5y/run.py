@@ -28,6 +28,28 @@ H = (1, 5, 20)
 COST = 0.38
 
 
+def nw_t(x: pd.Series, lag: int) -> float:
+    """Newey-West t（日序列有重疊持有期時用；lag＝持有天數−1）。"""
+    x = x.dropna().to_numpy(dtype=float)
+    n = len(x)
+    if n < 10:
+        return float("nan")
+    e = x - x.mean()
+    v = e @ e / n
+    for k in range(1, min(lag, n - 1) + 1):
+        v += 2 * (1 - k / (lag + 1)) * (e[k:] @ e[:-k]) / n
+    return float(x.mean() / np.sqrt(v / n)) if v > 0 else float("nan")
+
+
+def wtrim(vals: np.ndarray, w: np.ndarray, keep: float = 0.95) -> float:
+    """加權後砍掉最好的 (1−keep) 那段的平均。"""
+    o = np.argsort(vals)
+    v, ww = vals[o], w[o]
+    c = np.cumsum(ww)
+    m = c <= keep * c[-1]
+    return float(np.average(v[m], weights=ww[m])) if m.any() else float("nan")
+
+
 def us_members(bt_path: str, index: pd.Index, columns: pd.Index, mode: str) -> pd.DataFrame | None:
     """美股成分股遮罩（Cowork 大題 E）：pit＝每天『當時』的 S&P 500（含後來被踢出的）；fixed＝起點那天的 S&P 500 固定不動。
     用現在名單＋維基百科成分變動表（sp500_changes.csv）往回推。"""
@@ -85,7 +107,16 @@ def main(bt_path: str, market: str = "tw", members: str = "", cost_override: flo
     lu_open = (nxo >= rules.limit_price(p.close, True) - 1e-9) if market == "tw" else pd.DataFrame(False, index=nxo.index, columns=nxo.columns)
     entry = {"next_open": nxo, "close": C}
     fwd = {(k, h): (C.shift(-h) / e - 1).where(lambda r: r.abs() < 3) for k, e in entry.items() for h in H}
-    ew = {k: (r if mem is None else r.where(mem)).mean(axis=1) for k, r in fwd.items()}   # 比同一天的成分股等權
+    ew = {k: (r if mem is None else r.where(mem)).mean(axis=1) for k, r in fwd.items()}   # 比同一天的成分股等權（並列，不判章）
+    # 判章基準（Cowork 0057／0059）：同日同流動性五分位等權；流動性＝D−1 以前 20 日均成交金額（不含訊號當天的爆量）
+    univ = p.traded if mem is None else (p.traded & mem)
+    dv = (p.close * p.volume).rolling(20, min_periods=20).mean().shift(1).where(univ)
+    qn = np.ceil(dv.rank(axis=1, pct=True) * 5).clip(1, 5)
+    ewq = {}
+    for kh, r in fwd.items():
+        rr = r.where(univ)
+        ewq[kh] = pd.DataFrame({q: rr.where(qn == q).mean(axis=1) for q in range(1, 6)})
+    days_idx = {d: i for i, d in enumerate(p.close.index)}
     out = []
     for s in cfg["strategies"]:
         if not s.get("enabled", True):
@@ -100,13 +131,25 @@ def main(bt_path: str, market: str = "tw", members: str = "", cost_override: flo
         lo = lu_open.stack().reindex(idx).fillna(False).to_numpy()
         row = {"name": s["name"], "n": int(len(idx)), "per_day": round(len(idx) / len(p.close.index), 1),
                "lu_open_pct": round(float(lo.mean() * 100), 1)}
+        q_sig = qn.stack().reindex(idx).to_numpy()
         for k in entry:
             for h in H:
-                ex = (fwd[(k, h)].stack().reindex(idx).to_numpy() - ew[(k, h)].reindex(d_all).to_numpy()) * 100 - cost
+                raw = fwd[(k, h)].stack().reindex(idx).to_numpy()
+                ex_ew = (raw - ew[(k, h)].reindex(d_all).to_numpy()) * 100 - cost
+                if k == "next_open":   # 判章用：同日同流動性五分位
+                    E = ewq[(k, h)]
+                    ri = np.array([days_idx[x] for x in d_all])
+                    qi = np.nan_to_num(q_sig, nan=0).astype(int)
+                    bq = np.where(qi > 0, E.to_numpy()[ri, np.clip(qi - 1, 0, 4)], np.nan)
+                    ex = (raw - bq) * 100 - cost
+                else:
+                    ex = ex_ew
                 ok = np.isfinite(ex) & (~lo if k == "next_open" else True)
                 v, d = ex[ok], d_all[ok]
                 dd = pd.Series(v, index=d).groupby(level=0).mean()
+                ve = ex_ew[ok & np.isfinite(ex_ew)]
                 r = {"ex": round(float(v.mean()), 2), "med": round(float(np.median(v)), 2),
+                     "ex_ew": round(float(ve.mean()), 2) if len(ve) else None,
                      "trim95": round(float(np.sort(v)[: int(len(v) * 0.95)].mean()), 2) if len(v) else None,
                      "win": round(float((v > 0).mean() * 100), 1),
                      "t": round(float(dd.mean() / (dd.std(ddof=1) / len(dd) ** .5)), 2)}
@@ -115,10 +158,39 @@ def main(bt_path: str, market: str = "tw", members: str = "", cost_override: flo
                     yr = yr[yr["size"] >= 80]                           # N<80 的年份不計
                     r["years"] = {y: [round(float(a), 2), int(b)] for y, (a, b) in yr.iterrows()}
                     r["pos_years"] = [int((yr["mean"] > 0).sum()), int(len(yr))]
+                if k == "next_open" and h in (5, 20) and len(v):
+                    r["t_nw"] = round(nw_t(dd, h - 1), 2)
+                    mo = pd.Series(v, index=d.str[:7]).groupby(level=0).mean()
+                    r["mo_drop3"] = round(float(mo.sort_values().iloc[:-3].mean()), 2) if len(mo) > 6 else None
+                    # 安慰劑：同日同流動性五分位的全部股票（權重照策略在每格的筆數），同進出場、同成本
+                    cells = pd.Series(1, index=pd.MultiIndex.from_arrays([d, q_sig[ok]])).groupby(level=[0, 1]).size()
+                    Rv, Ev = fwd[(k, h)].where(univ), ewq[(k, h)]
+                    pv, pw = [], []
+                    for (day, q), cnt in cells.items():
+                        if not np.isfinite(q):
+                            continue
+                        row_r = Rv.loc[day][(qn.loc[day] == q).to_numpy()].dropna().to_numpy()
+                        if len(row_r):
+                            pv.append((row_r - Ev.at[day, int(q)]) * 100 - cost)
+                            pw.append(np.full(len(row_r), cnt / len(row_r)))
+                    if pv:
+                        pv, pw = np.concatenate(pv), np.concatenate(pw)
+                        r["placebo_trim95"] = round(wtrim(pv, pw), 2)
+                        r["trim_vs_placebo"] = round(float(r["trim95"] - r["placebo_trim95"]), 2)
+                    if h == 20:   # 判章四關（Cowork 0125-cw-todo-nwgate）
+                        g = {"a_years": bool(r["pos_years"][1] >= 4 and r["pos_years"][0] >= 4),
+                             "b_drop3": bool(r["mo_drop3"] is not None and r["mo_drop3"] > 0),
+                             "c_nw": bool(np.isfinite(r["t_nw"]) and r["t_nw"] >= 2),
+                             "d_trim": bool(r.get("trim_vs_placebo") is not None and r["trim_vs_placebo"] >= 0.5),
+                             "mean": bool(r["ex"] >= 0.5)}
+                        r["gates"] = g
+                        r["pass"] = all(g.values())
                 row[f"{k}_{h}"] = r
         out.append(row)
     res = {"period": [p.close.index[61], p.close.index[-1]], "stocks": int(p.close.shape[1]), "cost": cost, "market": market,
-           "method": ("名單收盤後出來 → 隔天開盤買（一開盤就漲停的剔除），持有 h 個交易日收盤賣；超額＝減同時點全市場等權、扣來回 0.38%；含下市股"
+           "bench": "同日同流動性五分位等權（D−1 以前 20 日均成交金額）；ex_ew＝全市場等權並列",
+           "gate_rule": "20 日：平均 ≥+0.5、≥4/5 年正、拿掉最好 3 個月後月平均 >0、Newey-West t ≥2、截最好 5% 平均比同流動性安慰劑高 ≥0.5",
+           "method": ("名單收盤後出來 → 隔天開盤買（一開盤就漲停的剔除），持有 h 個交易日收盤賣；超額＝減同日同流動性五分位等權、扣來回 0.38%；含下市股"
                       if market == "tw" else f"名單收盤後出來 → 隔天開盤買，持有 h 個交易日收盤賣；超額＝減同時點選股池等權、扣來回 {cost}%；現在的成分股（存活者偏差）"),
            "strategies": out}
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +198,8 @@ def main(bt_path: str, market: str = "tw", members: str = "", cost_override: flo
     for r in out:
         a, b = r["next_open_5"], r["next_open_20"]
         print(f"{r['name']:<16} n={r['n']:>6}  隔天開盤買 5日 {a['ex']:+.2f}（勝 {a['win']:.0f}%，正 {a['pos_years'][0]}/{a['pos_years'][1]} 年）"
-              f" 20日 {b['ex']:+.2f}（t {b['t']:.1f}）｜收盤買 5日 {r['close_5']['ex']:+.2f} 20日 {r['close_20']['ex']:+.2f}")
+              f" 20日 {b['ex']:+.2f}（全市場 {b['ex_ew']:+.2f}，NW t {b.get('t_nw', float('nan')):.1f}，去前3月 {b.get('mo_drop3')}，截後−安慰劑 {b.get('trim_vs_placebo')}）"
+              f"{' ✅' if b.get('pass') else ''}")
     print("寫入", dst)
 
 

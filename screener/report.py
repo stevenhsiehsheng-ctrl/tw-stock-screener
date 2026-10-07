@@ -232,14 +232,14 @@ const $=id=>document.getElementById(id);
 const pc=v=>(v>0?'+':'')+v.toFixed(2)+'%';
 function bt(name){return (BT5.strategies||[]).find(x=>x.name===name)}
 // 大題 A 判準（Cowork 2356）：20 日平均 ≥ +0.5、中位 ≥ 0、正的年份 ≥ 4（隔天開盤買、扣 0.38%、對同時點等權）
-function pass(b){const c=b&&b.next_open_20;return !!c&&c.ex>=0.5&&c.med>=0&&c.pos_years&&c.pos_years[0]>=4}
+function pass(b){const c=b&&b.next_open_20;if(c&&c.pass!==undefined)return !!c.pass;return !!c&&c.ex>=0.5&&c.med>=0&&c.pos_years&&c.pos_years[0]>=4}
 function btLine(name){const b=bt(name);if(!b)return'';const c=b.next_open_20,a=b.next_open_5;
   return `<div class="bt3"><span>20 日平均<b>${pc(c.ex)}</b></span><span>中位<b>${pc(c.med)}</b></span><span>正的年份<b>${c.pos_years?c.pos_years.join('/'):'—'}</b></span></div>`+
-   `<details class="d" onclick="event.stopPropagation()"><summary>更多</summary>5 日平均 ${pc(a.ex)}・20 日勝率 ${c.win.toFixed(0)}%・t ${c.t.toFixed(1)}・N ${b.n.toLocaleString()}</details>`}
+   `<details class="d" onclick="event.stopPropagation()"><summary>更多</summary>5 日平均 ${pc(a.ex)}・20 日勝率 ${c.win.toFixed(0)}%・NW t ${c.t_nw!=null?c.t_nw.toFixed(1):'—'}・拿掉最好 3 個月 ${c.mo_drop3!=null?pc(c.mo_drop3):'—'}・N ${b.n.toLocaleString()}${c.ex_ew!=null?`・比全市場平均 ${pc(c.ex_ew)}`:''}</details>`}
 function badge(name){const b=bt(name);if(!b)return'';return pass(b)?'<span class="badge ok">5 年有贏</span>':'<span class="badge no">未通過驗證・僅供參考</span>'}
 function btNote(){const L=BT5.strategies||[];if(!L.length)return;const P=BT5.period||[];const ok=SHOWN.filter(s=>pass(bt(s.name)));
   $('btnote').innerHTML=(ok.length?`✅ 5 年驗證過的：<b>${ok.map(s=>s.name).join('、')}</b>。`:`🔍 <b>觀察清單</b>：目前<b>沒有</b>一招通過 5 年驗證，名單只用來找值得看的股票，不是買進訊號；進場看盤中 13:12。`)+
-   `<br><span>驗證口徑：5 年含下市股（${P[0]||''}～${P[1]||''}），名單收盤後出來、隔天開盤買，持有 20 天，扣來回 0.38%，跟同期全市場平均比；要平均 ≥ +0.5%、中位數 ≥ 0、5 年至少 4 年是正的才算過。</span>`;
+   `<br><span>驗證口徑：5 年含下市股（${P[0]||''}～${P[1]||''}），名單收盤後出來、隔天開盤買，持有 20 天，扣來回 0.38%，跟<b>同一天、成交金額差不多的股票</b>平均比（不然買到熱門股也算功勞）。四關都過才算：5 年至少 4 年是正的、拿掉最好 3 個月還是正的、扣掉持有期重疊後統計上站得住（Newey-West t ≥ 2）、砍掉最好 5% 的大賺之後仍比隨便買同類股票好 0.5% 以上。除權息對這個比法的影響 <0.1%（2025-10～2026-09 實測）。</span>`;
   const R=STRATS.filter(s=>HIDDEN.includes(s.name));if(!R.length)return;const el=$('retired');el.hidden=false;$('showhid').hidden=false;
   el.innerHTML=`<summary>已撤 ${R.length} 招：5 年隔天開盤買沒贏全市場平均（${R.map(s=>s.name).join('、')}）<span>點開看成績</span></summary>`+
    `<div class="gt"><table><tr><th>策略</th><th>今天檔數</th><th>20 日平均</th><th>中位</th><th>正的年份</th><th>5 日平均</th><th>N</th></tr>`+
