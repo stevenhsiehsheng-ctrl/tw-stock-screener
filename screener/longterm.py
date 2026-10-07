@@ -33,7 +33,7 @@ def tracking(top: dict) -> dict | None:
     其餘用同池非電子股等權。只有 ③ 算「選股」，①② 混了產業配置。起點日還沒有收盤資料就回 None。"""
     asof = top["asof"]
     codes = [p["code"] for p in top["picks"]]
-    pool = pd.read_csv(DATA / top["screen"], dtype={"code": str}, usecols=["code", "industry"]) if top.get("screen") else None
+    pool = pd.read_csv(DATA / top["screen"], dtype={"code": str}, usecols=["code", "industry", "cap_e8"]) if top.get("screen") else None
     want = set(codes) | (set(pool.code) if pool is not None else set())
     h = pd.read_csv(ROOT / "data" / "history.csv.gz", dtype={"code": str}, usecols=["date", "code", "close"])
     h = h[h.code.isin(want) & (h.date >= asof)]
@@ -41,7 +41,7 @@ def tracking(top: dict) -> dict | None:
     e = e[(e.code == "0050") & (e.date >= asof)]
     if h.empty or e.empty or e.date.min() != asof:
         return None
-    px = h.pivot(index="date", columns="code", values="close").sort_index()
+    px = h.pivot(index="date", columns="code", values="close").sort_index().ffill()   # 下市／停牌：最後價轉現金
     b = e.set_index("date").close.sort_index()
     last = min(px.index[-1], b.index[-1])
     out = {"asof": asof, "last": last, "days": int((px.index[px.index <= last] > asof).sum())}
@@ -87,11 +87,26 @@ def tracking(top: dict) -> dict | None:
             allx = np.clip(np.array([v[0] for v in res.values()]), -50, 50)
             allb = np.array([bool(v[1]) for v in res.values()])
             rng = np.random.default_rng(int(asof.replace("-", "")))
+            keys = list(res)
             idx = np.array([rng.choice(len(allx), n, replace=False) for _ in range(10000)])
             rm, rb = allx[idx].mean(axis=1), allb[idx].sum(axis=1)
+            # 配對版（Cowork 1555）：起點市值三分位 × 電子／非電子，每層抽的檔數跟名單一樣
+            capi = pool.set_index("code").cap_e8 if "cap_e8" in pool else None
+            m_pct = mb_pct = None
+            if capi is not None:
+                cap = capi.reindex(keys)
+                ter = pd.qcut(cap.rank(method="first"), 3, labels=False)
+                layer = pd.Series([f"{t}-{ind.get(c, '') in ELEC}" for c, t in zip(keys, ter)], index=keys)
+                need = layer.reindex([c for c in codes if c in res]).value_counts()
+                pos = {k: np.flatnonzero(layer.values == k) for k in need.index}
+                if all(len(pos[k]) >= v for k, v in need.items()):
+                    midx = np.array([np.concatenate([rng.choice(pos[k], v, replace=False) for k, v in need.items()]) for _ in range(10000)])
+                    mm, mb = allx[midx].mean(axis=1), allb[midx].sum(axis=1)
+                    m_pct, mb_pct = round(float((mm < exs.mean()).mean() * 100), 1), round(float((mb < beat).mean() * 100), 1)
             out.update({"peer_ex": round(float(exs.mean()), 2), "peer_t": round(float(exs.mean() / (sd / n ** 0.5)), 2) if sd == sd and sd > 0 else None,
                         "peer_beat": beat, "peer_n": n, "rand_pct": round(float((rm < exs.mean()).mean() * 100), 1),
                         "rand_beat_pct": round(float((rb < beat).mean() * 100), 1),
+                        "rand_m_pct": m_pct, "rand_m_beat_pct": mb_pct,
                         "peer_per": {c: round(float(res[c][0]), 2) for c in codes if c in res}})
     return out
 
@@ -125,8 +140,10 @@ def write(site_dir: Path) -> bool:
                    + f"</div><div>對電子／非電子配置（電子 {tr['elec_w']:.0%}）{f(tr['ew'] - tr['matched'], 2)}</div>" if "ind" in tr else "")
                 + (f"<div><b>對每檔自己的 10 檔同類（相關最高、名單外）：平均超額 {f(tr['peer_ex'], 2)}"
                    f"（截在 ±50 點，t＝{tr['peer_t'] if tr['peer_t'] is not None else '—'}），{tr['peer_beat']}/{tr['peer_n']} 檔贏同類中位數</b>"
-                   f"<div class='meta'>← 只有這條算選股。跟同一池子隨機抽 1 萬組 20 檔比：平均超額贏過 {tr['rand_pct']:.0f}% 的隨機組、"
-                   f"贏同類的檔數贏過 {tr['rand_beat_pct']:.0f}% 的隨機組。</div></div>" if "peer_ex" in tr else "")
+                   f"<div class='meta'>← 只有這條算選股。成績單：跟同一池子隨機抽 1 萬組 20 檔比，平均超額贏過 {tr['rand_pct']:.0f}% 的隨機組、"
+                   f"贏同類的檔數贏過 {tr['rand_beat_pct']:.0f}% 的隨機組"
+                   + (f"；照名單的市值大小、電子／非電子配對抽：{tr['rand_m_pct']:.0f}%／{tr['rand_m_beat_pct']:.0f}%" if tr.get("rand_m_pct") is not None else "")
+                   + "。</div></div>" if "peer_ex" in tr else "")
                 + "<div class='meta'>股價報酬、不含息（兩邊都不含）。0050 約六成是台積電，比它、比同池都混了產業配置，不是選股。"
                   "幾天、幾週的差距幾乎都是雜訊。</div></div>")
     if top.get("criterion"):
