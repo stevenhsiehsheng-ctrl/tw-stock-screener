@@ -33,12 +33,11 @@ permissions:
 
 # 自己一個佇列：不用等每日排程、補抓（補抓一跑兩小時，排在後面網頁就要等兩小時）。
 # 推送前一律重抓最新 main 再重畫，就算每日排程剛推了新報表也不會蓋掉。
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   rebuild:
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -71,6 +70,10 @@ jobs:
   deploy:
     needs: rebuild
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:   # 部署卡住不擋下一次重畫；新的部署取消還在等的舊部署
+      group: pages-deploy
+      cancel-in-progress: true
     continue-on-error: true
     environment:
       name: github-pages

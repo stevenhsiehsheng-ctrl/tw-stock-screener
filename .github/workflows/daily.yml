@@ -26,12 +26,12 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: screener
-  cancel-in-progress: false
-
+# 排隊只鎖「抓資料」那個 job；部署網站另外排（部署卡在 waiting 時不會擋到盤中監控、補抓、明天的排程）
 jobs:
   screen:
+    concurrency:
+      group: screener
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 90   # 第一次延長歷史到 260 天時要往前補抓約 20 分鐘
     steps:
@@ -85,6 +85,10 @@ jobs:
   deploy:
     needs: screen
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:   # 跟 pages.yml 共用：新的部署進來就取消還在等的舊部署（網站只要最新那版）
+      group: pages-deploy
+      cancel-in-progress: true
     continue-on-error: true   # 沒開 GitHub Pages 也不會讓整個流程失敗
     environment:
       name: github-pages
