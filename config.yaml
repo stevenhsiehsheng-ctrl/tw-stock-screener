@@ -173,3 +173,50 @@ live:
   notify: true               # 早期預警要不要寄通知
   notify_interval_min: 30    # 早期預警最多每幾分鐘彙整寄一次
   hold_drop_alert_pct: 8     # 持股盤中從進場價跌超過幾 % 通知（只是提醒，出場看量縮或 AI 研判）
+
+# ------------------------------------------------------------
+#  美股篩選（screener/usx.py；S&P 500＋那斯達克 100＋常用 ETF／ADR，每天台北 06:20 美股收盤後跑）
+#  美股沒有漲跌停、一股就能買；流動性門檻用「20 日平均成交金額（百萬美元）」
+#  成本：複委託網路下單手續費（國泰約 0.1%～0.25%、有最低收費）＋賣出 SEC／交易所規費，回測先抓來回 0.3%
+# ------------------------------------------------------------
+us_screener:
+  cost_pct: 0.3
+  base_filter:
+    - {type: dollar_volume, days: 20, min: 20}   # 20 日平均成交金額 ≥ 2,000 萬美元
+    - {type: price, min: 5}
+  strategies:
+    - name: 強勢創新高
+      conditions:
+        - {type: new_high, days: 60}
+        - {type: ma_rising, period: 60, days: 5}
+    - name: 爆量突破新高
+      conditions:
+        - {type: volume_vs_avg, days: 5, min: 2}
+        - {type: change_pct, min: 3}
+        - {type: red_candle}
+        - {type: new_high, days: 60}
+    - name: 財報跳空（Gap & Go）
+      conditions:
+        - {type: gap_pct, min: 4}
+        - {type: volume_vs_avg, days: 20, min: 2.5}
+        - {type: red_candle}
+    - name: 準備突破觀察
+      conditions:
+        - {type: near_high, days: 60, pct: 5}
+        - {type: new_high, days: 60, not: true}
+        - {type: ma_rising, period: 60, days: 5}
+        - {type: range_pct, days: 20, min: 6, max: 15}
+    - name: 爆量長紅
+      conditions:
+        - {type: volume_vs_avg, days: 5, min: 2}
+        - {type: change_pct, min: 4}
+        - {type: red_candle}
+    - name: 爆量突破季線
+      conditions:
+        - {type: volume_vs_prev, min: 2}
+        - {type: cross_above_ma, period: 60}
+    - name: 跌深反彈候選
+      conditions:
+        - {type: above_ma, period: 200}
+        - {type: ma_bias, period: 20, max: -8}
+        - {type: change_pct, min: 0}

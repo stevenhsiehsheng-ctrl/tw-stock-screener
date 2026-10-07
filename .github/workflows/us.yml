@@ -11,6 +11,13 @@ on:
         description: "只跑研究：爆量突破在美股大型股（S&P 500＋那斯達克 100）5 年回測，印在 log，不存檔"
         type: boolean
         default: false
+      usx_only:
+        description: "只跑美股篩選（不動美股隔夜、大環境）"
+        type: boolean
+        default: false
+      usx_backtest_years:
+        description: "另外下載美股選股池 N 年日 K（研究用，推到 us-backtest 分支；留空＝不做）"
+        default: ""
 
 permissions:
   contents: write
@@ -24,7 +31,7 @@ concurrency:
 jobs:
   us:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,8 +44,35 @@ jobs:
       - name: 研究（不存檔）
         if: ${{ inputs.research }}
         run: python -m screener.us --research
+      - name: 美股 N 年日 K（研究用，推到 us-backtest 分支）
+        if: ${{ inputs.usx_backtest_years != '' && inputs.usx_backtest_years != null }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/usbt
+          python -m screener.usx --backtest "${{ inputs.usx_backtest_years }}" /tmp/usbt/us_bt.csv.gz
+          cd /tmp/usbt
+          git init -q && git checkout -q -b us-backtest
+          git add . && git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "美股選股池 ${{ inputs.usx_backtest_years }} 年日 K $(TZ=Asia/Taipei date +%F)"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" us-backtest
+      - name: 只跑美股篩選
+        if: ${{ inputs.usx_only }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m screener.usx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/usx
+          if git diff --cached --quiet; then echo "沒有變更"; exit 0; fi
+          git commit -qm "美股篩選 $(TZ=Asia/Taipei date +%F)"
+          ok=0; for i in 1 2 3; do
+            if git pull --rebase -X theirs && git push; then ok=1; break; fi
+            git rebase --abort 2>/dev/null || true; sleep 5
+          done; [ "$ok" = 1 ]
+          gh workflow run pages.yml --ref main
       - name: 更新美股資料並重畫網頁
-        if: ${{ !inputs.research }}
+        if: ${{ !inputs.research && !inputs.usx_only && (inputs.usx_backtest_years == '' || inputs.usx_backtest_years == null) }}
         env:
           GH_TOKEN: ${{ github.token }}
           # 風險燈變色時通知 Dennis（screener.macro → notify）
@@ -47,15 +81,20 @@ jobs:
           MAIL_TO: ${{ secrets.MAIL_TO }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python -m screener.us
-          python -m screener.macro || echo "大環境長歷史失敗（不影響美股）"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/us data/extras/bench_long.csv data/macro 2>/dev/null || git add data/us
-          if git diff --cached --quiet; then echo "沒有變更"; exit 0; fi
-          git commit -m "美股隔夜 $(TZ=Asia/Taipei date +%F)"
-          ok=0; for i in 1 2 3; do
-            if git pull --rebase -X theirs && git push; then ok=1; break; fi
-            git rebase --abort 2>/dev/null || true; sleep 5
-          done; [ "$ok" = 1 ]
+          push() {   # 推上 main（別的排程剛推過就 rebase 再推）
+            ok=0; for i in 1 2 3; do
+              if git pull --rebase -X theirs && git push; then ok=1; break; fi
+              git rebase --abort 2>/dev/null || true; sleep 5
+            done; [ "$ok" = 1 ]
+          }
+          python -m screener.us
+          python -m screener.macro || echo "大環境長歷史失敗（不影響美股）"
+          # 先推美股隔夜＋大環境（08:30 事故線看 regime.json），美股篩選慢、晚點另推
+          for f in data/us data/extras/bench_long.csv data/macro; do [ -e "$f" ] && git add "$f"; done
+          if ! git diff --cached --quiet; then git commit -qm "美股隔夜 $(TZ=Asia/Taipei date +%F)"; push; fi
+          python -m screener.usx || echo "美股篩選失敗（不影響美股隔夜）"
+          [ -e data/usx ] && git add data/usx
+          if ! git diff --cached --quiet; then git commit -qm "美股篩選 $(TZ=Asia/Taipei date +%F)"; push || echo "美股篩選推送失敗"; fi
           gh workflow run pages.yml --ref main

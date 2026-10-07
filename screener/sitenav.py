@@ -13,7 +13,7 @@ ITEMS = [("live", "live.html", "⚡ 盤中即時"), ("daily", "index.html", "�
          ("stock", "stock.html", "🔎 個股查詢"),
          ("claude", None, "🔒 Claude 研判"), None,
          ("weekly", "weekly/index.html", "📅 市場週報"), ("macro", "macro.html", "🌏 大環境"),
-         ("us", "us.html", "🇺🇸 美股隔夜"), ("revdrift", "revdrift.html", "📈 營收漂移"),
+         ("usx", "usx.html", "🇺🇸 美股篩選"), ("us", "us.html", "🌙 美股隔夜"), ("revdrift", "revdrift.html", "📈 營收漂移"),
          ("longterm", "longterm.html", "🌱 長期 Top 20"), None,
          ("gifts", "gifts.html", "🎁 股東紀念品"), ("archive", "archive.html", "🗂 歷史報表")]
 

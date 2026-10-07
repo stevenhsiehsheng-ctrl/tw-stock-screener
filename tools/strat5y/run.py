@@ -1,6 +1,8 @@
 """每日篩選各策略的 5 年回測成績（含下市股），寫 data/extras/strat_5y.json 給每日篩選頁顯示。
 
-用法：python tools/strat5y/run.py <backtest.csv.gz>
+用法：python tools/strat5y/run.py <backtest.csv.gz>             台股（config.yaml strategies）
+      python tools/strat5y/run.py <us_bt.csv.gz> --market us  美股（config.yaml us_screener，寫 data/usx/strat_5y.json；
+                                                              股票池是現在的成分股，有存活者偏差；沒有漲跌停，不剔除）
 口徑（暫定，Cowork 大題 A 定案後改）：
 - 訊號：config.yaml 的 base_filter＋各策略條件，跟每天篩選同一套程式（rules.CONDITIONS），對 5 年每一天算
 - 主口徑 next_open：名單收盤後才出來，所以「隔天開盤買」，持有到第 h 個交易日收盤；隔天一開盤就漲停（買不到）的剔除
@@ -26,11 +28,18 @@ H = (1, 5, 20)
 COST = 0.38
 
 
-def main(bt_path: str) -> None:
+def main(bt_path: str, market: str = "tw") -> None:
     bt = pd.read_csv(bt_path, dtype={"code": str})
-    bt = bt[bt.code.str.fullmatch(r"[1-9]\d{3}")]
+    full = yaml.safe_load((ROOT / "config.yaml").read_text("utf-8"))
+    if market == "us":
+        cfg, cost, dst = full["us_screener"], float(full["us_screener"].get("cost_pct", 0.3)), ROOT / "data" / "usx" / "strat_5y.json"
+        etf = set(pd.read_csv(Path(bt_path).with_name("universe.csv"), dtype=str).query("`group` == 'ETF'").code) \
+            if Path(bt_path).with_name("universe.csv").exists() else set()
+        bt = bt[~bt.code.isin(etf)]      # ETF 不進選股池（跟篩選頁一樣只看個股）
+    else:
+        cfg, cost, dst = full, COST, ROOT / "data" / "extras" / "strat_5y.json"
+        bt = bt[bt.code.str.fullmatch(r"[1-9]\d{3}")]
     p = rules.Panel(bt)
-    cfg = yaml.safe_load((ROOT / "config.yaml").read_text("utf-8"))
 
     def ev(cond):
         m = rules.CONDITIONS[cond["type"]][0](p, cond).fillna(False).astype(bool)
@@ -45,7 +54,7 @@ def main(bt_path: str) -> None:
         base &= ev(c)
     C = p.close.where(p.traded)
     nxo = p.open.shift(-1)
-    lu_open = nxo >= rules.limit_price(p.close, True) - 1e-9
+    lu_open = (nxo >= rules.limit_price(p.close, True) - 1e-9) if market == "tw" else pd.DataFrame(False, index=nxo.index, columns=nxo.columns)
     entry = {"next_open": nxo, "close": C}
     fwd = {(k, h): (C.shift(-h) / e - 1).where(lambda r: r.abs() < 3) for k, e in entry.items() for h in H}
     ew = {k: r.mean(axis=1) for k, r in fwd.items()}
@@ -65,7 +74,7 @@ def main(bt_path: str) -> None:
                "lu_open_pct": round(float(lo.mean() * 100), 1)}
         for k in entry:
             for h in H:
-                ex = (fwd[(k, h)].stack().reindex(idx).to_numpy() - ew[(k, h)].reindex(d_all).to_numpy()) * 100 - COST
+                ex = (fwd[(k, h)].stack().reindex(idx).to_numpy() - ew[(k, h)].reindex(d_all).to_numpy()) * 100 - cost
                 ok = np.isfinite(ex) & (~lo if k == "next_open" else True)
                 v, d = ex[ok], d_all[ok]
                 dd = pd.Series(v, index=d).groupby(level=0).mean()
@@ -79,10 +88,11 @@ def main(bt_path: str) -> None:
                     r["pos_years"] = [int((yr["mean"] > 0).sum()), int(len(yr))]
                 row[f"{k}_{h}"] = r
         out.append(row)
-    res = {"period": [p.close.index[61], p.close.index[-1]], "stocks": int(p.close.shape[1]), "cost": COST,
-           "method": "名單收盤後出來 → 隔天開盤買（一開盤就漲停的剔除），持有 h 個交易日收盤賣；超額＝減同時點全市場等權、扣來回 0.38%；含下市股",
+    res = {"period": [p.close.index[61], p.close.index[-1]], "stocks": int(p.close.shape[1]), "cost": cost, "market": market,
+           "method": ("名單收盤後出來 → 隔天開盤買（一開盤就漲停的剔除），持有 h 個交易日收盤賣；超額＝減同時點全市場等權、扣來回 0.38%；含下市股"
+                      if market == "tw" else f"名單收盤後出來 → 隔天開盤買，持有 h 個交易日收盤賣；超額＝減同時點選股池等權、扣來回 {cost}%；現在的成分股（存活者偏差）"),
            "strategies": out}
-    dst = ROOT / "data" / "extras" / "strat_5y.json"
+    dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(json.dumps(res, ensure_ascii=False, indent=1), "utf-8")
     for r in out:
         a, b = r["next_open_5"], r["next_open_20"]
@@ -92,4 +102,4 @@ def main(bt_path: str) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], "us" if "--market" in sys.argv and sys.argv[sys.argv.index("--market") + 1] == "us" else "tw")
