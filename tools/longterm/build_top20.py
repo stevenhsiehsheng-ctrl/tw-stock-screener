@@ -20,6 +20,10 @@ METHOD = [
     "金融股的『月營收』跟一般公司不能比，量化分數只當參考；世芯-KY 月營收檔沒有資料，量化排名失真。",
 ]
 
+CRITERION = ("滿 12 個月（2027-10-07）時，20 檔等權對「同產業配置的同池等權」超額 >+3%，且 20 檔中 ≥11 檔贏同類股（電子／非電子）中位數，"
+             "才算我們會選長線股；否則頁面標題改成「觀察名單（選股無超額）」。週六換股時被換掉的股票繼續當幽靈追蹤 12 個月。"
+             "（Cowork 1258 提出，起點前寫死）")
+
 
 def main(picks_f, asof, screen_f, views_f, version="1"):
     picks = json.loads(Path(picks_f).read_text("utf-8"))
@@ -37,7 +41,8 @@ def main(picks_f, asof, screen_f, views_f, version="1"):
                     "metrics": {k: (None if m is None or pd.isna(m[k]) else float(m[k]))
                                 for k in ("rev_g4", "rev_cons36", "rev_ttm_dd", "roe", "pe", "yield", "px_cagr5", "px_mdd5")}})
     top = {"asof": asof, "version": int(version), "made_by": "Claude Code 量化＋外部觀點、Cowork 質化審查",
-           "views": Path(views_f).name, "screen": Path(screen_f).name, "method": METHOD, "picks": out}
+           "views": Path(views_f).name, "screen": Path(screen_f).name, "method": METHOD, "picks": out,
+           "criterion": CRITERION}
     dst = ROOT / "data/longterm/top20.json"
     dst.write_text(json.dumps(top, ensure_ascii=False, indent=1), "utf-8")
     print(f"寫入 {dst}：{len(out)} 檔，起點 {asof}")

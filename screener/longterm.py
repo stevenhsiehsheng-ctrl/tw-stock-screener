@@ -24,12 +24,19 @@ DATA = ROOT / "data" / "longterm"
 TOP = DATA / "top20.json"
 
 
+ELEC = {"半導體業", "電腦及週邊設備業", "電子零組件業", "通信網路業", "其他電子業", "光電業", "電子通路業", "資訊服務業"}
+
+
 def tracking(top: dict) -> dict | None:
-    """起點日收盤到最新收盤：每檔報酬、等權平均、0050。起點日還沒有收盤資料就回 None。"""
+    """起點日收盤到最新收盤：每檔報酬、20 檔等權，跟三條基準比（Cowork 1258）：
+    ① 0050；② 同池等權（量化篩選那 294 檔）；③ 同產業配置的同池等權——名單裡電子股占幾成，同池電子股等權就占幾成、
+    其餘用同池非電子股等權。只有 ③ 算「選股」，①② 混了產業配置。起點日還沒有收盤資料就回 None。"""
     asof = top["asof"]
     codes = [p["code"] for p in top["picks"]]
+    pool = pd.read_csv(DATA / top["screen"], dtype={"code": str}, usecols=["code", "industry"]) if top.get("screen") else None
+    want = set(codes) | (set(pool.code) if pool is not None else set())
     h = pd.read_csv(ROOT / "data" / "history.csv.gz", dtype={"code": str}, usecols=["date", "code", "close"])
-    h = h[h.code.isin(codes) & (h.date >= asof)]
+    h = h[h.code.isin(want) & (h.date >= asof)]
     e = pd.read_csv(ROOT / "data" / "extras" / "etf.csv.gz", dtype={"code": str}, usecols=["date", "code", "close"])
     e = e[(e.code == "0050") & (e.date >= asof)]
     if h.empty or e.empty or e.date.min() != asof:
@@ -37,13 +44,21 @@ def tracking(top: dict) -> dict | None:
     px = h.pivot(index="date", columns="code", values="close").sort_index()
     b = e.set_index("date").close.sort_index()
     last = min(px.index[-1], b.index[-1])
-    if last == asof:
-        return {"asof": asof, "last": last, "days": 0, "per": {}, "ew": 0.0, "bench": 0.0}
-    base = px.loc[asof]
-    per = ((px.loc[last] / base - 1) * 100).dropna()
-    return {"asof": asof, "last": last, "days": int((px.index > asof).sum()), "per": per.round(2).to_dict(),
-            "ew": round(float(per.mean()), 2), "bench": round(float((b.loc[last] / b.loc[asof] - 1) * 100), 2),
-            "n": int(per.size)}
+    out = {"asof": asof, "last": last, "days": int((px.index[px.index <= last] > asof).sum())}
+    allr = ((px.loc[last] / px.loc[asof] - 1) * 100).dropna()
+    per = allr.reindex(codes).dropna()
+    out.update({"per": per.round(2).to_dict(), "n": int(per.size), "ew": round(float(per.mean()), 2),
+                "bench": round(float((b.loc[last] / b.loc[asof] - 1) * 100), 2)})
+    if pool is not None:
+        pr = allr.reindex(pool.code).dropna()
+        elec = pool.set_index("code").industry.isin(ELEC)
+        w = float(pd.Series([p.get("industry", "") in ELEC for p in top["picks"]]).mean())
+        pe, pn = pr[elec.reindex(pr.index).fillna(False)], pr[~elec.reindex(pr.index).fillna(False)]
+        out.update({"pool": round(float(pr.mean()), 2), "pool_n": int(pr.size), "elec_w": round(w, 2),
+                    "matched": round(float(w * pe.mean() + (1 - w) * pn.mean()), 2),
+                    "beat_med": int(sum(per.get(p["code"], float("nan")) > (pe if p.get("industry", "") in ELEC else pn).median()
+                                        for p in top["picks"]))})
+    return out
 
 
 def write(site_dir: Path) -> bool:
@@ -66,10 +81,16 @@ def write(site_dir: Path) -> bool:
     if tr is None:
         perf = (f"<p class='meta'>起點是 {esc(top['asof'])} 收盤，當天收盤資料進來（每天 15:20 後）才開始算。</p>")
     else:
-        diff = tr["ew"] - tr["bench"]
         perf = (f"<div class='box'><b>前推成績</b>（{esc(tr['asof'])} 收盤 → {esc(tr['last'])} 收盤，{tr['days']} 個交易日）："
-                f"20 檔等權 <b>{f(tr['ew'], 2)}</b>，0050 {f(tr['bench'], 2)}，差 <b>{f(diff, 2)}</b>"
-                "<div class='meta'>股價報酬、不含息（兩邊都不含）。幾天、幾週的差距幾乎都是雜訊，至少看一年以上才有意義。</div></div>")
+                f"20 檔等權 <b>{f(tr['ew'], 2)}</b>"
+                f"<div>對 0050 {f(tr['ew'] - tr['bench'], 2)}（0050 {f(tr['bench'], 2)}）</div>"
+                + (f"<div>對同池 {tr['pool_n']} 檔等權 {f(tr['ew'] - tr['pool'], 2)}</div>"
+                   f"<div><b>對同產業配置的同池等權 {f(tr['ew'] - tr['matched'], 2)}</b>（電子股 {tr['elec_w']:.0%}；"
+                   f"{tr['beat_med']}/{tr['n']} 檔贏同類股中位數）← 只有這條算選股</div>" if "matched" in tr else "")
+                + "<div class='meta'>股價報酬、不含息（兩邊都不含）。0050 約六成是台積電，比它是在比產業配置，不是選股。"
+                  "幾天、幾週的差距幾乎都是雜訊。</div></div>")
+    if top.get("criterion"):
+        perf += f"<p class='meta'><b>事前寫死的判準</b>：{esc(top['criterion'])}</p>"
     per = (tr or {}).get("per", {})
     cards = []
     for i, p in enumerate(top["picks"], 1):
@@ -96,7 +117,7 @@ def write(site_dir: Path) -> bool:
     body = (css + "<h1>長期看好 Top 20</h1>"
             "<blockquote><b>這份名單沒有經過回測驗證</b>，是判斷題：我們自己的量化篩選、外資／投信／券商公開的看法、"
             "再加上 Cowork 逐檔審查論點和風險，綜合出來的。我們 5 年資料只有一段完整的 3 年可驗，長期選股在這份資料上證明不了什麼，"
-            "所以下面用「前推成績」從起點日開始跟 0050 比，時間會說話。不構成投資建議。</blockquote>"
+            "所以下面用「前推成績」從起點日開始跟 0050、同一批候選股比，時間會說話。不構成投資建議。</blockquote>"
             + perf +
             f"<p class='meta'>版本 {esc(str(top.get('version', 1)))}・起點 {esc(top['asof'])}・{esc(top.get('made_by', ''))}"
             "・右上角是起點至今的股價漲跌</p>" + "".join(cards) +
