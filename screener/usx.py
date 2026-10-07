@@ -393,39 +393,72 @@ if(BT5.strategies){{const L=BT5.strategies,lose=L.filter(x=>x.next_open_5.ex<=0)
     return True
 
 
-def sp500_changes() -> pd.DataFrame:
-    """維基百科 S&P 500「Selected changes」表：date, added, removed（還原每天當時的成分股用，Cowork 大題 E）。"""
+def _pit_from_snapshots() -> pd.DataFrame:
+    """fja05680/sp500（GitHub 公開資料集）：每個變動日列出當時全部成分股 → 換成 date, added, removed。"""
     import requests
-    r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-                     headers={"User-Agent": "Mozilla/5.0 (tw-stock-screener research)"}, timeout=30)
-    import re
-    tick = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
-    for t in pd.read_html(io.StringIO(r.text)):
-        cols = [" ".join(map(str, c)) if isinstance(c, tuple) else str(c) for c in t.columns]
-        low = [c.lower() for c in cols]
-        if not any("added" in c for c in low) or not any("removed" in c for c in low):
-            continue
-        idate = next((i for i, c in enumerate(low) if "date" in c), 0)
+    api = requests.get("https://api.github.com/repos/fja05680/sp500/contents", timeout=30).json()
+    f = sorted([x for x in api if isinstance(x, dict) and x.get("name", "").startswith("S&P 500 Historical Components")
+                and x["name"].endswith(".csv")], key=lambda x: x["name"])
+    if not f:
+        raise RuntimeError("fja05680/sp500 找不到歷史成分檔")
+    raw = requests.get(f[-1]["download_url"], timeout=60).text
+    t = pd.read_csv(io.StringIO(raw))
+    t.columns = [c.strip().lower() for c in t.columns]
+    t = t.sort_values("date")
+    rows, prev = [], None
+    for d, tick in zip(t["date"], t["tickers"]):
+        cur = {x.strip().replace(".", "-") for x in str(tick).split(",") if x.strip()}
+        if prev is not None:
+            for a in sorted(cur - prev):
+                rows.append({"date": str(d)[:10], "added": a, "removed": ""})
+            for r in sorted(prev - cur):
+                rows.append({"date": str(d)[:10], "added": "", "removed": r})
+        prev = cur
+    out = pd.DataFrame(rows, columns=["date", "added", "removed"])
+    log.info("S&P 500 成分變動（%s）：%d 筆（%s～%s）", f[-1]["name"], len(out), out.date.min(), out.date.max())
+    return out
 
-        def pick(word):   # 同名欄（Ticker／Security）挑長得像代號的那欄
-            cand = [i for i, c in enumerate(low) if word in c]
-            score = [t.iloc[:, i].astype(str).str.strip().str.match(tick).mean() for i in cand]
-            return cand[int(np.argmax(score))]
-        iadd, irem = pick("added"), pick("removed")
-        out = pd.DataFrame({"date": pd.to_datetime(t.iloc[:, idate], errors="coerce", format="mixed").dt.strftime("%Y-%m-%d"),
-                            "added": t.iloc[:, iadd].astype(str).str.strip().str.replace(".", "-", regex=False),
-                            "removed": t.iloc[:, irem].astype(str).str.strip().str.replace(".", "-", regex=False)})
-        out = out.dropna(subset=["date"]).replace({"nan": ""})
-        out.loc[~out.added.str.match(tick), "added"] = ""
-        out.loc[~out.removed.str.match(tick), "removed"] = ""
-        if len(out) < 50:
+
+def sp500_changes() -> pd.DataFrame:
+    """S&P 500 成分變動：date, added, removed（還原每天當時的成分股用，Cowork 大題 E）。
+    維基百科 2026 年把『Selected changes』表移出主頁了，先試幾個維基頁，再退到 fja05680/sp500 資料集。"""
+    import re
+
+    import requests
+    tick = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
+    for url in ("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+                "https://en.wikipedia.org/wiki/Revisions_to_the_S%26P_500",
+                "https://en.wikipedia.org/wiki/List_of_changes_to_the_S%26P_500"):
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (tw-stock-screener research)"}, timeout=30)
+            if r.status_code != 200:
+                continue
+            tables = pd.read_html(io.StringIO(r.text))
+        except Exception as e:  # noqa: BLE001
+            log.info("維基 %s 讀不到：%s", url.rsplit("/", 1)[-1], e)
             continue
-        log.info("S&P 500 成分變動：%d 筆（%s～%s）", len(out), out.date.min(), out.date.max())
-        return out
-    for k, t in enumerate(pd.read_html(io.StringIO(r.text))):   # 診斷：印出每張表的欄名
-        log.warning("表 %d：%d 列，欄 %s", k, len(t), [str(c)[:40] for c in t.columns][:8])
-    log.warning("網頁長度 %d，含 'Selected changes'：%s", len(r.text), "Selected changes" in r.text)
-    raise RuntimeError("找不到 S&P 500 成分變動表")
+        for t in tables:
+            cols = [" ".join(map(str, c)) if isinstance(c, tuple) else str(c) for c in t.columns]
+            low = [c.lower() for c in cols]
+            if not any("added" in c for c in low) or not any("removed" in c for c in low):
+                continue
+            idate = next((i for i, c in enumerate(low) if "date" in c), 0)
+
+            def pick(word):   # 同名欄（Ticker／Security）挑長得像代號的那欄
+                cand = [i for i, c in enumerate(low) if word in c]
+                score = [t.iloc[:, i].astype(str).str.strip().str.match(tick).mean() for i in cand]
+                return cand[int(np.argmax(score))]
+            iadd, irem = pick("added"), pick("removed")
+            out = pd.DataFrame({"date": pd.to_datetime(t.iloc[:, idate], errors="coerce", format="mixed").dt.strftime("%Y-%m-%d"),
+                                "added": t.iloc[:, iadd].astype(str).str.strip().str.replace(".", "-", regex=False),
+                                "removed": t.iloc[:, irem].astype(str).str.strip().str.replace(".", "-", regex=False)})
+            out = out.dropna(subset=["date"]).replace({"nan": ""})
+            out.loc[~out.added.str.match(tick), "added"] = ""
+            out.loc[~out.removed.str.match(tick), "removed"] = ""
+            if len(out) >= 50:
+                log.info("S&P 500 成分變動（維基 %s）：%d 筆（%s～%s）", url.rsplit("/", 1)[-1], len(out), out.date.min(), out.date.max())
+                return out
+    return _pit_from_snapshots()
 
 
 def backtest_download(years: int, out: str) -> None:
