@@ -146,7 +146,7 @@ def signals(p, codes: list[str], days: int, shrink: float = 0.5) -> dict[str, li
     ▼ 之後第一次收盤量 < 爆量日 × shrink（漲停日的量縮不算）。回傳 {code: [[日期, "B"/"S"], ...]}。"""
     vol, c = p.volume, p.close
     surge = surge_frame(p)
-    limit = p.traded & p.traded.shift(1, fill_value=False) & (c >= p.limit_price(True) - 1e-6) & (p.change_pct.abs() <= 10.5)
+    limit = p.at_limit(True)
     idx = c.index
     start = max(0, len(idx) - days)
     out = {}

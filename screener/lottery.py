@@ -118,7 +118,7 @@ def surge_trades(hist: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, co
     - 出場訊號：之後第一次收盤量 < 爆量日 × shrink（漲停日不算），或持有滿 max_hold 天；隔天開盤賣
     - overlap=False：同一檔持有中再出現訊號不重複進（跟 tech.signals 一樣）
     - ret：（出場開盤 ÷ 進場收盤 − 1）減同段期間全市場等權（進場收盤→出場開盤），再扣 cost，單位 %
-    - lu：訊號日收在漲停價（官方檔位，前一天也有成交、漲幅 ≤10.5%）
+    - lu：訊號日收在漲停價（Panel.at_limit：原始價用官方檔位，還原價用漲幅 ≥9.5% 且收＝最高）
     - lu95：近似漲停（漲幅 ≥9.5% 且收＝最高）給沒有檔位的還原價資料用
     回傳 entry、exit、code、ret、lu、lu95、hold（交易日數）。"""
     from . import tech
@@ -126,7 +126,7 @@ def surge_trades(hist: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, co
     p = Panel(hist)
     c, o, v, tr = p.close, p.open, p.volume, p.traded
     surge = tech.surge_frame(p)
-    lu = (tr & tr.shift(1, fill_value=False) & (c >= p.limit_price(True) - 1e-6) & (p.change_pct.abs() <= 10.5))
+    lu = p.at_limit(True)   # 原始價＝官方檔位；還原價自動走漲幅近似
     lu95 = (p.change_pct >= 9.5) & ((p.high - c).abs() <= 1e-6 * c)
     idx = list(c.index)
     ret_eq = {}

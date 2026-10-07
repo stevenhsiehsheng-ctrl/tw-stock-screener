@@ -20,7 +20,7 @@ def ev(c):
 base = p.traded.copy()
 for c in cfg['base_filter']: base &= ev(c)
 C = p.close.where(p.traded); nxo = p.open.shift(-1)
-lu_open = nxo >= rules.limit_price(p.close, True) - 1e-9
+lu_open = (nxo / p.close - 1 >= 0.095) if p.adjusted else (nxo >= rules.limit_price(p.close, True) - 1e-9)
 idx = p.close.index; pos = {d: i for i, d in enumerate(idx)}
 last_sig = idx[pos[idx[idx <= END][-1]] - H]   # 出場也要在發現窗之前
 print('驗證期訊號日', idx[61], '～', last_sig)
@@ -81,8 +81,8 @@ if len(sys.argv) < 4:
     stats('鎖漲停近似（≥9.5%且收＝高）', base & lock95)
 elif sys.argv[3] in ('mom', 'hot'):
     # Cowork 0327-cw-talk-mommatch：基準改『同日 同流動性五分位 × 過去 20 日報酬五分位』25 格等權
-    lp = rules.limit_price(pc, True)
-    lock = base & (p.close >= lp - 1e-6) & (p.close / pc - 1 <= 0.105)
+    lock = base & p.at_limit(True)                   # 還原價自動走 ≥9.5% 且收＝高（分身 0415）
+    one = lock & (p.open >= p.close - 1e-6 * p.close) & (p.low >= p.close - 1e-6 * p.close)
     stats('原基準：鎖漲停收盤買', lock)
     r20p = (p.close / p.close.shift(20)).where(univ)
     mq = np.ceil(r20p.rank(axis=1, pct=True) * 5).clip(1, 5)
@@ -91,7 +91,7 @@ elif sys.argv[3] in ('mom', 'hot'):
     for k in fwd:
         ewq[k] = pd.DataFrame({q: fwd[k].where(univ).where(cell == q).mean(axis=1) for q in range(1, 26)})
     stats('雙排序基準：鎖漲停收盤買', lock)
-    stats('雙排序基準：鎖漲停扣一字', lock & ~(lock & (p.open >= lp - 1e-6) & (p.low >= lp - 1e-6)))
+    stats('雙排序基準：鎖漲停扣一字', lock & ~one)
     if sys.argv[3] == 'hot':
         # Cowork 0356-cw-talk-hotday：逐年每筆等權 vs 每訊號日先平均；訊號日按當天鎖漲停家數三分位（冷／溫／熱）
         m = lock.copy(); m.iloc[:61] = False; m.loc[m.index > last_sig] = False
@@ -120,11 +120,10 @@ elif sys.argv[3] in ('mom', 'hot'):
             print(f"  {b}（當天鎖漲停 {int(cd[days_b].min())}～{int(cd[days_b].max())} 家）：N={len(sb)} 日={len(db)} 平均 {sb.mean():+.2f} 中位 {sb.median():+.2f} 日等權 {db.mean():+.2f} NW t {nw_t(db.reindex(dm.index).dropna(), H - 1):+.2f} 占總超額 {sb.sum() / tot:.0%}")
 elif sys.argv[3] == 'fill':
     # Cowork 0255-cw-fillmodel 上下界＋0256-cw-talk-luliq 流動性拆格
-    lp = rules.limit_price(pc, True)
-    touch = base & (p.high >= lp - 1e-6) & (p.close / pc - 1 <= 0.105)
-    lock = touch & (p.close >= lp - 1e-6)
+    lock = base & p.at_limit(True)
+    touch = (base & p.touch_limit(True)) | lock
     unlock = touch & ~lock
-    one = lock & (p.open >= lp - 1e-6) & (p.low >= lp - 1e-6)
+    one = lock & (p.open >= p.close - 1e-6 * p.close) & (p.low >= p.close - 1e-6 * p.close)
     print('觸及', int(touch.sum().sum()), '鎖', int(lock.sum().sum()), '沒鎖', int(unlock.sum().sum()), '一字', int(one.sum().sum()))
     stats('上界：收盤鎖漲停全成交', lock)
     stats('悲觀界：觸及沒鎖、收盤買', unlock)
@@ -136,7 +135,7 @@ elif sys.argv[3] == 'fill':
     l95 = t95 & (p.close >= p.high - 1e-9) & (p.close / pc - 1 >= 0.095)
     stats('≥9.5% 悲觀界：觸及沒鎖', t95 & ~l95)
 else:
-    lu = ev({'type': 'limit_up'})
+    lu = p.at_limit(True)
     chg = p.close / pc - 1
     for name, conds in strats:
         if name != '強勢創新高': continue

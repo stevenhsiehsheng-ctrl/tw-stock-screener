@@ -105,7 +105,12 @@ def main(bt_path: str, market: str = "tw", members: str = "", cost_override: flo
         base &= ev(c)
     C = p.close.where(p.traded)
     nxo = p.open.shift(-1)
-    lu_open = (nxo >= rules.limit_price(p.close, True) - 1e-9) if market == "tw" else pd.DataFrame(False, index=nxo.index, columns=nxo.columns)
+    if market != "tw":
+        lu_open = pd.DataFrame(False, index=nxo.index, columns=nxo.columns)
+    elif p.adjusted:   # 還原價：隔天開盤漲幅 ≥9.5% 就當一開盤漲停（買不到）
+        lu_open = (nxo / p.close - 1 >= 0.095)
+    else:
+        lu_open = (nxo >= rules.limit_price(p.close, True) - 1e-9)
     entry = {"next_open": nxo, "close": C}
     fwd = {(k, h): (C.shift(-h) / e - 1).where(lambda r: r.abs() < 3) for k, e in entry.items() for h in H}
     ew = {k: (r if mem is None else r.where(mem)).mean(axis=1) for k, r in fwd.items()}   # 比同一天的成分股等權（並列，不判章）
@@ -124,9 +129,8 @@ def main(bt_path: str, market: str = "tw", members: str = "", cost_override: flo
     pre_end = {h: (di[max(0, int((di < split).sum()) - 1 - h)] if split else None) for h in H}
     # 收盤買的悲觀界（Cowork 0255-cw-fillmodel）：收盤鎖漲停的算買不到
     if market == "tw":
-        lp = rules.limit_price(p.close.shift(1), True)
-        locked = (p.close >= lp - 1e-6).fillna(False)
-        touched = ((p.high >= lp - 1e-6) & ~locked & ((p.close / p.close.shift(1) - 1) <= 0.105)).fillna(False)
+        locked = p.at_limit(True)                       # 還原價自動走漲幅近似（分身 0415）
+        touched = p.touch_limit(True) & ~locked
     else:
         locked = touched = pd.DataFrame(False, index=p.close.index, columns=p.close.columns)
 
