@@ -355,6 +355,53 @@ def save_book(today: str, when: str, q: pd.DataFrame, codes: set[str]) -> None:
     x.to_csv(f, mode="a", header=not f.exists(), index=False)
 
 
+TOUCH_DIR = ROOT / "data" / "touch"
+TOUCH_COLS = ["time", "code", "limit", "price", "at_limit", "bid1", "bid1_lots", "ask1_lots", "vol_lots"]
+
+
+def _lu_price(prev: pd.Series) -> pd.Series:
+    """漲停價（跟 rules.limit_price、positions._limit_up 同一套檔位）。"""
+    raw = prev * 1.1
+    tick = np.select([raw < 10, raw < 50, raw < 100, raw < 500, raw < 1000], [0.01, 0.05, 0.1, 0.5, 1.0], default=5.0)
+    return (np.floor(raw / tick + 1e-6) * tick).round(2)
+
+
+def save_touch(today: str, hm: str, q: pd.DataFrame) -> None:
+    """今天盤中碰過漲停的股票，每輪掃描記一列（data/touch/日期.csv；Cowork 0157，用來量排隊實際成交率）。
+    精度＝掃描間隔（約 3 分鐘），不是逐筆：用當日最高價判斷『碰過』，所以兩輪之間碰一下就打開的也抓得到，
+    但第一次碰到的時間只準到那一輪。at_limit＝這一輪價格還在漲停價；ask1_lots 空白＝委賣沒有人（鎖住）。"""
+    x = q[q.yclose.gt(0) & q.high.notna()].copy()
+    if x.empty:
+        return
+    x["limit"] = _lu_price(x.yclose)
+    x = x[x.high >= x["limit"] - 1e-6]
+    if x.empty:
+        return
+    x["at_limit"] = (x.price >= x["limit"] - 1e-6).astype(int)
+    x["time"] = hm
+    TOUCH_DIR.mkdir(parents=True, exist_ok=True)
+    f = TOUCH_DIR / f"{today}.csv"
+    x.reindex(columns=TOUCH_COLS).to_csv(f, mode="a", header=not f.exists(), index=False)
+
+
+def close_touch(today: str, stocks: pd.DataFrame) -> None:
+    """收盤後替今天碰過漲停的股票補一列 time=close（收盤價、委買委賣、全日量），再壓成 .csv.gz。"""
+    f = TOUCH_DIR / f"{today}.csv"
+    if not f.exists():
+        return
+    df = pd.read_csv(f, dtype={"code": str})
+    q, _ = intraday.fetch_quotes(stocks[stocks.code.isin(set(df.code))])
+    if not q.empty:
+        q = q[q.yclose.gt(0)].copy()
+        q["limit"] = _lu_price(q.yclose)
+        q["at_limit"] = (q.price >= q["limit"] - 1e-6).astype(int)
+        q["time"] = "close"
+        df = pd.concat([df, q.reindex(columns=TOUCH_COLS)], ignore_index=True)
+    df.to_csv(TOUCH_DIR / f"{today}.csv.gz", index=False, compression="gzip")
+    f.unlink()
+    log.info("漲停觸及紀錄：%d 檔、%d 列", df.code.nunique(), len(df))
+
+
 def close_book(today: str, stocks: pd.DataFrame, at: dt.datetime) -> None:
     """收盤後抓今天正式訊號的委買／委賣第一檔與全日量：鎖漲停的話委買第一檔就是收盤時沒買到、還在排隊的張數。"""
     codes = set(positions.load().query("signal_date == @today").code)
@@ -624,6 +671,11 @@ def main(argv=None) -> int:
             save_alert_log(today, alerts, st.get("official"))
             save_heat_log(today, heat)
             save_vol_curve(today, hm, q, {*st["alerts"], *(c["code"] for c in cands), *(h["code"] for h in holds)})
+            if not a.test:
+                try:
+                    save_touch(today, hm, q)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("漲停觸及紀錄失敗：%s", e)
             STATE_F.write_text(json.dumps(st, ensure_ascii=False), "utf-8")
             log.info("%s 掃描 %d 檔｜符合 %d｜今日預警 %d｜持股 %d（%.0f 秒）",
                      hm, len(q), len(cands), len(alerts), len(holds), time.time() - t0)
@@ -652,6 +704,10 @@ def main(argv=None) -> int:
             close_book(today, stocks, _hm(lc.get("close_snapshot", "13:31"), dt.datetime.now(TZ)))
         except Exception as e:  # noqa: BLE001
             log.warning("收盤委買委賣抓取失敗：%s", e)
+        try:
+            close_touch(today, stocks)
+        except Exception as e:  # noqa: BLE001
+            log.warning("漲停觸及收盤補抓失敗：%s", e)
     log.info("盤中監控結束，共掃描 %d 次", scans)
     return 0
 
