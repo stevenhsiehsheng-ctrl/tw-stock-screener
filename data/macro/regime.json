@@ -1,14 +1,14 @@
 {
- "date": "2026-10-06",
- "close": 49822.55,
+ "date": "2026-10-07",
+ "close": 49806.37,
  "light": "green",
  "light_since": "2026-07-31",
  "r2": false,
- "dd52": 0.0,
+ "dd52": -0.03,
  "r1": false,
- "dev200": 26.94,
- "dev200_pct20y": 97.0,
- "dev200_pct_all": 97.6,
+ "dev200": 26.55,
+ "dev200_pct20y": 96.6,
+ "dev200_pct_all": 97.2,
  "dev200_since": "1998-04-30",
  "r3": false,
  "sox_date": "2026-10-07",
@@ -23,14 +23,14 @@
   "^IRX": "2026-10-07",
   "^SOX": "2026-10-07",
   "^TNX": "2026-10-07",
-  "^TWII": "2026-10-06",
+  "^TWII": "2026-10-07",
   "^VIX": "2026-10-07"
  },
  "sources": {
   "^TWII": {
-   "source": "yahoo",
+   "source": "carried",
    "yahoo_last": "2026-10-06",
-   "carried_days": 0
+   "carried_days": 1
   },
   "0050.TW": {
    "source": "yahoo",
@@ -85,13 +85,6 @@
  },
  "stale": [
   {
-   "sym": "^TWII",
-   "last": "2026-10-06",
-   "ref": "2026-10-07",
-   "lag": 1,
-   "reason": "behind"
-  },
-  {
    "sym": "0050.TW",
    "last": "2026-10-06",
    "ref": "2026-10-07",
@@ -99,9 +92,7 @@
    "reason": "behind"
   }
  ],
- "stale_core": [
-  "^TWII"
- ],
+ "stale_core": [],
  "changed": false,
  "prev_light": "green"
 }
