@@ -422,6 +422,9 @@ def sp500_changes() -> pd.DataFrame:
             continue
         log.info("S&P 500 成分變動：%d 筆（%s～%s）", len(out), out.date.min(), out.date.max())
         return out
+    for k, t in enumerate(pd.read_html(io.StringIO(r.text))):   # 診斷：印出每張表的欄名
+        log.warning("表 %d：%d 列，欄 %s", k, len(t), [str(c)[:40] for c in t.columns][:8])
+    log.warning("網頁長度 %d，含 'Selected changes'：%s", len(r.text), "Selected changes" in r.text)
     raise RuntimeError("找不到 S&P 500 成分變動表")
 
 
