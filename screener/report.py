@@ -38,6 +38,9 @@ h1{font-size:22px;margin:0 0 2px}
 .tile .n{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums}
 .tile .t{font-weight:600}
 .tile .d{color:var(--muted);font-size:12px}
+.tile .bt{font-size:11.5px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--line);color:var(--muted);font-variant-numeric:tabular-nums}
+.tile .bt b{color:var(--text,inherit);font-weight:600}
+.btnote{color:var(--muted);font-size:12.5px;margin:4px 0 10px;line-height:1.6}
 @media(max-width:560px){.tiles{grid-template-columns:1fr 1fr;gap:8px}.tile{padding:10px 11px}.tile .n{font-size:22px}}
 .bar{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
 .bar input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
@@ -153,6 +156,7 @@ details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
   __ARCHIVE__
   <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
+  <p class="btnote" id="btnote"></p>
   <div class="breadth" id="breadth" hidden></div>
   <div class="groups" id="groups" hidden></div>
   <details class="box" id="large" hidden></details>
@@ -182,6 +186,7 @@ const SENTI=__SENTI__;
 const BREADTH=__BREADTH__;
 const LARGE=__LARGE__;
 const ASTATS=__ASTATS__;
+const BT5=__BT5__;
 const stk=v=>v===0?'—':(v>0?'買 ':'賣 ')+Math.abs(v)+' 天';
 const cols=[
  {k:'code',t:'代號',l:1},{k:'name',t:'名稱 / 產業',l:1},{k:'spark',t:'近__SPARK__日走勢',l:1,ns:1},
@@ -213,9 +218,17 @@ const cols=[
 ];
 let sel=null,sortK='change_pct',sortD=-1;
 const $=id=>document.getElementById(id);
+const pc=v=>(v>0?'+':'')+v.toFixed(2)+'%';
+function btLine(name){const b=(BT5.strategies||[]).find(x=>x.name===name);if(!b)return'';const a=b.next_open_5,c=b.next_open_20;
+  return `<div class="bt" title="5 年回測：名單出來隔天開盤買；超額＝減同期全市場平均、扣 0.38%">5 年・隔天買：5 日 <b>${pc(a.ex)}</b>｜20 日 <b>${pc(c.ex)}</b>｜勝率 ${a.win.toFixed(0)}%</div>`}
+function btNote(){const L=BT5.strategies||[];if(!L.length)return;const P=BT5.period||[];
+  const lose5=L.filter(x=>x.next_open_5.ex<=0).length,win20=L.filter(x=>x.next_open_20.ex>0.3&&x.next_open_20.t>=1.5).map(x=>x.name);
+  $('btnote').innerHTML=`📏 每格下面是 <b>5 年回測</b>（${P[0]||''}～${P[1]||''}，含下市股、扣來回 0.38%）：名單收盤後才出來，照「隔天開盤買」算，`+
+   `持有 5 天有 <b>${lose5}/${L.length}</b> 招輸給同期全市場平均${win20.length?`；20 天比較站得住的只有 ${win20.join('、')}`:''}。`+
+   `所以這些名單當<b>觀察清單</b>用，不是買進訊號；真正的進場訊號是盤中 13:12 那條。`}
 function tiles(){
   $('tiles').innerHTML=STRATS.map((s,i)=>`<button class="tile${sel===i?' on':''}" data-i="${i}">
-   <div class="n">${s.codes.length}</div><div class="t">${s.name}</div><div class="d">${s.desc}</div></button>`).join('');
+   <div class="n">${s.codes.length}</div><div class="t">${s.name}</div><div class="d">${s.desc}</div>${btLine(s.name)}</button>`).join('');
   document.querySelectorAll('.tile').forEach(b=>b.onclick=()=>{const i=+b.dataset.i;sel=sel===i?null:i;tiles();render();});
 }
 function spark(a,m){
@@ -367,7 +380,7 @@ function closeK(){$('modal').hidden=true;document.body.style.overflow='';}
 $('mx').onclick=closeK;$('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeK();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('modal').hidden)closeK();});
 $('bd').addEventListener('click',e=>{const n=e.target.closest('.nm');if(n)openK(n.dataset.code);});
-$('q').oninput=render;senti();tiles();breadthBox();groupsBox();largeBox();astatsBox();render();
+$('q').oninput=render;senti();tiles();btNote();breadthBox();groupsBox();largeBox();astatsBox();render();
 // 上方捲軸與表格同步
 (function(){const top=$('topscroll'),tb=$('tbl');
  function size(){top.firstElementChild.style.width=tb.scrollWidth+'px';top.hidden=tb.scrollWidth<=tb.clientWidth+2;}
@@ -466,6 +479,15 @@ def _qday(date: str) -> str:
         return ""
 
 
+def _bt5() -> dict:
+    """每日篩選各策略 5 年回測（tools/strat5y/run.py 產生）。"""
+    f = Path(__file__).resolve().parent.parent / "data" / "extras" / "strat_5y.json"
+    try:
+        return json.loads(f.read_text("utf-8")) if f.exists() else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link="", senti=None, groups=None,
                 breadth=None, large=None, astats=None):
     js = lambda o: json.dumps(o, ensure_ascii=False).replace("</", "<\\/")
@@ -483,6 +505,7 @@ def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link
         .replace("__BREADTH__", js(_clean(breadth or [])))
         .replace("__LARGE__", js(_clean(large or [])))
         .replace("__ASTATS__", js(_clean(astats or {})))
+        .replace("__BT5__", js(_bt5()))
     )
 
 
