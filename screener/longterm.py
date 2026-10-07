@@ -160,7 +160,7 @@ def write(site_dir: Path) -> bool:
         r = per.get(p["code"])
         cls = "" if r is None else (" up" if r > 0 else (" dn" if r < 0 else ""))
         cards.append(
-            f"<div class='card'><div class='hd'><span class='no'>{i}</span><b>{esc(p['name'])}</b> <span class='meta'>{esc(p['code'])}"
+            f"<div class='card'><div class='hd'><span class='no'>{i}</span><b><a href='stock.html?code={esc(p['code'])}'>{esc(p['name'])}</a></b> <span class='meta'>{esc(p['code'])}"
             f"・{esc(p.get('group', ''))}</span><span class='ret{cls}'>{'' if r is None else f(r, 1)}</span></div>"
             f"<div>{esc(p.get('thesis', ''))}</div>"
             f"<div class='meta'><b>風險</b>　{esc(p.get('risk', ''))}</div>"
