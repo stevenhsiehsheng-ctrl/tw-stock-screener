@@ -421,7 +421,13 @@ function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉�
 function exitsLine(when){const X=T.exits||[];if(!X.length)return;add('🚪',`${when}開盤要賣 <b>${X.length}</b> 檔：${X.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${X.length>4?' 等':''}`,T.tw_date)}
 function eventsLine(){const V=T.events||[];if(!V.length)return;add('📌',V.slice(0,4).map(v=>`${v.date?E(v.date.slice(5))+' ':''}<a href="${S(v.code)}">${E(v.name)}</a> ${E(v.kind)}${v.note?'（'+E(v.note)+'）':''}`).join('、')+(V.length>4?` 等 ${V.length} 件`:'')+'（只列持倉與長期 Top 20）',T.tw_date)}
 function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 正式訊號 <b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
-function draw(title){el.innerHTML=`<h2>📍 今天重點<span>${title}</span></h2>`+(rows.length?rows.slice(0,6).join(''):'<div class="row"><span class="ic">✅</span><span class="tx">今天沒事</span></div>');el.hidden=false}
+function draw(title){el.innerHTML=`<h2>📍 今天重點<span>${title}</span></h2>`+(rows.length?rows.slice(0,6).join(''):'<div class="row"><span class="ic">✅</span><span class="tx">今天沒事</span></div>')+'<div id="wlrow"></div>';el.hidden=false;watch()}
+// 自選股（存在這台瀏覽器；個股頁按 ☆ 加入）：最近收盤漲跌、今天上榜的策略、處置／除權息
+async function watch(){let W=[];try{W=JSON.parse(localStorage.getItem('watchlist')||'[]')}catch(e){}if(!W.length)return;
+  const got=await Promise.all(W.slice(0,20).map(([c])=>fetch(`stocks/${encodeURIComponent(c)}.json`).then(r=>r.ok?r.json():null).catch(()=>null)));
+  const xs=got.filter(Boolean);if(!xs.length)return;xs.sort((a,b)=>Math.abs(b.chg||0)-Math.abs(a.chg||0));
+  const tag=o=>[o.warn?`⚠️${E(o.warn)}`:'',(o.strats||[]).some(x=>x[0]===o.asof)?'📊上榜':'',o.exdiv_next&&o.exdiv_next.length?`💰${E(o.exdiv_next[0][0].slice(5))}除${E(o.exdiv_next[0][1])}`:''].filter(Boolean).join(' ');
+  document.getElementById('wlrow').innerHTML=`<div class="row"><span class="ic">⭐</span><span class="tx">自選 <b>${xs.length}</b> 檔：${xs.slice(0,6).map(o=>`<a href="${S(o.code)}">${E(o.name)}</a> <b class="num">${P(o.chg)}</b>${tag(o)?' '+tag(o):''}`).join('、')}</span><span class="ts">${E(xs[0].last||'')}</span></div>`}
 if(mode==='live'){fetch(`https://raw.githubusercontent.com/${repo}/live/live.json?t=${Date.now()}`,{cache:'no-store'}).then(r=>r.json()).then(J=>{
   const fresh=J.date===iso,age=fresh?(tw-new Date(J.updated.replace(' ','T')))/6e4:999,stale=!fresh||age>30;
   regime();const m=J.market||{};if(fresh)add('📈',`上漲家數 <b class="num">${m.up_pct!=null?m.up_pct.toFixed(0)+'%':'—'}</b>・漲停 ${m.limit_up??'—'} 家・${E(m.level||'')} <a href="live.html">盤中 →</a>`,J.updated.slice(11,16),stale);
