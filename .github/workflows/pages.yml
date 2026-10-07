@@ -13,9 +13,11 @@ on:
       - screener/revdrift.py
       - screener/us.py
       - screener/macro.py
+      - screener/longterm.py
       - screener/sitenav.py
       - data/us/**
       - data/macro/**
+      - data/longterm/**
       - data/weekly/**
       - data/gifts/**
   workflow_dispatch:

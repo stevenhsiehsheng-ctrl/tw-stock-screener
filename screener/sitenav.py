@@ -12,7 +12,8 @@ from pathlib import Path
 ITEMS = [("live", "live.html", "⚡ 盤中即時"), ("daily", "index.html", "📊 每日篩選"),
          ("claude", None, "🔒 Claude 研判"), None,
          ("weekly", "weekly/index.html", "📅 市場週報"), ("macro", "macro.html", "🌏 大環境"),
-         ("us", "us.html", "🇺🇸 美股隔夜"), ("revdrift", "revdrift.html", "📈 營收漂移"), None,
+         ("us", "us.html", "🇺🇸 美股隔夜"), ("revdrift", "revdrift.html", "📈 營收漂移"),
+         ("longterm", "longterm.html", "🌱 長期 Top 20"), None,
          ("gifts", "gifts.html", "🎁 股東紀念品"), ("archive", "archive.html", "🗂 歷史報表")]
 
 CSS = ("<style>.sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 16px;padding:0 0 12px;"
