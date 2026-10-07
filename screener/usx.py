@@ -397,17 +397,26 @@ def _pit_from_snapshots() -> pd.DataFrame:
     """fja05680/sp500（GitHub 公開資料集）：每個變動日列出當時全部成分股 → 換成 date, added, removed。"""
     import requests
     api = requests.get("https://api.github.com/repos/fja05680/sp500/contents", timeout=30).json()
-    import re
-
-    def stamp(name):   # 檔名裡的 (MM-DD-YYYY)；沒有日期的舊檔排最前面
-        m = re.search(r"\((\d{2})-(\d{2})-(\d{4})\)", name)
-        return f"{m.group(3)}{m.group(1)}{m.group(2)}" if m else "0"
-    f = sorted([x for x in api if isinstance(x, dict) and x.get("name", "").startswith("S&P 500 Historical Components")
-                and x["name"].endswith(".csv")], key=lambda x: stamp(x["name"]))
-    if not f:
+    files = [x for x in api if isinstance(x, dict) and x.get("name", "").startswith("S&P 500 Historical Components")
+             and x["name"].endswith(".csv")]
+    if not files:
         raise RuntimeError("fja05680/sp500 找不到歷史成分檔")
-    raw = requests.get(f[-1]["download_url"], timeout=60).text
-    t = pd.read_csv(io.StringIO(raw))
+    best = None   # 檔名格式會變（例：『… (Updated).csv』），每個都讀、挑資料日期最新的
+    for x in files:
+        try:
+            df = pd.read_csv(io.StringIO(requests.get(x["download_url"], timeout=60).text))
+            df.columns = [c.strip().lower() for c in df.columns]
+            last = str(df["date"].max())
+        except Exception as e:  # noqa: BLE001
+            log.info("%s 讀不到：%s", x["name"], e)
+            continue
+        log.info("%s：到 %s", x["name"], last)
+        if best is None or last > best[0]:
+            best = (last, x["name"], df)
+    if best is None:
+        raise RuntimeError("fja05680/sp500 歷史成分檔都讀不到")
+    f = [{"name": best[1]}]
+    t = best[2]
     t.columns = [c.strip().lower() for c in t.columns]
     t = t.sort_values("date")
     rows, prev = [], None
