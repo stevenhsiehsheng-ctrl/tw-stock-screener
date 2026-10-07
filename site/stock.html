@@ -127,6 +127,17 @@ function divBars(box,rows,label,unit,dp){/* rows: [[x, v]] 正＝紅、負＝藍
   const step=Math.ceil(n/6);s+=rows.map((r,i)=>i%step===0?`<text x="${X(i)-10}" y="${H-3}">${esc(String(r[0]).slice(2))}</text>`:'').join('');
   s+='</svg>';box.innerHTML=s;hover(box,box.querySelector('svg'),n,X,i=>`${esc(rows[i][0])}<br>${esc(label)} <b>${sgn(rows[i][1],dp)}</b>${unit}`)}
 
+function lines(box,d,S,unit){/* S: [[名稱, 值陣列, 顏色變數]]，共用 x 軸 d */fitW(box);const n=d.length;if(n<2){box.innerHTML='<p class="empty">資料不足</p>';return}
+  const H=170,L=8,R=58,T=8,B=18;const vs=S.flatMap(x=>x[1]).filter(v=>v!=null);let lo=Math.min(0,...vs),hi=Math.max(0,...vs);if(lo===hi)hi=lo+1;const pad=(hi-lo)*.05;lo-=pad;hi+=pad;
+  const X=i=>L+(W-L-R)*i/(n-1),Y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo));
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(S.map(x=>x[0]).join('、'))}">`;
+  s+=niceTicks(lo,hi,3).map(t=>`<line x1="${L}" x2="${W-R}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--grid)"/><text x="${W-R+4}" y="${Y(t)+4}">${Math.abs(t)>=1e4?(t/1e4).toFixed(Math.abs(t)>=1e5?0:1)+'萬':t}</text>`).join('');
+  s+=`<line x1="${L}" x2="${W-R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--ref)"/>`;
+  s+=`<line class="cross" y1="${T}" y2="${H-B}" stroke="var(--ref)" style="display:none"/>`;
+  S.forEach(([nm,v,c])=>{let p='';v.forEach((y,i)=>{if(y!=null)p+=(p?'L':'M')+X(i).toFixed(1)+' '+Y(y).toFixed(1)});s+=`<path d="${p}" fill="none" stroke="var(${c})" stroke-width="2" stroke-linejoin="round"/>`});
+  const yrs=[];d.forEach((x,i)=>{if(i>0&&x.slice(0,4)!==d[i-1].slice(0,4))yrs.push(i)});
+  s+=yrs.map(i=>`<text x="${X(i)}" y="${H-3}">${d[i].slice(0,4)}</text>`).join('');
+  s+='</svg>';box.innerHTML=s;hover(box,box.querySelector('svg'),n,X,i=>`${esc(d[i])} 那週<br>`+S.map(([nm,v])=>`${esc(nm)} <b>${sgn(v[i],0)}</b>${unit}`).join('<br>'))}
 
 function showUS(o){const c=o.px.c,last=c[c.length-1],F=o.fund||{};const h=[];const money=v=>v==null?'—':'$'+fmt(v,2);
   h.push(`<h1>${esc(o.name)} ${star(o.code,o.name)} <span class="meta">${esc(o.code)}・美股${o.name_en&&o.name_en!==o.name?'・'+esc(o.name_en):''}</span></h1>`);
@@ -212,6 +223,9 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
     h.push(`<div class="tbl"><table><tr><th>買賣超（張）</th><th class="n">近 5 日</th><th class="n">近 20 日</th><th class="n">近 60 日</th></tr>
       ${[['外資',1],['投信',2],['自營商',3]].map(([nm,k])=>`<tr><td>${nm}</td>${[5,20,60].map(n=>`<td class="n ${cls(s(k,n))}">${sgn(s(k,n),0)}</td>`).join('')}</tr>`).join('')}</table></div>`);
     h.push('<div class="legend"><span><i style="background:var(--pos)"></i>外資買超</span><span><i style="background:var(--neg)"></i>外資賣超</span></div><div class="chart" id="cinst"></div>')}
+  if(o.inst_long){const L=o.inst_long,n=L.d.length,lf=L.f[n-1],lt=L.t[n-1],pc=v=>L.lots?`（股本 ${sgn(v/L.lots*100,2)}%）`:'';
+    h.push(`<h3 style="font-size:15px;margin:14px 0 4px">${esc(L.d[0].slice(0,7))} 起累計買賣超</h3><div class="meta">外資 <b class="${cls(lf)}">${sgn(lf,0)}</b> 張${pc(lf)}・投信 <b class="${cls(lt)}">${sgn(lt,0)}</b> 張${pc(lt)}。線往上＝這段期間一直在買。只描述，一年回測顯示法人連買沒有獨立超額。</div>`+
+      '<div class="legend"><span><i style="background:var(--s1)"></i>外資累計</span><span><i style="background:var(--warn)"></i>投信累計</span></div><div class="chart" id="cinstl"></div>')}
   const tiles=[];
   if(o.margin&&o.margin.length){const M=o.margin,m0=M[M.length-1],m20=M[Math.max(0,M.length-21)];
     tiles.push(`<div class="tile"><div class="k">融資餘額</div><div class="v">${fmt(m0[1],0)} 張</div><div class="meta">20 日前 ${fmt(m20[1],0)}（${m20[1]?sgn((m0[1]/m20[1]-1)*100,1)+'%':'—'}）</div></div>`);
@@ -235,7 +249,8 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
 let CUR=null,RT=0;
 function charts(){const o=CUR;if(!o)return;priceChart($('#cpx'),o);
   if(o.rev&&o.rev.length)divBars($('#crev'),o.rev.map(x=>[x[0],x[2]]),'年增','%',1);
-  if(o.inst&&o.inst.length)divBars($('#cinst'),o.inst.map(x=>[x[0],x[1]]),'外資買賣超',' 張',0)}
+  if(o.inst&&o.inst.length)divBars($('#cinst'),o.inst.map(x=>[x[0],x[1]]),'外資買賣超',' 張',0);
+  if(o.inst_long)lines($('#cinstl'),o.inst_long.d,[['外資累計',o.inst_long.f,'--s1'],['投信累計',o.inst_long.t,'--warn']],' 張')}
 let LASTW=0;window.addEventListener('resize',()=>{clearTimeout(RT);RT=setTimeout(()=>{const w=$('#cpx')?.clientWidth;if(w&&w!==LASTW){LASTW=w;charts()}},200)});
 (async()=>{drawRecent();drawWL();await loadIndex();const c=new URLSearchParams(location.search).get('code');
   if(c)show(c);else $('#q').focus()})();
