@@ -368,7 +368,7 @@ def write(site_dir: Path) -> bool:
 <div class="tbl"><table><thead><tr><th class="l" data-k="code">代號</th><th class="l" data-k="name">名稱</th><th class="l" data-k="sector">產業</th>
 <th data-k="close">收盤</th><th data-k="chg">漲跌%</th><th data-k="vx">量/20日均</th><th data-k="r20">20日%</th><th data-k="hi52">距52週高%</th>
 <th data-k="mcap">市值(十億)</th><th data-k="pe">本益比</th><th data-k="fpe">預估本益比</th><th data-k="next_earn">下次財報</th><th class="l">符合策略</th></tr></thead><tbody id="bd"></tbody></table></div>
-<p class="meta">不構成投資建議。股票池是「現在」的成分股，回測有存活者偏差（被踢出指數的爛股不在裡面），數字偏樂觀。</p>
+<p class="meta">不構成投資建議。這張表是「現在」的成分股；上面的 5 年回測已改用每天「當時」的成分股。</p>
 </main><script>
 const STRATS={js(strats)},DATA={js(rows)},BT5={js(bt)};
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
