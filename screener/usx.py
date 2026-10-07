@@ -398,20 +398,28 @@ def sp500_changes() -> pd.DataFrame:
     import requests
     r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
                      headers={"User-Agent": "Mozilla/5.0 (tw-stock-screener research)"}, timeout=30)
+    import re
+    tick = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
     for t in pd.read_html(io.StringIO(r.text)):
-        if not isinstance(t.columns, pd.MultiIndex):
+        cols = [" ".join(map(str, c)) if isinstance(c, tuple) else str(c) for c in t.columns]
+        low = [c.lower() for c in cols]
+        if not any("added" in c for c in low) or not any("removed" in c for c in low):
             continue
-        cols = [" ".join(map(str, c)).lower() for c in t.columns]
-        try:
-            idate = next(i for i, c in enumerate(cols) if "date" in c)
-            iadd = next(i for i, c in enumerate(cols) if c.startswith("added") and "ticker" in c)
-            irem = next(i for i, c in enumerate(cols) if c.startswith("removed") and "ticker" in c)
-        except StopIteration:
-            continue
-        out = pd.DataFrame({"date": pd.to_datetime(t.iloc[:, idate], errors="coerce").dt.strftime("%Y-%m-%d"),
+        idate = next((i for i, c in enumerate(low) if "date" in c), 0)
+
+        def pick(word):   # 同名欄（Ticker／Security）挑長得像代號的那欄
+            cand = [i for i, c in enumerate(low) if word in c]
+            score = [t.iloc[:, i].astype(str).str.strip().str.match(tick).mean() for i in cand]
+            return cand[int(np.argmax(score))]
+        iadd, irem = pick("added"), pick("removed")
+        out = pd.DataFrame({"date": pd.to_datetime(t.iloc[:, idate], errors="coerce", format="mixed").dt.strftime("%Y-%m-%d"),
                             "added": t.iloc[:, iadd].astype(str).str.strip().str.replace(".", "-", regex=False),
                             "removed": t.iloc[:, irem].astype(str).str.strip().str.replace(".", "-", regex=False)})
         out = out.dropna(subset=["date"]).replace({"nan": ""})
+        out.loc[~out.added.str.match(tick), "added"] = ""
+        out.loc[~out.removed.str.match(tick), "removed"] = ""
+        if len(out) < 50:
+            continue
         log.info("S&P 500 成分變動：%d 筆（%s～%s）", len(out), out.date.min(), out.date.max())
         return out
     raise RuntimeError("找不到 S&P 500 成分變動表")
