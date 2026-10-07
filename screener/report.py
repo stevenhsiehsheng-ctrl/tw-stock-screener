@@ -32,7 +32,7 @@ h1{font-size:22px;margin:0 0 2px}
 .sub{color:var(--ink2);margin:0 0 20px}
 .sub a{color:var(--accent)}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:18px}
-.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+.tile{cursor:pointer;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;
   cursor:pointer;text-align:left;color:inherit;font:inherit}
 .tile.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .tile .n{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums}
@@ -41,6 +41,10 @@ h1{font-size:22px;margin:0 0 2px}
 .tile .bt{font-size:11.5px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--line);color:var(--muted);font-variant-numeric:tabular-nums}
 .tile .bt b{color:var(--text,inherit);font-weight:600}
 .btnote{color:var(--muted);font-size:12.5px;margin:4px 0 10px;line-height:1.6}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-bottom:4px}
+.badge.ok{background:#0ca30c;color:#fff}.badge.no{background:rgba(128,128,128,.2);color:var(--muted)}
+.tile .bt3{display:flex;gap:10px;font-size:12px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--line);color:var(--muted);font-variant-numeric:tabular-nums}
+.tile .bt3 b{display:block;font-size:14px;color:var(--text,inherit)}
 @media(max-width:560px){.tiles{grid-template-columns:1fr 1fr;gap:8px}.tile{padding:10px 11px}.tile .n{font-size:22px}}
 .bar{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
 .bar input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
@@ -157,6 +161,7 @@ details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
   <div class="senti" id="senti" hidden></div>
   <div class="tiles" id="tiles"></div>
   <p class="btnote" id="btnote"></p>
+  <details class="box" id="retired" hidden></details>
   <div class="breadth" id="breadth" hidden></div>
   <div class="groups" id="groups" hidden></div>
   <details class="box" id="large" hidden></details>
@@ -164,6 +169,7 @@ details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
   <div class="bar">
     <input id="q" placeholder="搜尋代號、名稱或產業…" autocomplete="off">
     <span class="cnt" id="cnt"></span>
+    <label class="cnt" id="showhid" hidden><input type="checkbox" id="hidchk"> 含已撤的招</label>
   </div>
   <div class="legend"><span><i style="background:var(--spark)"></i>收盤價</span>
     <span><i style="background:var(--ma)"></i>60日均線（季線）</span></div>
@@ -182,6 +188,8 @@ details.box .note{color:var(--muted);font-size:12px;margin:6px 0 0}
 const DATA=__DATA__;
 const GROUPS=__GROUPS__;
 const STRATS=__STRATS__;
+const HIDDEN=__HIDDEN__;
+const SHOWN=STRATS.filter(s=>!HIDDEN.includes(s.name)),SHOWN_N=new Set(SHOWN.map(s=>s.name));
 const SENTI=__SENTI__;
 const BREADTH=__BREADTH__;
 const LARGE=__LARGE__;
@@ -219,16 +227,25 @@ const cols=[
 let sel=null,sortK='change_pct',sortD=-1;
 const $=id=>document.getElementById(id);
 const pc=v=>(v>0?'+':'')+v.toFixed(2)+'%';
-function btLine(name){const b=(BT5.strategies||[]).find(x=>x.name===name);if(!b)return'';const a=b.next_open_5,c=b.next_open_20;
-  return `<div class="bt" title="5 年回測：名單出來隔天開盤買；超額＝減同期全市場平均、扣 0.38%">5 年・隔天買：5 日 <b>${pc(a.ex)}</b>｜20 日 <b>${pc(c.ex)}</b>｜勝率 ${a.win.toFixed(0)}%</div>`}
-function btNote(){const L=BT5.strategies||[];if(!L.length)return;const P=BT5.period||[];
-  const lose5=L.filter(x=>x.next_open_5.ex<=0).length,win20=L.filter(x=>x.next_open_20.ex>0.3&&x.next_open_20.t>=1.5).map(x=>x.name);
-  $('btnote').innerHTML=`📏 每格下面是 <b>5 年回測</b>（${P[0]||''}～${P[1]||''}，含下市股、扣來回 0.38%）：名單收盤後才出來，照「隔天開盤買」算，`+
-   `持有 5 天有 <b>${lose5}/${L.length}</b> 招輸給同期全市場平均${win20.length?`；20 天比較站得住的只有 ${win20.join('、')}`:''}。`+
-   `所以這些名單當<b>觀察清單</b>用，不是買進訊號；真正的進場訊號是盤中 13:12 那條。`}
+function bt(name){return (BT5.strategies||[]).find(x=>x.name===name)}
+// 大題 A 判準（Cowork 2356）：20 日平均 ≥ +0.5、中位 ≥ 0、正的年份 ≥ 4（隔天開盤買、扣 0.38%、對同時點等權）
+function pass(b){const c=b&&b.next_open_20;return !!c&&c.ex>=0.5&&c.med>=0&&c.pos_years&&c.pos_years[0]>=4}
+function btLine(name){const b=bt(name);if(!b)return'';const c=b.next_open_20,a=b.next_open_5;
+  return `<div class="bt3"><span>20 日平均<b>${pc(c.ex)}</b></span><span>中位<b>${pc(c.med)}</b></span><span>正的年份<b>${c.pos_years?c.pos_years.join('/'):'—'}</b></span></div>`+
+   `<details class="d" onclick="event.stopPropagation()"><summary>更多</summary>5 日平均 ${pc(a.ex)}・20 日勝率 ${c.win.toFixed(0)}%・t ${c.t.toFixed(1)}・N ${b.n.toLocaleString()}</details>`}
+function badge(name){const b=bt(name);if(!b)return'';return pass(b)?'<span class="badge ok">5 年有贏</span>':'<span class="badge no">未通過驗證・僅供參考</span>'}
+function btNote(){const L=BT5.strategies||[];if(!L.length)return;const P=BT5.period||[];const ok=SHOWN.filter(s=>pass(bt(s.name)));
+  $('btnote').innerHTML=(ok.length?`✅ 5 年驗證過的：<b>${ok.map(s=>s.name).join('、')}</b>。`:`🔍 <b>觀察清單</b>：目前<b>沒有</b>一招通過 5 年驗證，名單只用來找值得看的股票，不是買進訊號；進場看盤中 13:12。`)+
+   `<br><span>驗證口徑：5 年含下市股（${P[0]||''}～${P[1]||''}），名單收盤後出來、隔天開盤買，持有 20 天，扣來回 0.38%，跟同期全市場平均比；要平均 ≥ +0.5%、中位數 ≥ 0、5 年至少 4 年是正的才算過。</span>`;
+  const R=STRATS.filter(s=>HIDDEN.includes(s.name));if(!R.length)return;const el=$('retired');el.hidden=false;$('showhid').hidden=false;
+  el.innerHTML=`<summary>已撤 ${R.length} 招：5 年隔天開盤買沒贏全市場平均（${R.map(s=>s.name).join('、')}）<span>點開看成績</span></summary>`+
+   `<div class="gt"><table><tr><th>策略</th><th>今天檔數</th><th>20 日平均</th><th>中位</th><th>正的年份</th><th>5 日平均</th><th>N</th></tr>`+
+   R.map(s=>{const b=bt(s.name);if(!b)return`<tr><td>${s.name}</td><td>${s.codes.length}</td><td colspan="5">—</td></tr>`;const c=b.next_open_20;
+     return `<tr><td>${s.name}</td><td>${s.codes.length}</td><td>${pc(c.ex)}</td><td>${pc(c.med)}</td><td>${(c.pos_years||[]).join('/')}</td><td>${pc(b.next_open_5.ex)}</td><td>${b.n.toLocaleString()}</td></tr>`}).join('')+
+   `</table></div><p class="note">這些招還是每天算（例如「準備突破觀察」是盤中監控的觀察名單），只是不放在這裡；個股頁會照樣標出來。漲停那招當天收盤買才有數字，但鎖漲停買不到，不可用。</p>`}
 function tiles(){
-  $('tiles').innerHTML=STRATS.map((s,i)=>`<button class="tile${sel===i?' on':''}" data-i="${i}">
-   <div class="n">${s.codes.length}</div><div class="t">${s.name}</div><div class="d">${s.desc}</div>${btLine(s.name)}</button>`).join('');
+  $('tiles').innerHTML=SHOWN.map((s,i)=>`<div class="tile${sel===i?' on':''}" data-i="${i}" role="button" tabindex="0">${badge(s.name)}
+   <div class="n">${s.codes.length}</div><div class="t">${s.name}</div><div class="d">${s.desc}</div>${btLine(s.name)}</div>`).join('');
   document.querySelectorAll('.tile').forEach(b=>b.onclick=()=>{const i=+b.dataset.i;sel=sel===i?null:i;tiles();render();});
 }
 function spark(a,m){
@@ -248,7 +265,8 @@ function render(){
   document.querySelectorAll('th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!k)return;
     if(sortK===k)sortD*=-1;else{sortK=k;sortD=(k==='code'||k==='name')?1:-1}render();});
   const q=$('q').value.trim().toLowerCase();
-  let rows=DATA.filter(r=>(sel===null||r.tags.includes(STRATS[sel].name))&&
+  const allHid=$('hidchk')&&$('hidchk').checked;
+  let rows=DATA.filter(r=>(sel===null?(allHid||!HIDDEN.length||r.tags.some(t=>SHOWN_N.has(t))):r.tags.includes(SHOWN[sel].name))&&
     (!q||(r.code+r.name+r.industry).toLowerCase().includes(q)));
   rows.sort((a,b)=>{const x=a[sortK],y=b[sortK];if(x==null)return 1;if(y==null)return -1;
     return (x>y?1:x<y?-1:0)*sortD;});
@@ -380,7 +398,7 @@ function closeK(){$('modal').hidden=true;document.body.style.overflow='';}
 $('mx').onclick=closeK;$('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeK();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('modal').hidden)closeK();});
 $('bd').addEventListener('click',e=>{const n=e.target.closest('.nm');if(n)openK(n.dataset.code);});
-$('q').oninput=render;senti();tiles();btNote();breadthBox();groupsBox();largeBox();astatsBox();render();
+$('q').oninput=render;$('hidchk').onchange=render;senti();tiles();btNote();breadthBox();groupsBox();largeBox();astatsBox();render();
 // 上方捲軸與表格同步
 (function(){const top=$('topscroll'),tb=$('tbl');
  function size(){top.firstElementChild.style.width=tb.scrollWidth+'px';top.hidden=tb.scrollWidth<=tb.clientWidth+2;}
@@ -488,6 +506,16 @@ def _bt5() -> dict:
         return {}
 
 
+def _hidden() -> list:
+    """每日篩選頁不顯示的策略（config.yaml report.hidden_strategies；照樣每天算，只是不放首頁）。"""
+    try:
+        import yaml
+        cfg = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text("utf-8")) or {}
+        return list((cfg.get("report") or {}).get("hidden_strategies") or [])
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link="", senti=None, groups=None,
                 breadth=None, large=None, astats=None):
     js = lambda o: json.dumps(o, ensure_ascii=False).replace("</", "<\\/")
@@ -506,6 +534,7 @@ def render_html(title, date, scanned, rows, strat_info, spark_days, archive_link
         .replace("__LARGE__", js(_clean(large or [])))
         .replace("__ASTATS__", js(_clean(astats or {})))
         .replace("__BT5__", js(_bt5()))
+        .replace("__HIDDEN__", js(_hidden()))
     )
 
 
