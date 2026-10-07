@@ -521,7 +521,7 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    from . import gifts, longterm, macro, revdrift, sitenav, us, weekly
+    from . import gifts, longterm, macro, revdrift, sitenav, stockpage, us, weekly
     weeks = weekly.write(out_dir)
     try:
         has_us = us.write(out_dir)
@@ -547,6 +547,10 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
         longterm.write(out_dir)
     except Exception as e:  # 長期 Top 20 頁壞掉不能拖垮每日報表
         logging.warning("長期 Top 20 頁產生失敗：%s", e)
+    try:
+        stockpage.write(out_dir)
+    except Exception as e:  # 個股頁壞掉不能拖垮每日報表
+        logging.warning("個股頁產生失敗：%s", e)
     links = "<!--SITENAV:daily-->"  # 導覽列最後由 sitenav.apply 換成真的（那時才知道哪些頁有產生）
     (out_dir / f"{date}.html").write_text(html_for(links), "utf-8")
     (out_dir / "index.html").write_text(html_for(links), "utf-8")
