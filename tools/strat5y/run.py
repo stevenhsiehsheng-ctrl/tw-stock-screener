@@ -28,7 +28,28 @@ H = (1, 5, 20)
 COST = 0.38
 
 
-def main(bt_path: str, market: str = "tw") -> None:
+def us_members(bt_path: str, index: pd.Index, columns: pd.Index, mode: str) -> pd.DataFrame | None:
+    """美股成分股遮罩（Cowork 大題 E）：pit＝每天『當時』的 S&P 500（含後來被踢出的）；fixed＝起點那天的 S&P 500 固定不動。
+    用現在名單＋維基百科成分變動表（sp500_changes.csv）往回推。"""
+    d = Path(bt_path).parent
+    uni = pd.read_csv(d / "universe.csv", dtype=str).fillna("")
+    ch = pd.read_csv(d / "sp500_changes.csv", dtype=str).fillna("").sort_values("date", ascending=False)
+    cur = set(uni[uni["group"].str.contains("SP500")].code)
+    rows, k, evs = {}, 0, list(ch.itertuples())
+    for day in sorted(index, reverse=True):
+        while k < len(evs) and evs[k].date > day:   # 變動生效日之前：新加入的還不是、被移出的還是
+            cur.discard(evs[k].added)
+            if evs[k].removed:
+                cur.add(evs[k].removed)
+            k += 1
+        rows[day] = set(cur)
+    if mode == "fixed":
+        first = rows[index[0]]
+        rows = {day: first for day in index}
+    return pd.DataFrame({c: [c in rows[day] for day in index] for c in columns}, index=index)
+
+
+def main(bt_path: str, market: str = "tw", members: str = "", cost_override: float | None = None, out: str = "") -> None:
     bt = pd.read_csv(bt_path, dtype={"code": str})
     full = yaml.safe_load((ROOT / "config.yaml").read_text("utf-8"))
     if market == "us":
@@ -39,7 +60,14 @@ def main(bt_path: str, market: str = "tw") -> None:
     else:
         cfg, cost, dst = full, COST, ROOT / "data" / "extras" / "strat_5y.json"
         bt = bt[bt.code.str.fullmatch(r"[1-9]\d{3}")]
+    if cost_override is not None:
+        cost = cost_override
+    if out:
+        dst = Path(out)
     p = rules.Panel(bt)
+    mem = us_members(bt_path, p.close.index, p.close.columns, members) if market == "us" and members else None
+    if mem is not None:
+        print(f"成分股遮罩 {members}：每天平均 {mem.sum(axis=1).mean():.0f} 檔、有價格的 {int(mem.any().sum())} 檔")
 
     def ev(cond):
         m = rules.CONDITIONS[cond["type"]][0](p, cond).fillna(False).astype(bool)
@@ -49,7 +77,7 @@ def main(bt_path: str, market: str = "tw") -> None:
             m = m.astype(int).rolling(int(cond["within"]), min_periods=1).max().astype(bool)
         return ~m if cond.get("not") else m
 
-    base = p.traded.copy()
+    base = p.traded.copy() if mem is None else (p.traded & mem)
     for c in cfg["base_filter"]:
         base &= ev(c)
     C = p.close.where(p.traded)
@@ -57,7 +85,7 @@ def main(bt_path: str, market: str = "tw") -> None:
     lu_open = (nxo >= rules.limit_price(p.close, True) - 1e-9) if market == "tw" else pd.DataFrame(False, index=nxo.index, columns=nxo.columns)
     entry = {"next_open": nxo, "close": C}
     fwd = {(k, h): (C.shift(-h) / e - 1).where(lambda r: r.abs() < 3) for k, e in entry.items() for h in H}
-    ew = {k: r.mean(axis=1) for k, r in fwd.items()}
+    ew = {k: (r if mem is None else r.where(mem)).mean(axis=1) for k, r in fwd.items()}   # 比同一天的成分股等權
     out = []
     for s in cfg["strategies"]:
         if not s.get("enabled", True):
@@ -79,6 +107,7 @@ def main(bt_path: str, market: str = "tw") -> None:
                 v, d = ex[ok], d_all[ok]
                 dd = pd.Series(v, index=d).groupby(level=0).mean()
                 r = {"ex": round(float(v.mean()), 2), "med": round(float(np.median(v)), 2),
+                     "trim95": round(float(np.sort(v)[: int(len(v) * 0.95)].mean()), 2) if len(v) else None,
                      "win": round(float((v > 0).mean() * 100), 1),
                      "t": round(float(dd.mean() / (dd.std(ddof=1) / len(dd) ** .5)), 2)}
                 if h in (5, 20):
@@ -102,4 +131,7 @@ def main(bt_path: str, market: str = "tw") -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], "us" if "--market" in sys.argv and sys.argv[sys.argv.index("--market") + 1] == "us" else "tw")
+    a = sys.argv
+    opt = lambda k: a[a.index(k) + 1] if k in a else None  # noqa: E731
+    main(a[1], "us" if opt("--market") == "us" else "tw", members=opt("--members") or "",
+         cost_override=float(opt("--cost")) if opt("--cost") else None, out=opt("--out") or "")
