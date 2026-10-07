@@ -1,7 +1,7 @@
 """長期看好 Top 20（Dennis 10/7 要）：Code 量化篩選＋外資／投信／券商觀點＋Cowork 質化審查，網站頁 site/longterm.html。
 
 這是判斷題、不是回測過的策略，所以頁面一定要附「前推成績」：名單凍結那天的收盤當起點，
-每天拿等權報酬跟 0050 比，好壞都照實列（股價不含息，兩邊都一樣不含）。
+每天拿等權報酬跟 0050 比，好壞都照實列。總報酬：個股用官方除權息參考價還原（exdiv factor 連乘），0050 用 bench.csv 的 tr（同一套）。
 
 資料：
 - data/longterm/top20.json：目前這一版名單（asof＝起點日、picks＝20 檔，含論點／風險／破壞條件／外部觀點）
@@ -41,14 +41,32 @@ def tracking(top: dict) -> dict | None:
     e = e[(e.code == "0050") & (e.date >= asof)]
     if h.empty or e.empty or e.date.min() != asof:
         return None
-    px = h.pivot(index="date", columns="code", values="close").sort_index().ffill()   # 下市／停牌：最後價轉現金
-    b = e.set_index("date").close.sort_index()
-    last = min(px.index[-1], b.index[-1])
-    out = {"asof": asof, "last": last, "days": int((px.index[px.index <= last] > asof).sum())}
+    raw = h.pivot(index="date", columns="code", values="close").sort_index().ffill()   # 下市／停牌：最後價轉現金
+    # 總報酬（分身 2345-cc-ad、Cowork 2359）：起點之後的除權息日乘上 factor（＝除權息前收盤 ÷ 參考價），配股不會被當成虧損
+    exf = ROOT / "data" / "extras" / "exdiv.csv"
+    fac = pd.DataFrame(1.0, index=raw.index, columns=raw.columns)
+    exd = pd.DataFrame(columns=["date", "code", "factor"])
+    if exf.exists():
+        exd = pd.read_csv(exf, dtype={"code": str}, usecols=["date", "code", "factor"])
+        exd = exd[exd.code.isin(raw.columns) & (exd.date > asof) & (exd.date <= raw.index[-1]) & (exd.factor > 0)]
+        if len(exd):
+            f = exd.pivot_table(index="date", columns="code", values="factor", aggfunc="prod")
+            fac = f.reindex(index=raw.index, columns=raw.columns).fillna(1.0)
+    px = raw * fac.cumprod()
+    bf = ROOT / "data" / "extras" / "bench.csv"
+    btr = pd.read_csv(bf, dtype={"code": str}) if bf.exists() else pd.DataFrame()
+    btr = btr[btr.code == "0050"].set_index("date").tr.sort_index() if "tr" in btr else pd.Series(dtype=float)
+    b_raw = e.set_index("date").close.sort_index()
+    b = btr if asof in btr.index and btr.index[-1] >= b_raw.index[-1] else b_raw
+    last = min(px.index[-1], b.index[-1], b_raw.index[-1])
+    out = {"asof": asof, "last": last, "days": int((px.index[px.index <= last] > asof).sum()), "total_return": b is btr}
     allr = ((px.loc[last] / px.loc[asof] - 1) * 100).dropna()
     per = allr.reindex(codes).dropna()
+    rr = ((raw.loc[last] / raw.loc[asof] - 1) * 100).reindex(codes).dropna()
     out.update({"per": per.round(2).to_dict(), "n": int(per.size), "ew": round(float(per.mean()), 2),
-                "bench": round(float((b.loc[last] / b.loc[asof] - 1) * 100), 2)})
+                "bench": round(float((b.loc[last] / b.loc[asof] - 1) * 100), 2),
+                "old_ew": round(float(rr.mean()), 2), "old_bench": round(float((b_raw.loc[last] / b_raw.loc[asof] - 1) * 100), 2),
+                "exdiv": [[d, c, round(float(f), 4)] for d, c, f in exd[exd.code.isin(codes) & (exd.date <= last)][["date", "code", "factor"]].itertuples(index=False)]})
     if pool is not None:
         picks = set(codes)
         ind = pool.set_index("code").industry
@@ -132,6 +150,7 @@ def write(site_dir: Path) -> bool:
     if top.get("views") and vf.exists():
         views = {r.list_id: r for r in pd.read_csv(vf).itertuples()}
 
+    names = {x["code"]: x["name"] for x in top["picks"]}
     if tr is None or tr.get("days", 0) == 0:
         perf = (f"<p class='meta'>起點是 {esc(top['asof'])} 收盤（價格已凍結），下一個交易日收盤後開始有成績。</p>")
     else:
@@ -148,7 +167,9 @@ def write(site_dir: Path) -> bool:
                    f"贏同類的檔數贏過 {tr['rand_beat_pct']:.0f}% 的隨機組"
                    + (f"；（參考，不進判準）照起點市值大小、電子／非電子配對抽：{tr['rand_m_pct']:.0f}%／{tr['rand_m_beat_pct']:.0f}%" if tr.get("rand_m_pct") is not None else "")
                    + "。</div></div>" if "peer_ex" in tr else "")
-                + "<div class='meta'>股價報酬、不含息（兩邊都不含）。0050 約六成是台積電，比它、比同池都混了產業配置，不是選股。"
+                + (f"<div class='meta'>期間除權息（已還原）：" + "、".join(f"{esc(d[5:])} {esc(names.get(c, c))} ×{f:.4f}" for d, c, f in tr["exdiv"]) + "</div>" if tr.get("exdiv") else "")
+                + f"<div class='meta'>舊口徑（原始價、不含息，僅對照、下季移除）：20 檔 {f(tr['old_ew'], 2)}、0050 {f(tr['old_bench'], 2)}</div>"
+                + "<div class='meta'>含息含權（除權息日用官方參考價還原）；0050 用含息 tr。0050 約六成是台積電，比它、比同池都混了產業配置，不是選股。"
                   "幾天、幾週的差距幾乎都是雜訊。</div></div>")
     if top.get("criterion"):
         perf += f"<p class='meta'><b>事前寫死的判準</b>：{esc(top['criterion'])}</p>"
