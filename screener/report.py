@@ -247,7 +247,7 @@ function badge(name){const b=bt(name);if(!b)return'';if(pass(b))return'<span cla
   return'<span class="badge no">未通過驗證・僅供參考</span>'}
 function seg(c){const s=c&&c.split;if(!s||!s.pre)return'';return `（發現前 ${pc(s.pre.ex)}／後 ${s.post?pc(s.post.ex):'—'}）`}
 function btNote(){const L=BT5.strategies||[];if(!L.length)return;const P=BT5.period||[];const ok=SHOWN.filter(s=>pass(bt(s.name)));
-  $('btnote').innerHTML=(ok.length?`✅ 5 年驗證過的：<b>${ok.map(s=>s.name).join('、')}</b>。`:`🔍 <b>觀察清單</b>：目前<b>沒有</b>一招通過 5 年驗證，名單只用來找值得看的股票，不是買進訊號；進場看盤中 13:12。`)+
+  $('btnote').innerHTML=(ok.length?`✅ 5 年驗證過的：<b>${ok.map(s=>s.name).join('、')}</b>。`:`🔍 <b>觀察清單</b>：目前<b>沒有</b>一招通過 5 年驗證，名單只用來找值得看的股票，不是買進訊號。盤中 13:12 訊號也一樣降成觀察：鎖漲停的排隊買不到，歷史上買得到的那 3 成（摸到漲停、收盤沒鎖）20 天平均 −0.7%。`)+
    `<br><span>驗證口徑：5 年含下市股（${P[0]||''}～${P[1]||''}），名單收盤後出來、隔天開盤買，持有 20 天，扣來回 0.38%，跟<b>同一天、成交金額差不多的股票</b>平均比（不然買到熱門股也算功勞）。四關都過才算：5 年至少 4 年是正的、拿掉最好 3 個月還是正的、扣掉持有期重疊後統計上站得住（Newey-West t ≥ 2）、砍掉最好 5% 的大賺之後仍比隨便買同類股票好 0.5% 以上。除權息對這個比法的影響 <0.1%（2025-10～2026-09 實測）。`+
    `<br>🟨 黃章＝改成<b>當天收盤買</b>才過四關，但前提是收盤一定買得到。多出來的那截幾乎都來自鎖漲停的股票，而鎖漲停排隊很難買到；把買不到的扣掉，目前沒有一招過關，所以沒有綠章。`+
    `${BT5.split?`<br>「發現前」＝${BT5.split} 以前（這些招是在那之後的一年看出來的，所以發現前才是真正沒看過的資料）。`:''}</span>`;
@@ -256,10 +256,13 @@ function btNote(){const L=BT5.strategies||[];if(!L.length)return;const P=BT5.per
    `<div class="gt"><table><tr><th>策略</th><th>今天檔數</th><th>20 日平均</th><th>中位</th><th>正的年份</th><th>5 日平均</th><th>收盤買 20 日</th><th>N</th></tr>`+
    R.map(s=>{const b=bt(s.name);if(!b)return`<tr><td>${s.name}</td><td>${s.codes.length}</td><td colspan="6">—</td></tr>`;const c=b.next_open_20;
      return `<tr><td>${s.name}</td><td>${s.codes.length}</td><td>${pc(c.ex)}</td><td>${pc(c.med)}</td><td>${(c.pos_years||[]).join('/')}</td><td>${pc(b.next_open_5.ex)}</td><td>${b.close_20?pc(b.close_20.ex)+(b.close_20.pass?' 🟨':''):'—'}</td><td>${b.n.toLocaleString()}</td></tr>`}).join('')+
-   `</table></div><p class="note">這些招還是每天算（例如「準備突破觀察」是盤中監控的觀察名單），只是不放在這裡；個股頁會照樣標出來。🟨＝當天收盤買過四關但假設買得到。漲停那招就是這樣：紙上很好看，但鎖住的排隊幾乎買不到，歷史上真的買得到的（摸到漲停、收盤沒鎖）只占 3 成，那批 20 日平均${(()=>{const l=(bt('漲停')||{}).close_20;return l&&l.low?' '+pc(l.low.ex):'是負的'})()}。</p>`}
+   `</table></div><p class="note">這些招還是每天算（例如「準備突破觀察」是盤中監控的觀察名單），只是不放在這裡；個股頁會照樣標出來。🟨＝當天收盤買過四關但假設買得到。漲停那招就是這樣：紙上很好看，但鎖住的排隊幾乎買不到，歷史上真的買得到的（摸到漲停、收盤沒鎖）只占 3 成，那批 20 日平均${(()=>{const l=(bt('漲停')||{}).close_20;return l&&l.low?' '+pc(l.low.ex):'是負的'})()}。漲停收盤買已扣動能：改跟『同流動性×同樣前 20 天漲幅』的股票比，2025-09 以前仍 +0.78%（NW t 2.5），所以不只是追動能，但前提還是要買得到。</p>`}
+// 同源（分身 0245：月超額相關 0.88，算一招；Cowork 0325 定：不併卡，註明）
+const TWIN={'強勢創新高':['爆量突破新高（收盤確認）',0.88],'爆量突破新高（收盤確認）':['強勢創新高',0.88]};
+const twin=n=>TWIN[n]&&SHOWN.some(s=>s.name===TWIN[n][0])?`<div class="d">🔗 跟「${TWIN[n][0]}」同源（相關 ${TWIN[n][1]}），算同一招</div>`:'';
 function tiles(){
   $('tiles').innerHTML=SHOWN.map((s,i)=>`<div class="tile${sel===i?' on':''}" data-i="${i}" role="button" tabindex="0">${badge(s.name)}
-   <div class="n">${s.codes.length}</div><div class="t">${s.name}</div><div class="d">${s.desc}</div>${btLine(s.name)}</div>`).join('');
+   <div class="n">${s.codes.length}</div><div class="t">${s.name}</div><div class="d">${s.desc}</div>${twin(s.name)}${btLine(s.name)}</div>`).join('');
   document.querySelectorAll('.tile').forEach(b=>b.onclick=()=>{const i=+b.dataset.i;sel=sel===i?null:i;tiles();render();});
 }
 function spark(a,m){

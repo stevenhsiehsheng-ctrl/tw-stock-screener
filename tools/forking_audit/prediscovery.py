@@ -45,7 +45,7 @@ def stats(name, m):
     out = {}
     for k in ('close', 'next_open'):
         raw = fwd[k].stack().reindex(ii).to_numpy()
-        bq = np.where(qi > 0, ewq[k].to_numpy()[ri, np.clip(qi - 1, 0, 4)], np.nan)
+        bq = np.where(qi > 0, ewq[k].to_numpy()[ri, np.clip(qi - 1, 0, ewq[k].shape[1] - 1)], np.nan)
         ex = (raw - bq) * 100 - COST
         ok = np.isfinite(ex) & (~lo if k == 'next_open' else True)
         v, d = ex[ok], d_all[ok]
@@ -79,6 +79,19 @@ if len(sys.argv) < 4:
         for c in conds: m &= ev(c)
         stats(name, m)
     stats('鎖漲停近似（≥9.5%且收＝高）', base & lock95)
+elif sys.argv[3] == 'mom':
+    # Cowork 0327-cw-talk-mommatch：基準改『同日 同流動性五分位 × 過去 20 日報酬五分位』25 格等權
+    lp = rules.limit_price(pc, True)
+    lock = base & (p.close >= lp - 1e-6) & (p.close / pc - 1 <= 0.105)
+    stats('原基準：鎖漲停收盤買', lock)
+    r20p = (p.close / p.close.shift(20)).where(univ)
+    mq = np.ceil(r20p.rank(axis=1, pct=True) * 5).clip(1, 5)
+    cell = (qn - 1) * 5 + mq            # 1..25
+    qn = cell
+    for k in fwd:
+        ewq[k] = pd.DataFrame({q: fwd[k].where(univ).where(cell == q).mean(axis=1) for q in range(1, 26)})
+    stats('雙排序基準：鎖漲停收盤買', lock)
+    stats('雙排序基準：鎖漲停扣一字', lock & ~(lock & (p.open >= lp - 1e-6) & (p.low >= lp - 1e-6)))
 elif sys.argv[3] == 'fill':
     # Cowork 0255-cw-fillmodel 上下界＋0256-cw-talk-luliq 流動性拆格
     lp = rules.limit_price(pc, True)
