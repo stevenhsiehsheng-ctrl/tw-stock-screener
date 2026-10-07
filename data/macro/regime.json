@@ -28,9 +28,9 @@
  },
  "sources": {
   "^TWII": {
-   "source": "carried",
-   "yahoo_last": "2026-10-05",
-   "carried_days": 1
+   "source": "yahoo",
+   "yahoo_last": "2026-10-06",
+   "carried_days": 0
   },
   "0050.TW": {
    "source": "carried",
