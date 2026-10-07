@@ -190,7 +190,19 @@ def build(out_dir: Path) -> int:
                 x = x.sort_values("date").tail(20)
                 o["dt"] = [[d, _r(v, 1)] for d, v in zip(x.date, x.dt_ratio)]
         if (x := G["exd"].get(c)) is not None:
-            o["exdiv"] = x.sort_values("date").tail(8)[["date", "kind", "cash_div", "stock_ratio"]].fillna(0).values.tolist()
+            x = x.sort_values("date").tail(8)
+            rows_ex = x[["date", "kind", "cash_div", "stock_ratio"]].fillna(0).values.tolist()
+            # 填息天數（history 是未還原收盤，只算得到近一年）：除息當天算第 1 天；0＝還沒填；None＝沒資料
+            if g is not None and "prev_close" in x:
+                gd, gc = g.date.to_numpy(), g.close.to_numpy()
+                for row, pcl in zip(rows_ex, x.prev_close):
+                    k = np.searchsorted(gd, row[0])
+                    if k >= len(gd) or gd[k] != row[0] or not (pcl > 0):
+                        row.append(None)
+                        continue
+                    hit = np.flatnonzero(gc[k:] >= pcl - 1e-9)
+                    row.append(int(hit[0]) + 1 if len(hit) else 0)
+            o["exdiv"] = rows_ex
         if (x := G["exu"].get(c)) is not None:
             o["exdiv_next"] = x.sort_values("date")[["date", "kind", "cash_div", "stock_ratio"]].fillna(0).values.tolist()
         if (x := G["res"].get(c)) is not None:
