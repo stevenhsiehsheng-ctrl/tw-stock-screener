@@ -141,6 +141,23 @@ def build(out_dir: Path) -> int:
     dt_day = dtr.date.max() if dtr is not None and not dtr.empty else None
     lt_n = len(one["lt"]) if not one["lt"].empty else 0
 
+    # 同產業比較：每個產業照市值排，個股頁列前 8 大＋自己（市值＝收盤×股數）
+    hl = h.dropna(subset=["close"]).groupby("code")
+    lastc = hl.close.last()
+    c20 = hl.close.apply(lambda x: x.iloc[-21] if len(x) > 21 else np.nan)
+    pdf = pd.DataFrame({"close": lastc, "r20": (lastc / c20 - 1) * 100})
+    pdf["mcap"] = pdf.close * sh.reindex(pdf.index) / 1e8
+    if not one["pe"].empty:
+        pdf = pdf.join(one["pe"][["pe", "yield"]], how="left")
+    if rev is not None and not rev.empty:
+        rv = rev.sort_values("ym").groupby("code")
+        pdf["yoy3"] = rv.yoy.apply(lambda x: x.tail(3).mean())
+    sli = sl.set_index("code")
+    pdf["ind"] = sli.industry.reindex(pdf.index)
+    pdf["name"] = sli.name.reindex(pdf.index)
+    pdf = pdf[pdf.ind.notna() & pdf.mcap.notna()]
+    peer_groups = {i: g.sort_values("mcap", ascending=False) for i, g in pdf.groupby("ind")}
+
     sd = out_dir / "stocks"
     sd.mkdir(parents=True, exist_ok=True)
     for old in sd.glob("*.json"):
@@ -181,6 +198,13 @@ def build(out_dir: Path) -> int:
         if (x := inst_long.get(c)) is not None and len(x) >= 8:
             o["inst_long"] = {"d": x.date.tolist(), "f": [_r(v, 0) for v in x.f], "t": [_r(v, 0) for v in x.t],
                               "lots": _r(sh.get(c) / 1000, 0) if c in sh.index else None}
+        if (pg := peer_groups.get(o["industry"])) is not None and len(pg) >= 3:
+            top = pg.head(8)
+            if c not in top.index and c in pg.index:
+                top = pd.concat([top, pg.loc[[c]]])
+            o["peers"] = {"n": int(len(pg)), "rank": int(pg.index.get_loc(c)) + 1 if c in pg.index else None,
+                          "rows": [[k, x["name"], _r(x.mcap, 0), _r(x.r20, 1), _r(x.get("pe")), _r(x.get("yield")), _r(x.get("yoy3"), 1)]
+                                   for k, x in top.iterrows()]}
         if (x := G["marg"].get(c)) is not None:
             x = x.sort_values("date").tail(60)
             o["margin"] = [[d, _r(m, 0), _r(s, 0)] for d, m, s in zip(x.date, x.margin_bal, x.short_bal)]
