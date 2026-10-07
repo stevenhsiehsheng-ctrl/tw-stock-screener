@@ -359,7 +359,7 @@ def write(site_dir: Path) -> bool:
 <title>美股篩選</title><style>{PAGE_CSS}</style></head><body><main><!--SITENAV:usx-->
 <h1>🇺🇸 美股篩選</h1><div class="meta">{html.escape(last)} 美股收盤（台北隔天早上 06:20 更新）・S&amp;P 500＋那斯達克 100＋常用 ETF／ADR，{len(got[0])} 檔・價格為還原價（美元）</div>
 <div class="tiles" id="tiles"></div><p class="note" id="btnote"></p>
-<p class="note">⚠️ <b>成分股為現在名單，回測可能高估</b>（只測到活下來、還在指數裡的公司）；含被踢出／下市公司的版本重跑中。</p>
+<p class="note" id="btpit"></p>
 {cal}
 <div class="box">💵 <b>台灣人買美股要知道的</b>：國泰複委託網路下單，<b>個股買賣各 0.08%、不設最低收費</b>（優惠到 2026/12/31）；ETF 每筆 3 美元（小額買 ETF 反而貴）。
 賣出另有美國 SEC 規費（約 0.003%）。換匯有價差，錢留在美元帳戶就只付一次。現金股利先扣 30% 美國稅。美股沒有漲跌停、一股就能買，交割 T+1。
@@ -386,8 +386,9 @@ function render(){{const q=$('q').value.trim().toLowerCase();let R=DATA.filter(r
 document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{{const k=th.dataset.k;if(sk===k)sd*=-1;else{{sk=k;sd=(k==='code'||k==='name'||k==='sector'||k==='next_earn')?1:-1}}render()}});
 $('q').oninput=render;tiles();render();
 if(BT5.strategies){{const L=BT5.strategies,lose=L.filter(x=>x.next_open_5.ex<=0).length;const w20=L.filter(x=>x.next_open_20.ex>0.5&&x.next_open_20.t>=2).map(x=>`${{x.name}}（${{pc(x.next_open_20.ex)}}）`);
- $('btnote').innerHTML=`📏 5 年回測（${{(BT5.period||[]).join('～')}}，現成分股、扣來回 ${{BT5.cost}}%、比同期成分股等權）：隔天開盤買持有 5 天，${{lose}}/${{L.length}} 招輸平均；`+
- (w20.length?`持有 20 天站得住的是 <b>${{w20.join('、')}}</b>。`:'持有 20 天也沒有一招站得住。')+`股票池是現在的成分股，有存活者偏差，但比較基準是同一批股票，偏差大半互相抵掉。`}}
+ $('btnote').innerHTML=`📏 5 年回測（${{(BT5.period||[]).join('～')}}，${{BT5.members==="pit"?"當時成分股":"現成分股"}}、扣來回 ${{BT5.cost}}%、比同期成分股等權）：隔天開盤買持有 5 天，${{lose}}/${{L.length}} 招輸平均；`+
+ (w20.length?`持有 20 天站得住的是 <b>${{w20.join('、')}}</b>。`:'持有 20 天也<b>沒有一招</b>站得住。')+(BT5.members==='pit'?'':'股票池是現在的成分股，有存活者偏差。');
+ if(BT5.members==='pit')$('btpit').innerHTML=`🔍 回測用每天<b>當時</b>的成分股（含後來被踢出的），避免只測到贏家。${{esc(BT5.note||'')}}。之前只用現在名單時，財報跳空 20 日看起來 +1.42%，改成當時名單只剩 +0.34%——多出來的是存活者偏差。名單只當觀察用。`}}
 </script></body></html>"""
     (site_dir / "usx.html").write_text(body, "utf-8")
     return True
