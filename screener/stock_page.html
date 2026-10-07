@@ -143,7 +143,7 @@ function showUS(o){const c=o.px.c,last=c[c.length-1],F=o.fund||{};const h=[];con
   h.push('<h2>美股篩選紀錄</h2>');
   const S=(o.strats||[]).slice().reverse();
   h.push(S.length?`<div class="tbl"><table><tr><th>日期</th><th>策略</th></tr>${S.slice(0,30).map(x=>`<tr><td>${esc(x[0])}</td><td>📊 ${esc(x[1])}</td></tr>`).join('')}</table></div> <a href="usx.html">看今天的美股篩選 →</a>`:'<p class="empty">最近沒有出現在美股篩選裡。<a href="usx.html">看今天的美股篩選 →</a></p>');
-  h.push(`<p class="meta">資料日 ${esc(o.asof)}（美股收盤）。用複委託買賣，手續費約 0.1%～0.25%、有最低收費；股利先扣 30% 美國稅。不構成投資建議。</p>`);
+  h.push(`<p class="meta">資料日 ${esc(o.asof)}（美股收盤）。國泰複委託個股買賣各 0.08%、不設最低（優惠到 2026/12/31）；股利先扣 30% 美國稅。不構成投資建議。</p>`);
   $('#out').innerHTML=h.join('');CUR=o;charts()}
 /* ---------- 頁面 ---------- */
 function sum(a){return a.reduce((s,x)=>s+(x||0),0)}
