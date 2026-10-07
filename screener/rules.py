@@ -30,6 +30,8 @@ class Panel:
         self.traded = self.close.notna()
         self.close = self.close.ffill()
         self._cache: dict = {}
+        # 還原價（Yahoo 5 年回測檔有 adjusted 欄）不在官方檔位上，漲跌停一律走漲幅近似（at_limit），不准用檔位法
+        self.adjusted = "adjusted" in hist.columns and bool(pd.to_numeric(hist["adjusted"], errors="coerce").fillna(0).astype(bool).any())
 
     def ma(self, n: int) -> pd.DataFrame:
         k = ("ma", n)
@@ -53,7 +55,37 @@ class Panel:
         return (self.close / self.prev_close - 1) * 100
 
     def limit_price(self, up: bool = True) -> pd.DataFrame:
+        assert not self.adjusted, "還原價不能用檔位算漲跌停價，請改用 Panel.at_limit()／touch_limit()（還原價會自動走漲幅近似）"
         return limit_price(self.prev_close, up)
+
+    def at_limit(self, up: bool = True) -> pd.DataFrame:
+        """收盤鎖漲停（跌停）：今天和前一天都有成交、漲跌幅 ≤10.5%（排除除權息、減資）。
+        原始價用官方檔位；還原價用『漲幅 ≥9.5% 且收＝最高』（跌停：跌幅 ≥9.5% 且收＝最低）。
+        一年原始價上兩種方法每天平均 44.8 vs 45.1 家，幾乎一樣（分身 0415）；還原價上檔位法會漏約三分之一。"""
+        k = ("at_limit", up)
+        if k not in self._cache:
+            c = self.close
+            ok = self.traded & self.traded.shift(1, fill_value=False) & (self.change_pct.abs() <= 10.5)
+            if self.adjusted:
+                hit = (self.change_pct >= 9.5) & (c >= self.high - 1e-6 * c) if up else (self.change_pct <= -9.5) & (c <= self.low + 1e-6 * c)
+            else:
+                lp = limit_price(self.prev_close, up)
+                hit = c >= lp - 1e-6 if up else c <= lp + 1e-6
+            self._cache[k] = (ok & hit).fillna(False)
+        return self._cache[k]
+
+    def touch_limit(self, up: bool = True) -> pd.DataFrame:
+        """盤中碰到漲停（跌停）價（最高價到了），收盤不一定鎖住。還原價用『最高 ÷ 前收 ≥ 1.095』近似。"""
+        k = ("touch_limit", up)
+        if k not in self._cache:
+            ok = self.traded & self.traded.shift(1, fill_value=False) & (self.change_pct.abs() <= 10.5)
+            if self.adjusted:
+                hit = (self.high / self.prev_close >= 1.095) if up else (self.low / self.prev_close <= 0.905)
+            else:
+                lp = limit_price(self.prev_close, up)
+                hit = self.high >= lp - 1e-6 if up else self.low <= lp + 1e-6
+            self._cache[k] = (ok & hit).fillna(False)
+        return self._cache[k]
 
 
 def limit_price(prev: pd.DataFrame, up: bool = True) -> pd.DataFrame:
@@ -131,11 +163,11 @@ def _normal_day(p: Panel):
 
 
 def c_limit_up(p: Panel, a):
-    return _normal_day(p) & (p.close >= p.limit_price(True) - 1e-6)
+    return p.at_limit(True)
 
 
 def c_limit_down(p: Panel, a):
-    return _normal_day(p) & (p.close <= p.limit_price(False) + 1e-6)
+    return p.at_limit(False)
 
 
 def c_above_ma(p: Panel, a):
