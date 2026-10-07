@@ -412,9 +412,12 @@ const L={green:'🟢 綠燈',yellow:'🟡 黃燈',red:'🔴 紅燈'};
 const rows=[];const add=(ic,html,ts,stale)=>rows.push(`<div class="row${stale?' stale':''}"><span class="ic">${ic}</span><span class="tx">${html}</span><span class="ts">${E(ts||'')}</span></div>`);
 function regime(){const r=T.regime;if(!r)return;add('🚦',`大盤燈號 <b>${L[r.light]||E(r.light)}</b>（${E(r.light_since||'')} 起）${r.stale_core&&r.stale_core.length?'・<b>資料落後</b>':''} <a href="macro.html">大環境 →</a>`,r.date)}
 function overnight(){const s=T.sox,t=T.tsm;if(!s&&!t)return;add('🌙',`昨夜費半 <b class="num">${P(s&&s.chg)}</b>${t?`・台積電 ADR <b class="num">${P(t.chg)}</b>${t.tw2330?`（換算台積電約 <b class="num">${t.tw2330}</b>）`:''}`:''} <a href="us.html">美股隔夜 →</a>`,(s||t).date)}
-function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統持倉：<b>0</b> 檔',ts,stale);return}
+function ledgerLine(kind){const G=T.ledger;if(!G)return false;const N=G.names||{};
+  if(kind==='pre'){const Q=G.pending||[];add('🧾',Q.length?`虛擬帳戶今天要執行 <b>${Q.length}</b> 筆：${Q.slice(0,4).map(q=>`${q.side==='buy'?'買':'賣'} <a href="${S(q.code)}">${E(N[q.code]||q.code)}</a>`).join('、')}`:'虛擬帳戶今天沒有要執行的單',G.date);return true}
+  add('🧾',`虛擬帳戶今天 <b class="num">${P(G.ret_today)}</b>（0050 含息 ${P(G.bench_tr_today)}）・累計 <b class="num">${P(G.ret_cum)}</b> vs 0050 ${P(G.bench_tr_cum)}・持倉 ${G.n_pos} 檔`+((G.exits_tomorrow||[]).length?`・明天要出場 ${G.exits_tomorrow.map(c=>`<a href="${S(c)}">${E(N[c]||c)}</a>`).join('、')}`:''),G.date);return true}
+function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉：<b>0</b> 檔',ts,stale);return}
   const r=H.filter(x=>x.ret!=null),avg=r.length?r.reduce((a,x)=>a+x.ret,0)/r.length:null,worst=r.slice().sort((a,b)=>a.ret-b.ret)[0];
-  add('💼',`系統持倉 <b class="num">${H.length}</b> 檔・平均 <b class="num">${P(avg)}</b>${worst?`・最差 <a href="${S(worst.code)}">${E(worst.name)}</a> <b class="num">${P(worst.ret)}</b>`:''}`,ts,stale)}
+  add('💼',`系統訊號持倉（非虛擬帳戶）<b class="num">${H.length}</b> 檔・平均 <b class="num">${P(avg)}</b>${worst?`・最差 <a href="${S(worst.code)}">${E(worst.name)}</a> <b class="num">${P(worst.ret)}</b>`:''}`,ts,stale)}
 function exitsLine(when){const X=T.exits||[];if(!X.length)return;add('🚪',`${when}開盤要賣 <b>${X.length}</b> 檔：${X.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${X.length>4?' 等':''}`,T.tw_date)}
 function eventsLine(){const V=T.events||[];if(!V.length)return;add('📌',V.slice(0,4).map(v=>`${v.date?E(v.date.slice(5))+' ':''}<a href="${S(v.code)}">${E(v.name)}</a> ${E(v.kind)}${v.note?'（'+E(v.note)+'）':''}`).join('、')+(V.length>4?` 等 ${V.length} 件`:'')+'（只列持倉與長期 Top 20）',T.tw_date)}
 function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 正式訊號 <b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
@@ -427,9 +430,9 @@ if(mode==='live'){fetch(`https://raw.githubusercontent.com/${repo}/live/live.jso
   if(fresh&&J.official&&J.official.stocks)sigLine(J.official.stocks,J.official.time,stale);
   eventsLine();draw(`盤中・${fresh?J.updated.slice(11,16)+' 更新':'盤中監控還沒有今天的資料'}`)}).catch(()=>{regime();holdLine(T.hold,T.tw_date);eventsLine();draw('盤中・讀不到即時資料')});return}
 regime();overnight();
-if(mode==='pre'){exitsLine('今天');holdLine(T.hold,T.tw_date);eventsLine();draw('盤前')}
-else if(mode==='post'){sigLine(T.today_sig,T.tw_date);holdLine(T.hold,T.tw_date);exitsLine('明天');eventsLine();draw(T.tw_date===iso?'盤後':'盤後・今天的收盤資料還沒進來')}
-else{holdLine(T.hold,T.tw_date);eventsLine();draw('週末')}
+if(mode==='pre'){ledgerLine('pre');exitsLine('今天');holdLine(T.hold,T.tw_date);eventsLine();draw('盤前')}
+else if(mode==='post'){sigLine(T.today_sig,T.tw_date);ledgerLine('post');holdLine(T.hold,T.tw_date);exitsLine('明天');eventsLine();draw(T.tw_date===iso?'盤後':'盤後・今天的收盤資料還沒進來')}
+else{ledgerLine('post');holdLine(T.hold,T.tw_date);eventsLine();draw('週末')}
 })();
 
 // 上方捲軸與表格同步
