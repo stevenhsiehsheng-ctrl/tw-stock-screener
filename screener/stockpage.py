@@ -198,8 +198,51 @@ def build(out_dir: Path) -> int:
         (sd / f"{c}.json").write_text(json.dumps(o, ensure_ascii=False, separators=(",", ":"), default=str), "utf-8")
         idx.append([c, r.name])
         n += 1
+    try:
+        n += build_us(sd, idx)
+    except Exception as e:  # noqa: BLE001
+        log.warning("美股個股頁失敗：%s", e)
     (sd / "index.json").write_text(json.dumps({"asof": asof, "dt_day": dt_day, "s": idx},
                                               ensure_ascii=False, separators=(",", ":")), "utf-8")
+    return n
+
+
+def build_us(sd: Path, idx: list) -> int:
+    """美股代號（data/usx）：價量、基本面、美股篩選紀錄。"""
+    U = DATA / "usx"
+    if not (U / "history.csv.gz").exists() or not (U / "universe.csv").exists():
+        return 0
+    uni = pd.read_csv(U / "universe.csv", dtype=str).fillna("").drop_duplicates("code")
+    h = pd.read_csv(U / "history.csv.gz", dtype={"code": str}).sort_values(["code", "date"])
+    asof = h.date.max()
+    hg = _by_code(h)
+    fund = _read(U / "fund.csv")
+    F = fund.drop_duplicates("code").set_index("code") if fund is not None and len(fund) else pd.DataFrame()
+    rf = sorted((U / "results").glob("*.csv")) if (U / "results").exists() else []
+    res = pd.concat([pd.read_csv(f, dtype=str) for f in rf], ignore_index=True) if rf else pd.DataFrame(columns=["date", "strategy", "code"])
+    R = _by_code(res)
+    n = 0
+    for r in uni.itertuples():
+        c = r.code
+        g = hg.get(c)
+        if g is None or g.empty or (sd / f"{c}.json").exists():
+            continue
+        g = g.dropna(subset=["close"]).tail(260)
+        if g.empty:
+            continue
+        o = {"code": c, "name": r.name_zh or r.name, "name_en": r.name, "market": "US", "group": r.group,
+             "industry": " ／ ".join(x for x in (r.sector, r.industry) if x), "asof": asof, "last": g.date.iloc[-1],
+             "px": {"d": g.date.tolist(), "c": [_r(x) for x in g.close], "v": [int(x // 1000) for x in g.volume.fillna(0)]},
+             "hi52": _r(g.high.max()), "lo52": _r(g.low.min())}
+        if len(g) >= 2:
+            o["chg"] = _r((g.close.iloc[-1] / g.close.iloc[-2] - 1) * 100)
+        if c in F.index:
+            o["fund"] = {k: (None if pd.isna(v) else v) for k, v in F.loc[c].items()}
+        if (x := R.get(c)) is not None:
+            o["strats"] = x.sort_values("date")[["date", "strategy"]].values.tolist()
+        (sd / f"{c}.json").write_text(json.dumps(o, ensure_ascii=False, separators=(",", ":"), default=str), "utf-8")
+        idx.append([c, o["name"] if o["name"] == r.name else f"{o['name']} {r.name}"])
+        n += 1
     return n
 
 

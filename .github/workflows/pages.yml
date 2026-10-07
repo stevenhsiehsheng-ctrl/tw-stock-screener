@@ -15,9 +15,11 @@ on:
       - screener/macro.py
       - screener/longterm.py
       - screener/stockpage.py
+      - screener/usx.py
       - screener/stock_page.html
       - screener/sitenav.py
       - data/us/**
+      - data/usx/**
       - data/macro/**
       - data/longterm/**
       - data/weekly/**

@@ -102,6 +102,19 @@ def c_volume(p: Panel, a):
     return (lots >= a.get("min", 0)) & (lots <= a.get("max", np.inf))
 
 
+def c_dollar_volume(p: Panel, a):
+    """近 days 日平均成交金額（百萬，美股用：股數 × 收盤）介於 min~max。"""
+    n = a.get("days", 20)
+    dv = (p.volume * p.close).rolling(n, min_periods=n).mean() / 1e6
+    return (dv >= a.get("min", 0)) & (dv <= a.get("max", np.inf))
+
+
+def c_gap_pct(p: Panel, a):
+    """開盤跳空（開盤 ÷ 前收 − 1，%）介於 min~max。"""
+    g = (p.open / p.prev_close - 1) * 100
+    return (g >= a.get("min", -100)) & (g <= a.get("max", 100))
+
+
 def c_price(p: Panel, a):
     return (p.close >= a.get("min", 0)) & (p.close <= a.get("max", np.inf))
 
@@ -220,6 +233,8 @@ CONDITIONS = {
     "volume_vs_avg": (c_volume_vs_avg, "量比{days}日均量≥{min}倍"),
     "volume": (c_volume, "成交量{rng}張"),
     "price": (c_price, "股價{rng}元"),
+    "dollar_volume": (c_dollar_volume, "{days}日均成交額{rng}百萬"),
+    "gap_pct": (c_gap_pct, "開盤跳空{rng}%"),
     "change_pct": (c_change_pct, "漲跌幅{rng}%"),
     "limit_up": (c_limit_up, "漲停"),
     "limit_down": (c_limit_down, "跌停"),
