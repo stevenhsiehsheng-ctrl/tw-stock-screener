@@ -340,9 +340,9 @@ def write(site_dir: Path) -> bool:
 <title>美股篩選</title><style>{PAGE_CSS}</style></head><body><main><!--SITENAV:usx-->
 <h1>🇺🇸 美股篩選</h1><div class="meta">{html.escape(last)} 美股收盤（台北隔天早上 06:20 更新）・S&amp;P 500＋那斯達克 100＋常用 ETF／ADR，{len(got[0])} 檔・價格為還原價（美元）</div>
 <div class="tiles" id="tiles"></div><p class="note" id="btnote"></p>
-<div class="box">💵 <b>台灣人買美股要知道的</b>：用複委託下單，網路手續費大約成交金額 0.1%～0.25%、通常有最低收費（小額下單相對貴）；
-賣出另有美國 SEC 規費（金額很小）。現金股利先扣 30% 美國稅。美股沒有漲跌停、一股就能買，交割 T+1。
-交易時間台北 21:30～04:00（夏令）／22:30～05:00（冬令），所以這裡的名單是「收盤後看、隔天晚上開盤買」。回測成本先抓來回 {cost}%。</div>
+<div class="box">💵 <b>台灣人買美股要知道的</b>：國泰複委託網路下單，<b>個股買賣各 0.08%、不設最低收費</b>（優惠到 2026/12/31）；ETF 每筆 3 美元（小額買 ETF 反而貴）。
+賣出另有美國 SEC 規費（約 0.003%）。換匯有價差，錢留在美元帳戶就只付一次。現金股利先扣 30% 美國稅。美股沒有漲跌停、一股就能買，交割 T+1。
+交易時間台北 21:30～04:00（夏令）／22:30～05:00（冬令），所以這裡的名單是「早上看、當晚開盤買」。回測成本抓來回 {cost}%（手續費 0.16%＋買賣價差）。</div>
 <p><input id="q" placeholder="搜尋代號、名稱、產業"> <span class="meta" id="cnt"></span></p>
 <div class="tbl"><table><thead><tr><th class="l" data-k="code">代號</th><th class="l" data-k="name">名稱</th><th class="l" data-k="sector">產業</th>
 <th data-k="close">收盤</th><th data-k="chg">漲跌%</th><th data-k="vx">量/20日均</th><th data-k="r20">20日%</th><th data-k="hi52">距52週高%</th>
