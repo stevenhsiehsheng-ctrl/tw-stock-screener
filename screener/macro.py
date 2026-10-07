@@ -88,9 +88,50 @@ def update() -> int:
             log.warning("Yahoo 這次少了 %d 列，沿用舊檔：%s", len(keep),
                         keep.groupby("sym").date.max().to_dict())
             df = pd.concat([df, keep], ignore_index=True)
+    # Yahoo 有時到早上還沒給台股加權指數昨天那根（10/8 06:45 抓，^TWII 停在 10/6）→ 用證交所 FMTQIK 補收盤
+    tw_done = _json_get(ROOT / "data" / "state.json", "last_done") or ""
+    tw_last = df.loc[df.sym == "^TWII", "date"].max() if (df.sym == "^TWII").any() else ""
+    if tw_done and tw_last and tw_done > tw_last:
+        try:
+            add = _twii_from_twse(tw_last, tw_done)
+            if len(add):
+                log.warning("^TWII Yahoo 只到 %s，用證交所補 %s", tw_last, add.date.tolist())
+                df = pd.concat([df, add], ignore_index=True)
+        except Exception as e:  # noqa: BLE001
+            log.warning("證交所補加權指數失敗：%s", e)
     DATA.mkdir(parents=True, exist_ok=True)
     df.sort_values(["sym", "date"]).to_csv(LONG, index=False, compression="gzip")
     return len(df)
+
+
+def _parse_fmtqik(j: dict, after: str, until: str) -> pd.DataFrame:
+    """證交所 FMTQIK（每日市場成交資訊）→ 加權指數收盤；日期是民國年（115/10/07）。"""
+    fields = j.get("fields") or []
+    col = next((i for i, f in enumerate(fields) if "加權" in str(f)), None)
+    rows = []
+    if col is None:
+        return pd.DataFrame(columns=["date", "sym", "close", "close_adj"])
+    for r in j.get("data") or []:
+        try:
+            y, m, d = str(r[0]).strip().split("/")
+            date = f"{int(y) + 1911:04d}-{int(m):02d}-{int(d):02d}"
+            v = float(str(r[col]).replace(",", ""))
+        except (ValueError, IndexError):
+            continue
+        if after < date <= until:
+            rows.append({"date": date, "sym": "^TWII", "close": round(v, 4), "close_adj": round(v, 4)})
+    return pd.DataFrame(rows, columns=["date", "sym", "close", "close_adj"])
+
+
+def _twii_from_twse(after: str, until: str) -> pd.DataFrame:
+    import requests
+
+    from .fetch import _get_json
+    s = requests.Session()
+    months = sorted({after[:7], until[:7]})
+    parts = [_parse_fmtqik(_get_json(s, "https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK",
+                                     {"date": m.replace("-", "") + "01", "response": "json"}), after, until) for m in months]
+    return pd.concat(parts, ignore_index=True).drop_duplicates("date")
 
 
 # (代號, 名稱, 種類, 白話)；種類 idx＝看離 200 日線、rate＝殖利率（變化用百分點）、lvl＝看水準
