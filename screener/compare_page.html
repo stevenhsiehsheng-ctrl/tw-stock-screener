@@ -65,12 +65,13 @@ function rows(os){/* 指標列：[名稱, o=>html] */
   const last=o=>o.px&&o.px.c.length?o.px.c[o.px.c.length-1]:null;
   const ret=(o,k)=>{const c=o.px&&o.px.c;if(!c||c.length<2)return null;const i=Math.max(0,c.length-1-Math.min(k,c.length-1));return(c[c.length-1]/c[i]-1)*100};
   const me=o=>(o.peers&&o.peers.rows||[]).find(r=>r[0]===o.code);
-  const vp=(o,k,d)=>{const v=o.val&&o.val[k];const now=k==='yield'?(o.pe&&o.pe.yield):o.pe&&o.pe[k];return now==null?'—':`${fmt(now,d)}${k==='yield'?'%':''}${v?` <span class="sub">位階 ${v.pct.toFixed(0)}</span>`:''}`};
+  const vp=(o,k,d)=>{if(k==='yield'&&o.etf)return o.etf.y12?`${fmt(o.etf.y12,2)}% <span class="sub">近 12 月</span>`:'沒配';const v=o.val&&o.val[k];const now=k==='yield'?(o.pe&&o.pe.yield):o.pe&&o.pe[k];return now==null?'—':`${fmt(now,d)}${k==='yield'?'%':''}${v?` <span class="sub">位階 ${v.pct.toFixed(0)}</span>`:''}`};
   const rev=o=>{const r=o.rev||[];if(!r.length)return'—';const x=r[r.length-1];return `${sgn(x[2])} <span class="sub">${esc(x[0])}</span>`};
   const rev3=o=>{const r=(o.rev||[]).slice(-3).map(x=>x[2]).filter(v=>v!=null);return r.length?sgn(r.reduce((a,b)=>a+b,0)/r.length):'—'};
   const inst=(o,j)=>{const r=(o.inst||[]).slice(-20);if(!r.length)return'—';const s=r.reduce((a,x)=>a+(x[j]||0),0);return `<span class="${s>0?'up':s<0?'down':''}">${s>0?'+':''}${fmt(s,0)}</span>`};
   return[['產業',o=>esc(o.industry||'')],['收盤',o=>fmt(last(o))],['今天',o=>sgn(o.chg,2)],
-   ...(R!==250?[[`${RG.find(x=>x[1]===R)[0]}漲跌`,o=>sgn(ret(o,R))]]:[]),['一年漲跌（250 個交易日）',o=>sgn(ret(o,250))],['距一年高',o=>o.tech&&o.tech.hi52_dist!=null?sgn(o.tech.hi52_dist):'—'],
+   ...(R!==250?[[`${RG.find(x=>x[1]===R)[0]}漲跌`,o=>sgn(ret(o,R))]]:[]),['一年漲跌（250 個交易日）',o=>sgn(ret(o,250))],['距一年高',o=>o.tech&&o.tech.hi52_dist!=null?sgn(o.tech.hi52_dist):o.hi52?sgn((last(o)/o.hi52-1)*100):'—'],
+   ...(os.some(o=>o.etf)?[['一年含息報酬（ETF）',o=>o.etf?sgn(o.etf.tr250):'—']]:[]),
    ['市值（億）',o=>{const r=me(o);return r?fmt(r[2],0):'—'}],['本益比',o=>vp(o,'pe',1)],['股價淨值比',o=>vp(o,'pb',2)],['殖利率',o=>vp(o,'yield',2)],
    ['最新月營收年增',rev],['近 3 個月營收年增平均',rev3],['RS 強弱（1-99）',o=>o.tech&&o.tech.rs!=null?fmt(o.tech.rs,0):'—'],
    ['趨勢樣板',o=>o.tech&&o.tech.tpl!=null?(o.tech.tpl?'✓':'✗'):'—'],['外資近 20 日（張）',o=>inst(o,1)],['投信近 20 日（張）',o=>inst(o,2)]]}

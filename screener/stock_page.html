@@ -174,8 +174,9 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   document.title=`${o.name} ${o.code}｜個股查詢`;$('#q').value='';addRecent(o.code,o.name);drawRecent();
   if(o.market==='US'){showUS(o);return}
   const c=o.px.c,last=c[c.length-1],stale=o.last!==o.asof;const h=[];
-  const cmp=[o.code,...((o.peers&&o.peers.rows)||[]).map(r=>r[0]).filter(c=>c!==o.code).slice(0,1)].join(',');
-  h.push(`<h1>${esc(o.name)} ${star(o.code,o.name)} <a class="star" style="text-decoration:none" href="compare.html?c=${esc(cmp)}" title="跟同產業最大的那檔放一起比，可以再加">⚖ 比較</a> <span class="meta">${esc(o.code)}・${o.market==='TWSE'?'上市':o.market==='TPEX'?'上櫃':esc(o.market)}${o.industry?'・'+esc(o.industry):''}</span></h1>`);
+  const ETF=o.kind==='ETF';
+  const cmp=ETF?[o.code,o.code==='0050'?'0056':'0050'].join(','):[o.code,...((o.peers&&o.peers.rows)||[]).map(r=>r[0]).filter(c=>c!==o.code).slice(0,1)].join(',');
+  h.push(`<h1>${esc(o.name)} ${star(o.code,o.name)} <a class="star" style="text-decoration:none" href="compare.html?c=${esc(cmp)}" title="${ETF?'跟 0050 放一起比':'跟同產業最大的那檔放一起比'}，可以再加">⚖ 比較</a> <span class="meta">${esc(o.code)}${ETF?'':'・'+(o.market==='TWSE'?'上市':o.market==='TPEX'?'上櫃':esc(o.market))}${o.industry?'・'+esc(o.industry):''}</span></h1>`);
   h.push(`<div class="hero"><span class="px">${fmt(last)}</span><span class="chg ${cls(o.chg)}">${o.chg>0?'▲':o.chg<0?'▼':''} ${sgn(o.chg)}%</span><span class="meta">${esc(o.last)} 收盤${stale?'（這檔最近沒有交易）':''}</span></div>`);
   const b=[];if(o.warn)b.push(`<span class="b crit">⚠️ ${esc(o.warn)}中</span>`);
   if(o.dt_ok===false)b.push(`<span class="b warn">🚫 不可當沖</span>`);
@@ -184,8 +185,8 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   if(o.exdiv_next&&o.exdiv_next.length){const e=o.exdiv_next[0];b.push(`<span class="b">💰 ${esc(e[0])} 除${esc(e[1])}${e[2]?' 現金 '+fmt(e[2],2)+' 元':''}</span>`)}
   if(b.length)h.push(`<div class="badges">${b.join('')}</div>`);
   /* 明天異動通知 */
-  const t=o.trig;h.push('<h2>明天會不會跳異動通知？</h2>');
-  if(stale||!t){h.push('<p class="empty">這檔今天沒有收盤資料，算不出來。</p>')}
+  const t=o.trig;if(!ETF)h.push('<h2>明天會不會跳異動通知？</h2>');
+  if(ETF){}else if(stale||!t){h.push('<p class="empty">這檔今天沒有收盤資料，算不出來。</p>')}
   else if(t.note){h.push(`<p class="empty">${esc(t.note)}。</p>`)}
   else{const ok=t.reachable;
     h.push(`<div class="card"><div class="verdict">${ok?`要漲到 <b>${fmt(t.need)}</b> 元以上（${sgn(t.need_pct)}%），量也要夠，才會觸發。`:`<span class="down">明天就算漲停（${fmt(t.lu)}）也不會觸發</span>——要 ${fmt(t.need)} 元才突破，超過漲停價。`}</div>
@@ -202,19 +203,26 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
     <div class="tile"><div class="k">距一年高</div><div class="v">${sgn((last/hi52-1)*100,1)}%</div></div>
     ${o.tech?`<div class="tile"><div class="k">相對強度 RS</div><div class="v">${fmt(o.tech.rs,0)}</div></div><div class="tile"><div class="k">趨勢樣板</div><div class="v">${o.tech.tpl?'✅ 符合':'—'}</div></div>`:''}</div>`);
   h.push('<div class="chart" id="cpx"></div>');
+  if(ETF){const E=o.etf||{};h.push('<h2>ETF 配息與報酬</h2>');
+    h.push(`<div class="grid"><div class="tile"><div class="k">近 12 月配息</div><div class="v">${E.div12?fmt(E.div12,E.div12<1?3:2)+' 元':'沒配'}</div><div class="meta">${E.nd||0} 次</div></div>
+      <div class="tile"><div class="k">近 12 月殖利率</div><div class="v">${E.y12?fmt(E.y12,2)+'%':'—'}</div></div>
+      <div class="tile"><div class="k">一年價格報酬</div><div class="v ${cls(E.r250)}">${E.r250==null?'—':sgn(E.r250,1)+'%'}</div></div>
+      <div class="tile"><div class="k">一年含息報酬</div><div class="v ${cls(E.tr250)}">${E.tr250==null?'—':sgn(E.tr250,1)+'%'}</div></div>
+      <div class="tile"><div class="k">每天成交值</div><div class="v">${E.val20==null?'—':fmt(E.val20,2)+' 億'}</div><div class="meta">近 20 日平均</div></div></div>`);
+    h.push(`<p class="meta">${E.bad?'⚠️ 一年內有單日漲跌超過 50%（多半是分割或資料錯），長期報酬先不算。':''}殖利率高不等於賺比較多：配息可能來自本金，比較 ETF 請看含息報酬。<a href="etf.html">全部 ETF →</a></p>`)}
   /* 訊號紀錄 */
-  h.push('<h2>我們的系統怎麼看它</h2>');const sig=[];
+  if(!ETF){h.push('<h2>我們的系統怎麼看它</h2>');const sig=[];
   (o.alerts||[]).slice().reverse().forEach(a=>sig.push([a[0],`⚡ 盤中異動通知 ${esc(a[1])}（${fmt(a[2])}）${a[3]?'→ <b>13:12 訊號</b>':''}`]));
   (o.strats||[]).slice().reverse().forEach(s=>sig.push([s[0],`📊 每日篩選：${esc(s[1])}`]));
   (o.pos||[]).forEach(p=>sig.push([p.signal_date,`🎯 13:12 訊號 ${esc(p.signal_time||'')} 進場 ${fmt(+p.entry_price)}，${p.status==='open'?'持有中':'已出場（'+esc(p.exit_reason||'')+'）'}${p.est_return_pct!=null?'，報酬 '+sgn(+p.est_return_pct)+'%':''}`]));
   sig.sort((a,b)=>a[0]<b[0]?1:-1);
   h.push(sig.length?`<div class="tbl"><table><tr><th>日期</th><th>紀錄</th></tr>${sig.slice(0,30).map(r=>`<tr><td>${esc(r[0])}</td><td>${r[1]}</td></tr>`).join('')}</table></div>`
-    :'<p class="empty">最近沒有出現在每日篩選、異動通知或 13:12 訊號裡。</p>');
+    :'<p class="empty">最近沒有出現在每日篩選、異動通知或 13:12 訊號裡。</p>')}
   if(o.lt){const l=o.lt;h.push(`<div class="card">🌱 長期篩選：${l.rank?`量化分數第 ${l.rank} 名／${l.n} 檔（${fmt(l.score,3)}）`:''}${l.top?'，<b>在長期 Top 20 觀察名單</b>':''}
     ${l.thesis?`<div>看好理由：${esc(l.thesis)}</div><div class="meta">風險：${esc(l.risk||'')}｜破功條件：${esc(l.break_rule||'')}</div>`:''} <a href="longterm.html">看整份名單 →</a></div>`)}
   /* 營收 */
-  h.push('<h2>月營收</h2>');
-  if(o.rev&&o.rev.length){const r=o.rev,lr=r[r.length-1];
+  if(!ETF)h.push('<h2>月營收</h2>');
+  if(ETF){}else if(o.rev&&o.rev.length){const r=o.rev,lr=r[r.length-1];
     h.push(`<div class="grid"><div class="tile"><div class="k">${esc(lr[0])} 營收</div><div class="v">${fmt(lr[1],2)} 億</div></div><div class="tile"><div class="k">年增</div><div class="v ${cls(lr[2])}">${sgn(lr[2],1)}%</div></div>
       <div class="tile"><div class="k">近 3 月平均年增</div><div class="v">${sgn(sum(r.slice(-3).map(x=>x[2]))/Math.min(3,r.length),1)}%</div></div>
       <div class="tile"><div class="k">是否 12 個月新高</div><div class="v">${r.length>=12&&lr[1]>=Math.max(...r.slice(-12).map(x=>x[1]))?'✅ 是':'否'}</div></div></div>`);
@@ -244,7 +252,7 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
     h.push(`<h2>同產業比較</h2><div class="meta">${esc(o.industry)}共 ${P.n} 檔，照市值排${P.rank?`，這檔排第 ${P.rank}`:''}。營收年增＝近 3 個月平均。</div>`);
     h.push(`<div class="tbl"><table><tr><th>股票</th><th class="n">市值（億）</th><th class="n">20 日%</th><th class="n">本益比</th><th class="n">殖利率%</th><th class="n">營收年增%</th></tr>${P.rows.map(r=>`<tr${r[0]===o.code?' style="font-weight:700;background:rgba(128,128,128,.1)"':''}><td>${r[0]===o.code?esc(r[1]):`<a href="stock.html?code=${esc(r[0])}">${esc(r[1])}</a>`} <span class="meta">${esc(r[0])}</span></td><td class="n">${fmt(r[2],0)}</td><td class="n ${cls(r[3])}">${sgn(r[3],1)}</td><td class="n">${r[4]==null?'—':fmt(r[4],1)}</td><td class="n">${r[5]==null?'—':fmt(r[5],2)}</td><td class="n ${cls(r[6])}">${r[6]==null?'—':sgn(r[6],1)}</td></tr>`).join('')}</table></div>`)}
   /* 估值與股利 */
-  h.push('<h2>估值與股利</h2>');
+  h.push(ETF?'<h2>配息紀錄</h2>':'<h2>估值與股利</h2>');
   if(o.pe)h.push(`<div class="grid"><div class="tile"><div class="k">本益比</div><div class="v">${fmt(o.pe.pe,1)}</div></div><div class="tile"><div class="k">股價淨值比</div><div class="v">${fmt(o.pe.pb,2)}</div></div><div class="tile"><div class="k">殖利率</div><div class="v">${fmt(o.pe.yield,2)}%</div></div></div>`);
   if(o.val){const V=o.val,nm={pe:'本益比',pb:'股價淨值比',yield:'殖利率'},u={pe:' 倍',pb:' 倍',yield:'%'};
     const word=(k,p)=>k==='yield'?(p>=80?'比過去多數時候高（相對便宜）':p<=20?'比過去多數時候低（相對貴）':'在過去區間中段'):(p<=20?'比過去多數時候低（相對便宜）':p>=80?'比過去多數時候高（相對貴）':'在過去區間中段');
