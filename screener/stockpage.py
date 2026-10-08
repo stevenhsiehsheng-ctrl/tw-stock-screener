@@ -124,6 +124,11 @@ def build(out_dir: Path) -> int:
     exd = _read(EX / "exdiv.csv")
     exu = _read(EX / "exdiv_upcoming.csv")
     pos = _read(DATA / "positions.csv")
+    w50 = _read(EX / "etf0050_w.csv")
+    W50 = {}
+    if w50 is not None and len(w50):
+        w50 = w50[w50["asof"] == w50["asof"].max()]
+        W50 = {r.code: (float(r.weight), r.asof) for r in w50.itertuples()}
     try:
         from . import valuation
         vl = valuation.load()
@@ -206,6 +211,8 @@ def build(out_dir: Path) -> int:
                 row = one[k].loc[c]
                 o[k] = {x: (bool(row[x]) if x == "tpl" and pd.notna(row[x]) else _r(row[x]) if pd.notna(row[x]) else None)
                         for x in cols if x in row}
+        if c in W50:
+            o["w0050"] = [_r(W50[c][0]), W50[c][1]]
         if val_g and (v := valuation.stats(val_g.get(c), val_now, c, series=True)):
             o["val"] = v
         if c in one["warn"].index:
@@ -298,6 +305,11 @@ def build_etf(sd: Path, idx: list, G: dict) -> int:
     XD = _by_code(xd[xd.kind.astype(str).str.contains("息")]) if xd is not None else {}
     up = _read(EX / "exdiv_upcoming.csv")
     UP = _by_code(up) if up is not None else {}
+    hold = _read(EX / "etf0050_w.csv")
+    if hold is not None and len(hold):
+        hold = hold[hold["asof"] == hold["asof"].max()].sort_values("weight", ascending=False)
+    else:
+        hold = None
     n = 0
     for c, r in summ.items():
         g = eg.get(c)
@@ -335,6 +347,8 @@ def build_etf(sd: Path, idx: list, G: dict) -> int:
         if (x := G["marg"].get(c)) is not None:
             x = x.sort_values("date").tail(60)
             o["margin"] = [[dd, _r(m, 0), _r(sh, 0)] for dd, m, sh in zip(x.date, x.margin_bal, x.short_bal)]
+        if c == "0050" and hold is not None:
+            o["holdings"] = {"asof": hold["asof"].iloc[0], "rows": [[x.code, x.name, _r(x.weight)] for x in hold.itertuples()]}
         (sd / f"{c}.json").write_text(json.dumps(o, ensure_ascii=False, separators=(",", ":"), default=str), "utf-8")
         idx.append([c, o["name"]])
         n += 1

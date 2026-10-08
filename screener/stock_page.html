@@ -181,6 +181,7 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   const b=[];if(o.warn)b.push(`<span class="b crit">⚠️ ${esc(o.warn)}中</span>`);
   if(o.dt_ok===false)b.push(`<span class="b warn">🚫 不可當沖</span>`);
   if(o.lt&&o.lt.top)b.push(`<span class="b good">🌱 長期 Top 20</span>`);
+  if(o.w0050)b.push(`<span class="b" title="元大台灣50 成分股權重（${esc(o.w0050[1])}）">🧺 0050 權重 ${fmt(o.w0050[0],2)}%</span>`);
   const today=(o.strats||[]).filter(x=>x[0]===o.asof).map(x=>x[1]);today.forEach(t=>b.push(`<span class="b">📊 今天上榜：${esc(t)}</span>`));
   if(o.exdiv_next&&o.exdiv_next.length){const e=o.exdiv_next[0];b.push(`<span class="b">💰 ${esc(e[0])} 除${esc(e[1])}${e[2]?' 現金 '+fmt(e[2],2)+' 元':''}</span>`)}
   if(b.length)h.push(`<div class="badges">${b.join('')}</div>`);
@@ -210,7 +211,10 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
       <div class="tile"><div class="k">一年價格報酬</div><div class="v ${cls(E.r250)}">${E.r250==null?'—':sgn(E.r250,1)+'%'}</div></div>
       <div class="tile"><div class="k">一年含息報酬</div><div class="v ${cls(E.tr250)}">${E.tr250==null?'—':sgn(E.tr250,1)+'%'}</div></div>
       <div class="tile"><div class="k">每天成交值</div><div class="v">${E.val20==null?'—':fmt(E.val20,2)+' 億'}</div><div class="meta">近 20 日平均</div></div></div>`);
-    h.push(`<p class="meta">${E.bad?'⚠️ 一年內有單日漲跌超過 50%（多半是分割或資料錯），長期報酬先不算。':''}殖利率高不等於賺比較多：配息可能來自本金，比較 ETF 請看含息報酬。<a href="etf.html">全部 ETF →</a></p>`)}
+    h.push(`<p class="meta">${E.bad?'⚠️ 一年內有單日漲跌超過 50%（多半是分割或資料錯），長期報酬先不算。':''}殖利率高不等於賺比較多：配息可能來自本金，比較 ETF 請看含息報酬。<a href="etf.html">全部 ETF →</a></p>`);
+    if(o.holdings&&o.holdings.rows.length){const R=o.holdings.rows,top=R.slice(0,10).reduce((a,x)=>a+(x[2]||0),0);
+      h.push(`<h2>成分股權重</h2><div class="meta">${esc(o.holdings.asof)} 公布・共 ${R.length} 檔・前 10 大合計 ${fmt(top,1)}%・最大一檔 ${esc(R[0][1])} ${fmt(R[0][2],2)}%</div>`);
+      h.push(`<details${R.length<=12?' open':''}><summary>看全部 ${R.length} 檔</summary><div class="tbl"><table><tr><th>#</th><th>股票</th><th class="n">權重</th></tr>${R.map((x,i)=>`<tr><td>${i+1}</td><td><a href="stock.html?code=${esc(x[0])}">${esc(x[1])}</a> <span class="meta">${esc(x[0])}</span></td><td class="n">${fmt(x[2],2)}%</td></tr>`).join('')}</table></div></details>`)}}
   /* 訊號紀錄 */
   if(!ETF){h.push('<h2>我們的系統怎麼看它</h2>');const sig=[];
   (o.alerts||[]).slice().reverse().forEach(a=>sig.push([a[0],`⚡ 盤中異動通知 ${esc(a[1])}（${fmt(a[2])}）${a[3]?'→ <b>13:12 訊號</b>':''}`]));
