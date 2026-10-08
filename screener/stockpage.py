@@ -310,5 +310,8 @@ def write(site_dir: Path) -> bool:
         return False
     n = build(site_dir)
     (site_dir / "stock.html").write_text(TEMPLATE.read_text("utf-8"), "utf-8")
+    cmp = TEMPLATE.with_name("compare_page.html")
+    if cmp.exists():
+        (site_dir / "compare.html").write_text(cmp.read_text("utf-8"), "utf-8")
     log.info("個股頁：%d 檔", n)
     return n > 0

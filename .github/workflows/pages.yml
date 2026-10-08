@@ -21,6 +21,7 @@ on:
       - screener/mappage.py
       - screener/usx.py
       - screener/stock_page.html
+      - screener/compare_page.html
       - screener/sitenav.py
       - data/us/**
       - data/usx/**
