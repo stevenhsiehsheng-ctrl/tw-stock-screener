@@ -141,7 +141,7 @@ svg.sp{display:block}
 .bchart svg{display:block;width:100%;height:120px}
 .warnline{stroke:var(--up);stroke-dasharray:4 3;stroke-width:1}
 .midline{stroke:var(--line);stroke-width:1}
-/* 摺疊區塊：大型股觀察表、預警準確度 */
+/* 摺疊區塊：大型股觀察表、異動通知準確度 */
 details.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:0 0 16px}
 details.box summary{cursor:pointer;font-weight:600}
 details.box summary span{color:var(--muted);font-size:12px;font-weight:400;margin-left:8px}
@@ -343,9 +343,9 @@ function astatsBox(){
   const p=v=>v==null?'—':`<span class="${v>0?'up':v<0?'down':''}">${v>0?'+':''}${v.toFixed(2)}%</span>`;
   const tb=(title,rows)=>`<table><thead><tr><th class="l">${title}</th><th>筆數</th><th>收盤仍符合</th><th>3 日報酬</th><th>5 日報酬</th></tr></thead><tbody>
    ${rows.map(r=>`<tr><td class="l">${r.bucket||'全部'}</td><td>${r.n}</td><td>${r.close_hit.toFixed(0)}%</td><td>${p(r.ret3)} <span class="meta">(${r.ret3_n})</span></td><td>${p(r.ret5)} <span class="meta">(${r.ret5_n})</span></td></tr>`).join('')}</tbody></table>`;
-  el.innerHTML=`<summary>早期預警準確度<span>${ASTATS.from} ~ ${ASTATS.to}・ ${ASTATS.days} 個交易日・ 共 ${ASTATS.all.n} 筆</span></summary>
-  <div class="gt">${tb('全部',[ASTATS.all])}${tb('預警時段',ASTATS.by_time)}${tb('族群同步家數',ASTATS.by_peers)}</div>
-  <p class="note">收盤仍符合 = 預警當天收盤仍是「爆量突破 60 日新高」；報酬 = 預警價到第 3、5 個交易日收盤，括號是有結果的筆數。樣本少時參考就好。</p>`;
+  el.innerHTML=`<summary>異動通知準確度<span>${ASTATS.from} ~ ${ASTATS.to}・ ${ASTATS.days} 個交易日・ 共 ${ASTATS.all.n} 筆</span></summary>
+  <div class="gt">${tb('全部',[ASTATS.all])}${tb('通知時段',ASTATS.by_time)}${tb('族群同步家數',ASTATS.by_peers)}</div>
+  <p class="note">收盤仍符合 = 通知當天收盤仍是「爆量突破 60 日新高」；報酬 = 觸發價到第 3、5 個交易日收盤，括號是有結果的筆數。樣本少時參考就好。</p>`;
 }
 let gAll=false;
 function groupsBox(){

@@ -77,14 +77,16 @@ tr.off td{opacity:.55}
   <div class="kpis" id="glob"></div>
   <p class="hint" id="globhint"></p>
 
-  <h2>🎯 13:12 正式進場提醒</h2>
+  <h2>🎯 13:12 訊號（觀察）</h2>
+  <p class="hint">只記錄，不是買進訊號。這批大多是鎖漲停的股票，排隊幾乎買不到；5 年回測裡真正買得到的那 4 成（摸到漲停、收盤沒鎖住）20 天後平均 −0.4%（2025-09 以前）。</p>
   <div class="box" id="official"></div>
 
   <h2>🔥 族群熱度</h2>
   <p class="hint">每個產業（和題材清單）現在有幾檔在發動。「發動」= 預估爆量＋漲 3% 以上（和「族群同步」同定義），或漲停（漲停鎖住常常沒量，也算）。依「發動占比」（發動家數 ÷ 族群檔數）排序。<span id="mainrule">10:00 前發動達 5 家（而且至少占該族群 5%）</span>標灰色「主線」：<b>只描述今天市場在玩什麼，不是買進理由</b>——10/6 用 5 年資料回測，主線族群隔 5 天、20 天都沒有超額；追同族群還沒漲的股票（補漲）也是虧多賺少。</p>
   <div class="tbl" id="heat"></div>
 
-  <h2>⚡ 今日早期預警</h2>
+  <h2>⚡ 今日異動通知</h2>
+  <p class="hint"><b>5 年回測追價沒贏等權，只是提醒有東西在動。</b>5 年（含下市股）回測：觸發後 20 個交易日贏同期等權的只有 <b>約 4 成</b>（38～41%，2.3～2.6 萬筆），中位數 <b>−2.6～−3.9%</b>。<details style="display:inline"><summary>平均</summary>平均 +0.5～+1.3%，是少數大漲撐起來的，一般一檔通常是輸的；以觸發價買、扣來回 0.38%，最好的那個數字還偷看了全天成交量。</details></p>
   <p class="hint">盤中一出現「預估全日量 ≥ 5 日均量 3 倍、漲 3% 以上、突破 60 日新高」就記錄（<span id="astart">09:30</span> 起）。灰色 = 目前已不符合（可能衝高回落）。「族群同步」= 同產業其他爆量上漲家數，3～5 家時歷史表現最好（綠色）。「樣板✓」= 符合 Minervini 趨勢樣板；「族群 #N」= 所屬產業在昨天收盤族群強弱的排名。處置股是分盤集中撮合，盤中常抓不到成交價，標示「分盤」。</p>
   <div class="tbl" id="alerts"></div>
 
@@ -112,7 +114,7 @@ if(!repo){const o=location.hostname.split('.')[0];const r=location.pathname.spli
 const pct=v=>v==null?'—':(v>0?'+':'')+v.toFixed(2)+'%';
 const cls=v=>v==null?'':v>0?'up':v<0?'down':'';
 const num=(v,d=2)=>v==null?'—':v.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
-const link=r=>`<a href="https://tw.stock.yahoo.com/quote/${r.code}.${r.market==='TPEX'?'TWO':'TW'}" target="_blank" rel="noopener">${r.code}</a> ${esc(r.name)}`;
+const link=r=>`<a href="stock.html?code=${encodeURIComponent(r.code)}">${r.code}</a> ${esc(r.name)}`;
 const peer=r=>!r.peers?'':`<span class="tag${r.peers>=3&&r.peers<=5?' g':''}" title="同產業其他爆量上漲家數。回測：3～5 家時突破表現最好，6 家以上偏過熱">族群同步 ${r.peers} 家</span>`;
 const extra=r=>(r.tpl===true?'<span class="tag g">樣板✓</span>':r.tpl===false?'<span class="tag">樣板✗</span>':'')
   +(r.rs!=null?`<span class="tag${r.rs>=80?' g':''}">RS ${r.rs}</span>`:'')
@@ -216,8 +218,8 @@ function render(d){
   $('globhint').innerHTML=h?`昨晚費半 <b class="${cls(h.sox)}">${pct(h.sox)}</b>（${esc(h.bucket)}）：過去一年這種隔天（${h.n} 天），台股開盤平均 <b class="${cls(h.ew_gap)}">${pct(h.ew_gap)}</b>、全天 <b class="${cls(h.ew_day)}">${pct(h.ew_day)}</b>、收紅 ${h.up==null?'—':h.up.toFixed(0)+'%'}；我們的爆量突破訊號隔天開盤平均 <b class="${cls(h.sig_gap)}">${pct(h.sig_gap)}</b>。只是統計描述，<a href="us.html">美股頁</a>有完整表。`:'';
 
   const o=d.official;
-  $('official').innerHTML=!o?'<span class="meta">13:12 掃描後顯示（與回測相同條件：收盤前買進）</span>':
-    o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.map(s=>`<span class="tag r">${s.code} ${esc(s.name)} ${num(s.price)}${s.rev_yoy==null?'':` ・ 營收 ${s.rev_yoy>0?'+':''}${s.rev_yoy.toFixed(0)}%${s.rev_yoy<=0?' ⚠️':''}`}</span>`).join(''):
+  $('official').innerHTML=!o?'<span class="meta">13:12 掃描後顯示</span>':
+    o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.map(s=>`<span class="tag r"><a href="stock.html?code=${encodeURIComponent(s.code)}">${s.code}</a> ${esc(s.name)} ${num(s.price)}${s.rev_yoy==null?'':` ・ 營收 ${s.rev_yoy>0?'+':''}${s.rev_yoy.toFixed(0)}%${s.rev_yoy<=0?' ⚠️':''}`}</span>`).join(''):
     `<b>${o.time}</b> 今天沒有符合正式條件的股票`;
 
   // 本益比（虧損或無資料顯示「—」）、月營收年增%、外資前一日買賣超（張）、三大法人近 5 日買賣超占成交量%、前一日當沖比%
@@ -227,7 +229,7 @@ function render(d){
     `<td class="${cls(r.inst5)}">${r.inst5==null?'—':(r.inst5>0?'+':'')+r.inst5.toFixed(1)+'%'}</td>`+
     `<td>${r.dt==null?'—':r.dt.toFixed(0)+'%'}</td>`;
   const flag=r=>r.flag?`<span class="tag r">${esc(r.flag)}</span>`:'';
-  // 10/6 實測：盤中預警股的量集中在早盤，09:30 的「預估全日量」平均高估約 86%、10:30 約 47%、12:50 只剩約 5%（曲線校正前先標示）
+  // 10/6 實測：異動通知股的量集中在早盤，09:30 的「預估全日量」平均高估約 86%、10:30 約 47%、12:50 只剩約 5%（曲線校正前先標示）
   const early=now.getHours()*60+now.getMinutes()<630;
   const projCell=r=>`<td>${r.proj_x==null?'—':r.proj_x.toFixed(1)+'×'}${early&&r.proj_x!=null?'<div class="meta" title="早盤量集中，09:30 的預估約高估 86%、10:30 約 47%">早盤未校正</div>':''}</td>`;
   const earlyTag=r=>r.first_time&&r.first_time<'10:30'?'<span class="tag" title="10:30 前觸發時的預估量比偏高（早盤量集中），12:50 前的重算值比較可信">早盤觸發</span>':'';
@@ -239,13 +241,13 @@ function render(d){
       <td class="l" style="white-space:normal;min-width:320px">${(h.members||[]).map(chip).join('')}</td></tr>`),
     '目前沒有族群有 2 檔以上在發動');
 
-  table($('alerts'),[['預警時間','l'],['股票','l'],['產業','l'],['預警價'],['現價'],['預警後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']],
+  table($('alerts'),[['通知時間','l'],['股票','l'],['產業','l'],['觸發價'],['現價'],['觸發後'],['今日漲跌'],['目前量(張)'],['預估全日量比'],['本益比'],['營收年增'],['外資(張)'],['法人5日占量'],['前日當沖'],['標記','l']],
     (d.alerts||[]).map(r=>`<tr class="${r.hit||r.noprice||r.split?'':'off'}"><td class="l">${r.first_time}</td><td class="l">${link(r)}</td>
       <td class="l meta">${esc(r.industry)}</td><td>${num(r.first_price)}</td><td>${num(r.price)}</td>
       <td class="${cls(r.since)}">${pct(r.since)}</td><td class="${cls(r.chg)}">${pct(r.chg)}</td>
       <td>${num(r.vol_lots,0)}${r.turnover!=null?`<div class="meta">換手 ${r.turnover.toFixed(1)}%</div>`:''}</td>${projCell(r)}${fund(r)}
       <td class="l">${flag(r)}${earlyTag(r)}${r.watch?'<span class="tag w">⭐昨日觀察名單</span>':''}${peer(r)}${r.locked?'<span class="tag r">漲停鎖住（買不到）</span>':''}${r.hit?'<span class="tag g">仍符合</span>':r.split&&(r.noprice||!r.hit)?'<span class="tag w" title="處置股分盤集中撮合，盤中成交價更新很慢">分盤</span>':r.noprice?'<span class="tag">暫無報價</span>':'<span class="tag">已不符合</span>'}${extra(r)}</td></tr>`),
-    `今天還沒有早期預警（${d.alert_start||'09:30'} 起記錄）`);
+    `今天還沒有異動通知（${d.alert_start||'09:30'} 起記錄）`);
 
   table($('holds'),[['股票','l'],['進場日','l'],['進場價'],['現價'],['報酬'],['今日漲跌'],['目前量(張)'],['預估全日 / 出場門檻(張)'],['預估量 / 爆量日'],['最多再抱'],['狀態','l']],
     (d.holdings||[]).map(r=>`<tr><td class="l">${link(r)}</td><td class="l">${r.signal_date}</td><td>${num(r.entry)}</td><td>${num(r.price)}</td>
