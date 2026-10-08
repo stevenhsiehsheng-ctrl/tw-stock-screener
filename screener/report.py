@@ -609,7 +609,7 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    from . import chipspage, exdivpage, gifts, longterm, macro, revdrift, screenpage, sitenav, stockpage, us, usx, weekly
+    from . import chipspage, etfpage, exdivpage, gifts, longterm, macro, revdrift, screenpage, sitenav, stockpage, us, usx, weekly
     weeks = weekly.write(out_dir)
     try:
         has_us = us.write(out_dir)
@@ -647,6 +647,10 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
         screenpage.write(out_dir)
     except Exception as e:  # 自訂選股頁壞掉不能拖垮每日報表
         logging.warning("自訂選股頁產生失敗：%s", e)
+    try:
+        etfpage.write(out_dir)
+    except Exception as e:  # ETF 專區壞掉不能拖垮每日報表
+        logging.warning("ETF 專區產生失敗：%s", e)
     try:
         usx.write(out_dir)
     except Exception as e:  # 美股篩選頁壞掉不能拖垮每日報表
