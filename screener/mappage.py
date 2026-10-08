@@ -31,11 +31,12 @@ main{max-width:1400px;margin:0 auto;padding:20px 16px 50px}h1{font-size:23px;mar
 </style></head><body><main>
 <!--SITENAV:map-->
 <h1>🗺 市場地圖</h1>
-<div class="meta">資料日 __DATE__・上市櫃普通股市值前 __N__ 大・按產業分組，方塊越大市值（或成交值）越大，紅漲綠跌・點方塊看個股</div>
+<div class="meta" id="sub">資料日 __DATE__・上市櫃普通股市值前 __N__ 大・按產業分組，方塊越大市值（或成交值）越大，紅漲綠跌・點方塊看個股</div>
+<div class="bar" id="mk2"><button data-x="tw" class="on">🇹🇼 台股</button><button data-x="us">🇺🇸 美股</button></div>
 <div class="bar" id="bar">
  <button data-p="d1" class="on">今天</button><button data-p="r5">5 日</button><button data-p="r20">20 日</button><button data-p="r250">一年</button><i></i>
  <button data-s="cap" class="on">大小＝市值</button><button data-s="val20">大小＝成交值</button><i></i>
- <button data-m="" class="on">上市＋上櫃</button><button data-m="上市">上市</button><button data-m="上櫃">上櫃</button>
+ <span id="mkb"><button data-m="" class="on">上市＋上櫃</button><button data-m="上市">上市</button><button data-m="上櫃">上櫃</button></span>
 </div>
 <div class="leg" id="leg"></div>
 <div id="map"></div><div id="tip"></div>
@@ -43,8 +44,8 @@ main{max-width:1400px;margin:0 auto;padding:20px 16px 50px}h1{font-size:23px;mar
 </main><script>
 const D=__DATA__;
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const IX=Object.fromEntries(D.cols.map((k,i)=>[k,i])),SC={d1:3,r5:8,r20:15,r250:60},PN={d1:'今天',r5:'5 日',r20:'20 日',r250:'一年'};
-let P='d1',SZ='cap',MK='';
+const TW=D.rows,US=D.us?D.us.rows:[],IX=Object.fromEntries(D.cols.map((k,i)=>[k,i])),SC={d1:3,r5:8,r20:15,r250:60},PN={d1:'今天',r5:'5 日',r20:'20 日',r250:'一年'};
+let P='d1',SZ='cap',MK='',X0='tw';const ROWS=()=>X0==='us'?US:TW;
 function worst(row,s){let sum=0,mx=0,mn=Infinity;for(const o of row){sum+=o.a;if(o.a>mx)mx=o.a;if(o.a<mn)mn=o.a}return Math.max(s*s*mx/(sum*sum),sum*sum/(s*s*mn))}
 function squarify(items,x,y,w,h){const out=[],tot=items.reduce((a,o)=>a+o.v,0);if(!tot||w<=0||h<=0)return out;
  let rest=items.map(o=>({...o,a:o.v*w*h/tot}));
@@ -60,7 +61,7 @@ function color(v){if(v==null)return['rgba(128,128,128,.25)','inherit'];const t=M
 const pct=v=>v==null?'—':(v>0?'+':'')+v.toFixed(Math.abs(v)>=100?0:Math.abs(v)>=10?1:2)+'%';
 function legend(){const s=SC[P],st=[-1,-.66,-.33,0,.33,.66,1];$('leg').innerHTML=`<span style="width:auto;background:none">${PN[P]}</span>`+st.map(t=>`<span style="background:${color(t*s)[0]}" title="${pct(t*s)}"></span>`).join('')+` <span style="width:auto;background:none">${pct(-s)} ～ ${pct(s)} 以上</span>`}
 function draw(){const box=$('map'),W=box.clientWidth,H=Math.round(W<700?W*1.5:Math.min(760,Math.max(480,innerHeight*.72)));box.style.height=H+'px';
- const rows=D.rows.filter(r=>(!MK||r[IX.m]===MK)&&r[IX[SZ]]>0);const groups={};
+ const rows=ROWS().filter(r=>(X0==='us'||!MK||r[IX.m]===MK)&&r[IX[SZ]]>0);const groups={};
  rows.forEach(r=>{(groups[r[IX.i]||'其他']??=[]).push(r)});
  const G=Object.entries(groups).map(([k,rs])=>({k,rs,v:rs.reduce((a,r)=>a+r[IX[SZ]],0)})).sort((a,b)=>b.v-a.v);
  let h='';for(const g of squarify(G,0,0,W,H)){
@@ -73,16 +74,54 @@ function draw(){const box=$('map'),W=box.clientWidth,H=Math.round(W<700?W*1.5:Ma
     (big?`<span>${esc(t.w>58?r[IX.n]:r[IX.c])}</span>`:'')+(two?`<span class="p">${pct(v)}</span>`:'')+'</a>'}
   h+='</div>'}
  box.innerHTML=h;legend()}
-const ROW=Object.fromEntries(D.rows.map(r=>[r[IX.c],r]));
+const ROW=Object.fromEntries([...TW,...US].map(r=>[r[IX.c],r]));
 $('map').addEventListener('mousemove',e=>{const a=e.target.closest('.t');const tp=$('tip');if(!a){tp.style.display='none';return}const r=ROW[a.dataset.c];
- tp.innerHTML=`<b>${esc(r[IX.n])}</b> ${esc(r[IX.c])}・${esc(r[IX.i])}<br>今天 ${pct(r[IX.d1])}・5 日 ${pct(r[IX.r5])}・20 日 ${pct(r[IX.r20])}・一年 ${pct(r[IX.r250])}<br>市值 ${r[IX.cap]==null?'—':Math.round(r[IX.cap]).toLocaleString()} 億・成交值 ${r[IX.val20]==null?'—':r[IX.val20].toFixed(2)} 億/天`;
+ tp.innerHTML=`<b>${esc(r[IX.n])}</b> ${esc(r[IX.c])}・${esc(r[IX.i])}<br>今天 ${pct(r[IX.d1])}・5 日 ${pct(r[IX.r5])}・20 日 ${pct(r[IX.r20])}・一年 ${pct(r[IX.r250])}<br>市值 ${r[IX.cap]==null?'—':Math.round(r[IX.cap]).toLocaleString()} ${X0==='us'?'十億美元':'億'}・成交值 ${r[IX.val20]==null?'—':r[IX.val20].toFixed(2)} ${X0==='us'?'十億美元':'億'}/天`;
  tp.style.display='block';const x=Math.min(e.clientX+14,innerWidth-tp.offsetWidth-8),y=Math.min(e.clientY+14,innerHeight-tp.offsetHeight-8);tp.style.left=x+'px';tp.style.top=y+'px'});
 $('map').addEventListener('mouseleave',()=>$('tip').style.display='none');
 $('bar').querySelectorAll('button').forEach(b=>b.onclick=()=>{const k=b.dataset.p!=null?'p':b.dataset.s!=null?'s':'m';
  $('bar').querySelectorAll(`button[data-${k}]`).forEach(x=>x.classList.toggle('on',x===b));
  if(k==='p')P=b.dataset.p;else if(k==='s')SZ=b.dataset.s;else MK=b.dataset.m;draw()});
-let RT;addEventListener('resize',()=>{clearTimeout(RT);RT=setTimeout(draw,150)});draw();
+$('mk2').querySelectorAll('button').forEach(b=>b.onclick=()=>{X0=b.dataset.x;$('mk2').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+ $('mkb').style.display=X0==='us'?'none':'';$('sub').textContent=X0==='us'?`資料日 ${D.us.date}（美股收盤）・S&P 500＋那斯達克 100 共 ${US.length} 檔・按產業分組，方塊越大市值越大，紅漲綠跌（跟台股同一套顏色）・點方塊看個股`:SUB;draw()});
+if(!US.length)$('mk2').style.display='none';
+const SUB=$('sub').textContent;let RT;addEventListener('resize',()=>{clearTimeout(RT);RT=setTimeout(draw,150)});draw();
 </script></body></html>"""
+
+
+SECTOR_ZH = {"Information Technology": "資訊科技", "Health Care": "醫療保健", "Financials": "金融", "Consumer Discretionary": "非必需消費",
+             "Communication Services": "通訊服務", "Industrials": "工業", "Consumer Staples": "必需消費", "Energy": "能源",
+             "Utilities": "公用事業", "Real Estate": "不動產", "Materials": "原物料"}
+
+
+def us_rows() -> dict | None:
+    """美股（data/usx）：S&P 500＋那斯達克 100，市值（十億美元）、20 日成交值（十億美元／天）、四段報酬。"""
+    import pandas as pd
+    root = Path(__file__).resolve().parent.parent / "data" / "usx"
+    if not (root / "history.csv.gz").exists() or not (root / "fund.csv").exists():
+        return None
+    u = pd.read_csv(root / "universe.csv", dtype=str).drop_duplicates("code").set_index("code")
+    fd = pd.read_csv(root / "fund.csv", dtype={"code": str}).drop_duplicates("code").set_index("code")
+    h = pd.read_csv(root / "history.csv.gz", dtype={"code": str})
+    C = h.pivot(index="date", columns="code", values="close").sort_index()
+    V = h.pivot(index="date", columns="code", values="volume").reindex_like(C)
+    last = C.index[-1]
+    CF = C.ffill()
+    px = CF.iloc[-1]
+    ret = lambda k: (px / CF.iloc[-1 - k] - 1) * 100 if len(C) > k else None
+    R = {k: ret(k) for k in (1, 5, 20, 250)}
+    val = (C * V).iloc[-20:].mean() / 1e9
+    rows = []
+    for c in C.columns:
+        cap = pd.to_numeric(fd.mcap.get(c), errors="coerce")
+        if not (cap > 0) or pd.isna(C[c].iloc[-1]):
+            continue
+        nm = next((x for x in (u.name_zh.get(c), u.name.get(c)) if isinstance(x, str) and x), c)
+        sec = SECTOR_ZH.get(u.sector.get(c, ""), u.sector.get(c, "") or "其他")
+        num = lambda v: None if v is None or pd.isna(v) else round(float(v), 2)
+        rows.append([c, nm, u.group.get(c, ""), sec, round(float(cap), 1), num(val.get(c)),
+                     num(R[1].get(c)), num(R[5].get(c)), num(R[20].get(c)), num(R[250].get(c)) if R[250] is not None else None])
+    return {"date": last, "rows": rows}
 
 
 def write(site_dir: Path, d: dict) -> bool:
@@ -92,6 +131,11 @@ def write(site_dir: Path, d: dict) -> bool:
     rows = [r for r in d["rows"] if r[ix["cap"]] is not None and r[ix["cap"]] > 0]
     rows = sorted(rows, key=lambda r: -r[ix["cap"]])[:MAX_N]
     data = {"cols": keep, "rows": [[r[ix[k]] for k in keep] for r in rows]}
+    try:
+        data["us"] = us_rows()
+    except Exception as e:  # noqa: BLE001
+        log.warning("美股地圖資料失敗：%s", e)
+        data["us"] = None
     page = (PAGE.replace("__DATE__", html.escape(d["date"])).replace("__N__", str(len(rows)))
             .replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":"), default=float).replace("</", "<\\/")))
     (site_dir / "map.html").write_text(page, "utf-8")
