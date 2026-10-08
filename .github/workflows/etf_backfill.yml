@@ -8,7 +8,7 @@ on:
         description: "保留幾個交易日"
         default: "260"
       mode:
-        description: "daily＝一年日 K；tr＝含息月資料（6 年）"
+        description: "daily＝一年日 K；tr＝含息月資料（6 年）；long＝0050／0056 等 2007 起日 K"
         default: "daily"
 
 permissions:
@@ -32,16 +32,19 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: 補抓日 K
-        if: inputs.mode != 'tr'
+        if: inputs.mode == 'daily'
         run: python -c "import logging,sys;logging.basicConfig(level=logging.INFO);from screener import fetch;print(fetch.backfill_etf_all(int(sys.argv[1])))" ${{ inputs.days }}
       - name: 補抓含息月資料
         if: inputs.mode == 'tr'
         run: python -c "import logging;logging.basicConfig(level=logging.INFO);from screener import fetch;print(fetch.backfill_etf_tr(6))"
+      - name: 補抓長歷史
+        if: inputs.mode == 'long'
+        run: python -c "import logging;logging.basicConfig(level=logging.INFO);from screener import fetch;print(fetch.backfill_etf_long())"
       - name: 存檔
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/extras/etf.csv.gz data/extras/etf_tr_m.csv.gz 2>/dev/null || git add data/extras/etf.csv.gz
+          for f in data/extras/etf.csv.gz data/extras/etf_tr_m.csv.gz data/extras/etf_long.csv.gz; do [ -e "$f" ] && git add "$f"; done
           if git diff --cached --quiet; then echo "沒有變更"; else
             git commit -m "ETF 一年日 K 回補 $(TZ=Asia/Taipei date +%F)"
             ok=0; for i in 1 2 3; do
