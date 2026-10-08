@@ -28,7 +28,7 @@ th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--car
 <div class="meta">資料日 2026-10-07・全部上市櫃普通股（不含 ETF）・營收月份 2026-08・網址會記住你設的條件，可以直接分享</div>
 <div class="box">⚠️ 這頁只是<b>把條件過濾出來</b>，不是回測過的策略。條件越多越像「事後挑」，看到漂亮的名單先問：這組條件 5 年前就會這樣選嗎？
 報酬是價格報酬（減資已接起來，除息沒還原）；本益比、殖利率、淨值比來自證交所／櫃買中心；外資 5 日占量＝近 5 天外資買賣超 ÷ 同期成交量。</div>
-<div class="presets" id="pre"></div>
+<div class="presets" id="pre"></div><div class="meta" id="pdesc"></div>
 <details id="more"><summary>📋 條件（<span id="nf">0</span> 個在用）：價格、報酬、市值、本益比、殖利率、營收、強弱、法人</summary><div class="grid" id="flt"></div></details>
 <div class="bar">
  <input type="search" id="q" placeholder="代號、名稱">
@@ -64,7 +64,7 @@ const PRE=[
  ['🏦 外資在買',{f5p:[10,''],val20:[1,'']},'近 5 天外資買超占成交量 ≥10%'],
  ['🛡 大型穩健',{cap:[1000,''],roe3:[15,'']},'市值 1,000 億以上、3 年平均 ROE ≥15%'],
  ['📉 跌深',{r60:['',-20],val20:[1,'']},'60 天跌超過 20%、每天成交 1 億以上（跌深不等於便宜）'],
- ['🏷 比自己過去便宜',{pe_pct:['',20],y_pct:[60,''],val20:[0.3,'']},'本益比在自己 5 年的最低 2 成、殖利率在自己 5 年的前 4 成（便宜可能是因為獲利要變差）']];
+ ['🏷 比自己過去便宜',{pe_pct:['',20],y_pct:[60,''],val20:[0.3,'']},'本益比在自己 5 年的最低 2 成、殖利率在自己 5 年的前 4 成。⚠️ 回測沒贏：2023-09～2026-07 共 35 批，本益比位階最低 2 成的之後 60 日超額比最高 2 成的平均還差 1.8pp（中位差 0.7pp），便宜通常有原因']];
 let S={f:{},sort:'cap',dir:-1,q:'',mk:'',ind:'',nw:1,tp:0};
 const num=v=>v===''||v==null||isNaN(+v)?null:+v;
 function fmt(v,d){return v==null?'—':(+v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}
@@ -96,7 +96,7 @@ load();
 $('more').open=matchMedia('(min-width:700px)').matches||Object.keys(S.f).length>0;
 $('ind').innerHTML+=D.inds.map(x=>`<option>${esc(x)}</option>`).join('');
 $('pre').innerHTML=PRE.map(([t,o,d])=>`<button title="${esc(d)}">${t}</button>`).join('');
-$('pre').querySelectorAll('button').forEach((b,i)=>b.onclick=()=>{S.f=norm(PRE[i][1]);drawF();markPre();run()});
+$('pre').querySelectorAll('button').forEach((b,i)=>b.onclick=()=>{S.f=norm(PRE[i][1]);drawF();markPre();run();$('pdesc').textContent=PRE[i][2]});
 $('q').value=S.q;$('mk').value=S.mk;$('ind').value=S.ind;$('nw').checked=!!S.nw;$('tp').checked=!!S.tp;
 $('q').oninput=e=>{S.q=e.target.value.trim();run()};$('mk').onchange=e=>{S.mk=e.target.value;run()};$('ind').onchange=e=>{S.ind=e.target.value;run()};
 $('nw').onchange=e=>{S.nw=e.target.checked?1:0;run()};$('tp').onchange=e=>{S.tp=e.target.checked?1:0;run()};
