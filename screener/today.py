@@ -110,7 +110,9 @@ CSS = """.today{background:var(--surface);border:1px solid var(--line);border-ra
 .today .row:first-of-type{border-top:0}.today .row .ic{flex:none;width:20px;text-align:center}
 .today .row .tx{flex:1;min-width:0}.today .row .ts{flex:none;font-size:11px;color:var(--muted)}
 .today .row.stale{opacity:.45}.today b.num{font-variant-numeric:tabular-nums}
-.today a{color:inherit;text-decoration:underline;text-decoration-color:rgba(128,128,128,.5);text-underline-offset:2px}"""
+.today a{color:inherit;text-decoration:underline;text-decoration-color:rgba(128,128,128,.5);text-underline-offset:2px}
+.today .tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.today .tools a{text-decoration:none;font-size:13px;padding:3px 10px;border-radius:999px;background:rgba(128,128,128,.12)}"""
 JS = r"""
 (function(){const T=TODAY||{};const el=document.getElementById('today');if(!el)return;
 const repo=location.hostname.endsWith('github.io')?location.hostname.split('.')[0]+'/'+(location.pathname.split('/').filter(Boolean)[0]||''):'stevenhsiehsheng-ctrl/tw-stock-screener';
@@ -134,7 +136,8 @@ function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉�
 function exitsLine(when){const X=T.exits||[];if(!X.length)return;add('🚪',`${when}開盤要賣 <b>${X.length}</b> 檔：${X.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${X.length>4?' 等':''}`,T.tw_date)}
 function eventsLine(){const V=T.events||[];if(!V.length)return;add('📌',V.slice(0,4).map(v=>`${v.date?E(v.date.slice(5))+' ':''}<a href="${S(v.code)}">${E(v.name)}</a> ${E(v.kind)}${v.note?'（'+E(v.note)+'）':''}`).join('、')+(V.length>4?` 等 ${V.length} 件`:'')+'（只列持倉與長期 Top 20）',T.tw_date)}
 function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 訊號（<b>觀察</b>，5 年回測買得到的那 4 成平均 −0.4%）<b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
-function draw(title){el.innerHTML=`<h2>📍 今天重點<span>${title}</span></h2>`+(rows.length?rows.slice(0,6).join(''):'<div class="row"><span class="ic">✅</span><span class="tx">今天沒事</span></div>')+'<div id="wlrow"></div>';el.hidden=false;watch()}
+function draw(title){el.innerHTML=`<h2>📍 今天重點<span>${title}</span></h2>`+(rows.length?rows.slice(0,6).join(''):'<div class="row"><span class="ic">✅</span><span class="tx">今天沒事</span></div>')+'<div id="wlrow"></div>'+TOOLS;el.hidden=false;watch()}
+const TOOLS='<div class="tools">'+[['screen.html','🧮 自訂選股'],['map.html','🗺 市場地圖'],['etf.html','🧺 ETF 專區'],['compare.html','⚖ 個股比較'],['watch.html','⭐ 我的自選']].map(([h,t])=>`<a href="${h}">${t}</a>`).join('')+'</div>';
 // 自選股（存在這台瀏覽器；個股頁按 ☆ 加入）：最近收盤漲跌、今天上榜的策略、處置／除權息
 async function watch(){let W=[];try{W=JSON.parse(localStorage.getItem('watchlist')||'[]')}catch(e){}if(!W.length)return;
   const got=await Promise.all(W.slice(0,20).map(([c])=>fetch(`stocks/${encodeURIComponent(c)}.json`).then(r=>r.ok?r.json():null).catch(()=>null)));
