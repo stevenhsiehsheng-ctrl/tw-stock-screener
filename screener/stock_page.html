@@ -180,6 +180,7 @@ function showUS(o){const c=o.px.c,last=c[c.length-1],F=o.fund||{};const h=[];con
   h.push('<h2>美股篩選紀錄</h2>');
   const S=(o.strats||[]).slice().reverse();
   h.push(S.length?`<div class="tbl"><table><tr><th>日期</th><th>策略</th></tr>${S.slice(0,30).map(x=>`<tr><td>${esc(x[0])}</td><td>📊 ${esc(x[1])}</td></tr>`).join('')}</table></div> <a href="usx.html">看今天的美股篩選 →</a>`:'<p class="empty">最近沒有出現在美股篩選裡。<a href="usx.html">看今天的美股篩選 →</a></p>');
+  h.push(`<p class="meta">外部連結：<a href="https://news.google.com/search?q=${encodeURIComponent(o.code+' stock')}%20when%3A7d&hl=zh-TW&gl=TW&ceid=TW%3Azh-Hant" target="_blank" rel="noopener">📰 近 7 天新聞</a>・<a href="https://finance.yahoo.com/quote/${encodeURIComponent(o.code)}" target="_blank" rel="noopener">Yahoo Finance</a></p>`);
   h.push(`<p class="meta">資料日 ${esc(o.asof)}（美股收盤）。國泰複委託個股買賣各 0.08%、不設最低（優惠到 2026/12/31）；股利先扣 30% 美國稅。不構成投資建議。</p>`);
   $('#out').innerHTML=h.join('');CUR=o;charts()}
 /* ---------- 頁面 ---------- */
@@ -288,6 +289,8 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   h.push(ex.length?`<div class="tbl"><table><tr><th>除權息日</th><th>類別</th><th class="n">現金股利</th><th class="n">配股比例</th><th>填息</th></tr>${ex.map(e=>`<tr><td>${esc(e[0])}</td><td>${esc(e[1])}</td><td class="n">${e[2]?fmt(e[2],2):'—'}</td><td class="n">${e[3]?fmt(e[3],4):'—'}</td><td>${fillTxt(e)}</td></tr>`).join('')}</table></div><p class="meta">填息天數：除息當天算第 1 天，收盤回到除息前一天收盤那天；只算近一年。<a href="exdiv.html">除權息行事曆 →</a></p>`:'<p class="empty">近年沒有除權息紀錄。</p>');
   if(o.warn_hist&&o.warn_hist.length){h.push('<h2>注意／處置紀錄</h2>');
     h.push(`<div class="tbl"><table><tr><th>公告日</th><th>類別</th><th>期間</th></tr>${o.warn_hist.slice().reverse().map(w=>`<tr><td>${esc(w[0])}</td><td>${esc(w[1])}</td><td>${esc(w[2])}${w[3]?' ～ '+esc(w[3]):''}</td></tr>`).join('')}</table></div>`)}
+  const q=encodeURIComponent(`${o.code} ${o.name}`),ysuf=o.market==='TPEX'?'.TWO':'.TW';
+  h.push(`<p class="meta">外部連結：<a href="https://news.google.com/search?q=${q}%20when%3A7d&hl=zh-TW&gl=TW&ceid=TW%3Azh-Hant" target="_blank" rel="noopener">📰 近 7 天新聞</a>・<a href="https://tw.stock.yahoo.com/quote/${encodeURIComponent(o.code)}${ysuf}" target="_blank" rel="noopener">Yahoo 股市</a></p>`);
   h.push(`<p class="meta">資料日 ${esc(o.asof)}。不構成投資建議。</p>`);
   $('#out').innerHTML=h.join('');
   CUR=o;charts();
