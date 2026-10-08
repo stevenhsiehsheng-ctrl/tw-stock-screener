@@ -247,4 +247,9 @@ def write(site_dir: Path) -> bool:
             .replace("__DATA__", json.dumps(d, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")))
     (site_dir / "screen.html").write_text(page, "utf-8")
     log.info("自訂選股：%d 檔", len(d["rows"]))
+    try:
+        from . import mappage
+        mappage.write(site_dir, d)
+    except Exception as e:  # noqa: BLE001  地圖壞掉不影響選股頁
+        log.warning("市場地圖失敗：%s", e)
     return True
