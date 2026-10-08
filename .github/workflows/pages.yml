@@ -26,6 +26,7 @@ on:
       - screener/watch_page.html
       - screener/sitenav.py
       - screener/today.py
+      - screener/ewindex.py
       - data/us/**
       - data/usx/**
       - data/macro/**

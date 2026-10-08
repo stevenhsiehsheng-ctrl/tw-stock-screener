@@ -33,6 +33,10 @@ def build() -> dict:
         out["regime"] = {k: r.get(k) for k in ("date", "light", "light_since", "r2", "r3", "dd52", "stale_core")}
     except Exception:  # noqa: BLE001
         pass
+    try:   # 盤勢主判：全市場等權指數 vs 200 日線（screener/ewindex.py）
+        out["ew"] = json.loads((DATA / "extras" / "ew_state.json").read_text("utf-8"))
+    except Exception:  # noqa: BLE001
+        pass
     us = _csv(DATA / "us" / "history.csv.gz").rename(columns={"sym": "code"}) if (DATA / "us" / "history.csv.gz").exists() else pd.DataFrame()
     if len(us):
         for sym, key in (("^SOX", "sox"), ("TSM", "tsm")):
@@ -123,7 +127,9 @@ const E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 const P=v=>v==null?'—':(v>0?'+':'')+Number(v).toFixed(2)+'%',S=c=>`stock.html?code=${encodeURIComponent(c)}`;
 const L={green:'🟢 綠燈',yellow:'🟡 黃燈',red:'🔴 紅燈'};
 const rows=[];const add=(ic,html,ts,stale)=>rows.push(`<div class="row${stale?' stale':''}"><span class="ic">${ic}</span><span class="tx">${html}</span><span class="ts">${E(ts||'')}</span></div>`);
-function regime(){const r=T.regime;if(!r)return;add('🚦',`大盤燈號 <b>${L[r.light]||E(r.light)}</b>（${E(r.light_since||'')} 起）${r.stale_core&&r.stale_core.length?'・<b>資料落後</b>':''} <a href="macro.html">大環境 →</a>`,r.date)}
+function regime(){const r=T.regime,w=T.ew;
+  if(r)add('🚦',`大盤燈號 <b>${L[r.light]||E(r.light)}</b>（${E(r.light_since||'')} 起）${r.stale_core&&r.stale_core.length?'・<b>資料落後</b>':''}${w&&w.above?`・等權指數在 200 日線上 <b class="num">${P(w.dev)}</b>`:''} <a href="macro.html">大環境 →</a>`,r.date);
+  if(w&&!w.above)add('🌧',`<b>盤勢線下</b>：全市場等權指數收在 200 日線下 <b class="num">${P(w.dev)}</b>（${E(String(w.since).slice(5))} 起 ${w.streak} 天）。突破策略在線下的歷史平均約 0、樣本不足，只提醒、部位不自動砍 <a href="macro.html#ew">看圖 →</a>`,w.judged_on)}
 function overnight(){const s=T.sox,t=T.tsm;if(!s&&!t)return;add('🌙',`昨夜費半 <b class="num">${P(s&&s.chg)}</b>${t?`・台積電 ADR <b class="num">${P(t.chg)}</b>${t.tw2330?`（換算台積電約 <b class="num">${t.tw2330}</b>）`:''}`:''} <a href="us.html">美股隔夜 →</a>`,(s||t).date)}
 function ledgerLine(kind){const G=T.ledger;if(!G)return false;const N=G.names||{};
   if(kind==='pre'){const Q=G.pending||[];add('🧾',Q.length?`虛擬帳戶今天要執行 <b>${Q.length}</b> 筆：${Q.slice(0,4).map(q=>`${q.side==='buy'?'買':'賣'} <a href="${S(q.code)}">${E(N[q.code]||q.code)}</a>`).join('、')}`:'虛擬帳戶今天沒有要執行的單',G.date);return true}

@@ -310,7 +310,7 @@ def write(site_dir: Path) -> bool:
                             + ("，<b>燈號用的就是它，燈可能是舊的</b>" if x["sym"] in CORE else "") + "</div>"
                             for x in g.get("stale", [])))
                  + "</div>")
-    body = (css + "<h1>大環境</h1>" + light +
+    body = (css + "<h1>大環境</h1>" + light + _ew_section() +
             "<blockquote>這頁只描述「現在在歷史上排在哪裡」，不是買賣訊號。我們用 1998 年以來的資料測過："
             "這些數字拿來<b>預測</b>台股空頭幾乎都沒用（假警報太多），唯一站得住的是「大盤已經從一年高點跌 10%」"
             "——那是確認、不是預知，就是上面的風險燈。</blockquote>"
@@ -324,6 +324,15 @@ def write(site_dir: Path) -> bool:
             + "<p class='meta'>資料：Yahoo Finance（每天台北 06:20 更新）、證交所／櫃買（每天 15:20）。</p>")
     (site_dir / "macro.html").write_text(_page("大環境", body, "<!--SITENAV:macro-->"), "utf-8")
     return True
+
+
+def _ew_section() -> str:
+    try:
+        from .ewindex import section_html
+        return section_html()
+    except Exception as e:  # noqa: BLE001
+        log.warning("等權指數區塊失敗：%s", e)
+        return ""
 
 
 def _dev200(s: pd.Series) -> pd.Series:
