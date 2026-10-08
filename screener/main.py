@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yaml
 
-from . import corpact, enrich, fetch, groups, notify, positions, report, rules, sentiment, stats, tech
+from . import corpact, enrich, ewindex, fetch, groups, notify, positions, report, rules, sentiment, stats, tech
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE_DIR = ROOT / "site"
@@ -205,6 +205,10 @@ def main(argv=None) -> int:
         positions.fill_lock(panel, cfg.get("base_filter", []))
     except Exception as e:  # noqa: BLE001
         log.warning("13:12 影子紀錄補鎖漲停家數失敗：%s", e)
+    try:
+        ewindex.update(hist)   # 等權指數＋200 日線（盤勢主判，data/extras/ew_index.csv）
+    except Exception as e:  # noqa: BLE001
+        log.warning("等權指數更新失敗：%s", e)
     pos_md = positions.build_md(exits, holding)
     if senti:
         pos_md = sentiment.md_line(senti) + "\n" + pos_md
