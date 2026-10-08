@@ -21,7 +21,9 @@ COLS = ["code", "name", "industry", "signal_date", "signal_time", "alert_price",
         # 訊號日開盤前就知道的注意／處置狀態（前一交易日以前的公告），與前 7 天被注意幾天
         "warn", "warn_n5",
         # 13:12 影子紀錄：基準母體收盤鎖漲停家數、在前 250 日的百分位（不含當天）、前 1/3＝熱、13:12 當下家數
-        "lock_n_close", "lock_pct250", "lock_hot", "lock_n_1312"]
+        "lock_n_close", "lock_pct250", "lock_hot", "lock_n_1312",
+        # 13:12 家數用同一把尺（前 250 日收盤家數的 2/3 分位）分熱／非熱；升格要跟收盤分組一致率 ≥80%（Cowork 0455）
+        "lock_hot_1312"]
 LOCK_FILE = ROOT / "data" / "lock_count.csv"
 LOCK_WIN = 250
 
@@ -116,10 +118,11 @@ def set_lock_1312(day: str, n: int) -> None:
 
 
 def fill_lock(p, base_filter: list[dict]) -> int:
-    """收盤後補：訊號日的收盤鎖漲停家數、前 250 日百分位（同分算一半）、熱＝高於前 250 日的 2/3 分位。
-    前面不滿 250 天的只填家數。回傳補了幾列。"""
+    """收盤後補：訊號日的收盤鎖漲停家數、前 250 日百分位（同分算一半）、熱＝高於前 250 日收盤家數的 2/3 分位；
+    13:12 家數用同一個門檻分熱／非熱。前面不滿 250 天的只填家數。回傳補了幾列。"""
     df = load()
-    todo = df.index[df.lock_n_close.isna() | df.lock_pct250.isna()]
+    todo = df.index[df.lock_n_close.isna() | df.lock_pct250.isna()
+                    | (df.lock_n_1312.notna() & df.lock_hot_1312.isna())]
     if not len(todo):
         return 0
     cnt = lock_counts(p, base_filter)
@@ -133,8 +136,11 @@ def fill_lock(p, base_filter: list[dict]) -> int:
         df.at[i, "lock_n_close"] = int(x)
         if k >= LOCK_WIN:
             prior = cnt.iloc[k - LOCK_WIN:k]
+            cut = np.quantile(prior, 2 / 3)
             df.at[i, "lock_pct250"] = round(((prior < x).mean() + 0.5 * (prior == x).mean()) * 100, 1)
-            df.at[i, "lock_hot"] = int(x > np.quantile(prior, 2 / 3))
+            df.at[i, "lock_hot"] = int(x > cut)
+            if pd.notna(df.at[i, "lock_n_1312"]):
+                df.at[i, "lock_hot_1312"] = int(float(df.at[i, "lock_n_1312"]) > cut)
         n += 1
     if n:
         save(df)
