@@ -41,6 +41,39 @@ def _r(v, nd=2):
     return None if not np.isfinite(v) else round(v, nd)
 
 
+def hd_compare() -> dict | None:
+    """高股息（0056）vs 0050 含息（Cowork 1456 判準）：不重疊 60 交易日窗，依 0050 同窗報酬三分位；加分年表。
+    Yahoo 0050.TW 有兩個錯：2014 以前沒套 2025 的 1 拆 4（用同指數 006208 的比值校正）、2009 年 1～2 月價格亂跳（從 2009-03 起算）。"""
+    f = EX / "etf_long.csv.gz"
+    if not f.exists():
+        return None
+    e = pd.read_csv(f, dtype={"code": str})
+    A = e.pivot(index="date", columns="code", values="adj").sort_index()
+    if not {"0050", "0056"} <= set(A.columns):
+        return None
+    if "006208" in A.columns:
+        r = (A["0050"] / A["006208"]).dropna()
+        pre, post = r[r.index < "2014-01-02"], r[r.index >= "2014-01-02"]
+        if len(pre) and len(post) and pre.iloc[-1] / post.iloc[0] > 2:
+            A.loc[A.index < "2014-01-02", "0050"] /= pre.iloc[-1] / post.iloc[0]
+    d = A.loc[A.index >= "2009-03-02", ["0050", "0056"]].dropna()
+    if len(d) < 500:
+        return None
+    yrs = (pd.to_datetime(d.index[-1]) - pd.to_datetime(d.index[0])).days / 365.25
+    ann = {c: round(((d[c].iloc[-1] / d[c].iloc[0]) ** (1 / yrs) - 1) * 100, 1) for c in d}
+    yl = d.groupby(d.index.str[:4]).last()
+    yr = (yl / yl.shift(1) - 1) * 100
+    yr.iloc[0] = (yl.iloc[0] / d.iloc[0] - 1) * 100
+    W = pd.DataFrame([{"r50": (d["0050"].iloc[i + 60] / d["0050"].iloc[i] - 1) * 100,
+                       "r56": (d["0056"].iloc[i + 60] / d["0056"].iloc[i] - 1) * 100} for i in range(0, len(d) - 60, 60)])
+    W["diff"] = W.r56 - W.r50
+    W["t"] = pd.qcut(W.r50, 3, labels=["跌", "平", "漲"])
+    terc = [{"t": t, "n": int(len(g)), "lo": round(g.r50.min(), 1), "hi": round(g.r50.max(), 1), "avg": round(g["diff"].mean(), 2),
+             "med": round(g["diff"].median(), 2), "win": int(round((g["diff"] > 0).mean() * 100))} for t, g in W.groupby("t", observed=True)]
+    return {"from": d.index[0], "to": d.index[-1], "ann": ann, "n": int(len(W)), "terc": terc,
+            "years": [[y, round(a, 1), round(b, 1)] for y, a, b in zip(yr.index, yr["0050"], yr["0056"])]}
+
+
 def build() -> dict | None:
     f = EX / "etf.csv.gz"
     if not f.exists():
@@ -104,7 +137,12 @@ def build() -> dict | None:
         rows.append([c, nm, _kind(c, nm), 0 if clean(min(250, len(s) - 1)) else 1, _r(px), _r(ret(1)), _r(ret(20), 1), _r(ret(60), 1), _r(ret(250), 1), _r(tr, 1), _r(trm.get(c, {}).get(3), 1), _r(trm.get(c, {}).get(5), 1),
                      _r(div12, 3), _r(div12 / px * 100) if div12 else 0, int(len(d12)), _r(lastv, 3), lastd, fill,
                      _r(nx.cash_div.iloc[0], 3) if len(nx) else None, nx.date.iloc[0] if len(nx) else None, _r(val20), int(len(s))])
-    return {"date": last, "cols": COLS, "rows": rows, "n_days": len(days)}
+    try:
+        hd = hd_compare()
+    except Exception as e:  # noqa: BLE001
+        log.warning("高股息 vs 0050 比較失敗：%s", e)
+        hd = None
+    return {"date": last, "cols": COLS, "rows": rows, "n_days": len(days), "hd": hd}
 
 
 PAGE = """<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -132,6 +170,7 @@ th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--car
 <div class="meta">資料日 __DATE__・上市櫃全部 ETF・價格來自證交所／櫃買中心（較早的日子用 Yahoo 補）・配息來自除權息公告</div>
 <div class="box">📌 <b>殖利率高不等於賺比較多</b>：配息可能來自本金或過去的資本利得，配完淨值就少那麼多。比較 ETF 請看<b>含息總報酬</b>（價格變化＋期間內領到的配息）。
 另外月配、季配只是發錢的節奏，跟報酬高低無關；配息要課稅（股利所得、二代健保），在報酬上其實是扣分。</div>
+<div id="hdbox"></div>
 <h2>成交最熱的 10 檔</h2>
 <div class="tiles" id="hot"></div>
 <div class="bar" id="kinds"></div>
@@ -171,6 +210,12 @@ $('kinds').innerHTML=KD.map(k=>`<button class="${k===S.k?'on':''}">${k}</button>
 $('kinds').querySelectorAll('button').forEach(b=>b.onclick=()=>{S.k=b.textContent;$('kinds').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));run()});
 $('hot').innerHTML=R.slice().sort((a,b)=>(b[IX.val20]||0)-(a[IX.val20]||0)).slice(0,10).map(r=>`<div class="tile"><a href="stock.html?code=${esc(r[IX.c])}"><b>${esc(r[IX.c])}</b> ${esc(r[IX.n])}</a><br>${f(r[IX.px])} ${sg(r[IX.d1],2)}・一年含息 ${sg(r[IX.tr250])}<br><span class="meta">殖利率 ${r[IX.y12]?f(r[IX.y12])+'%':'—'}・成交 ${f(r[IX.val20],1)} 億/天</span></div>`).join('');
 $('q').oninput=run;$('fq').onchange=run;$('liq').onchange=run;run();
+if(D.hd){const H=D.hd,T=Object.fromEntries(H.terc.map(x=>[x.t,x]));
+ $('hdbox').innerHTML=`<div class="box"><b>📊 高股息（0056）vs 0050，${esc(H.from.slice(0,7))}～${esc(H.to.slice(0,7))} 含息（配息再投入）</b><br>
+ <b>空頭時較抗跌、多頭明顯落後。</b>把這段切成 ${H.n} 個不重疊的 60 個交易日：0050 跌的那 1/3（${f(T['跌'].lo,1)}～${f(T['跌'].hi,1)}%），0056 平均多 ${f(T['跌'].avg,1)}pp、${T['跌'].win}% 的時候贏；
+ 0050 漲的那 1/3，0056 平均少 ${f(-T['漲'].avg,1)}pp、只有 ${T['漲'].win}% 的時候贏。整段年化 0050 <b>${f(H.ann['0050'],1)}%</b>、0056 <b>${f(H.ann['0056'],1)}%</b>——高股息比較像避險品，不是增值品。
+ <details style="margin-top:6px"><summary>分年含息報酬</summary><div class="tbl" style="max-height:none;margin-top:6px"><table><tr><th class="l">年</th><th>0050</th><th>0056</th><th>0056−0050</th></tr>${H.years.map(([y,a,b])=>`<tr><td class="l">${esc(y)}${y===H.to.slice(0,4)?'（到 '+esc(H.to.slice(5))+'）':y===H.from.slice(0,4)?'（'+esc(H.from.slice(5))+' 起）':''}</td><td>${sg(a)}</td><td>${sg(b)}</td><td>${sg(b-a)}</td></tr>`).join('')}</table></div>
+ <p class="meta">資料：Yahoo 還原價（2014 前 0050 少套一次 1 拆 4，用同指數 006208 校正；2009 年 1～2 月 0050 價格亂跳不用，所以沒有 2008 空頭）。判準事前寫死（Cowork 10/8）：0050 跌組 0056 平均 ≥+2pp、中位 ≥+1pp、勝率 ≥65%、前後兩段同號，全過。</p></details></div>`}
 </script></body></html>"""
 
 
