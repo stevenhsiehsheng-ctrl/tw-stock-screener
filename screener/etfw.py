@@ -51,6 +51,15 @@ def update_weights(s) -> int:
         log.warning("0050 權重抓不到或不完整（%d 檔、合計 %.1f%%）", len(new), new.weight.sum() if len(new) else 0)
         return 0
     old = pd.read_csv(W_FILE, dtype=str) if W_FILE.exists() else pd.DataFrame(columns=new.columns)
+    # MoneyDJ 偶爾只換資料日期、權重原封不動（9/25 和 10/2 50 檔到小數兩位全同，分身 1215）。
+    # 這種不另存新快照，不然 update_ex_tsmc 會把它當新的權重基準、把漂移歸零。
+    prev = old[old["asof"] < new["asof"].iloc[0]]
+    if len(prev):
+        last = prev[prev["asof"] == prev["asof"].max()].set_index("code")["weight"].astype(float).sort_index()
+        cur = new.set_index("code")["weight"].astype(float).sort_index()
+        if last.index.equals(cur.index) and (last - cur).abs().max() < 1e-9:
+            log.warning("0050 權重 %s 跟上一份 %s 完全相同，視為來源沒更新，不另存", new["asof"].iloc[0], prev["asof"].max())
+            return int(old["asof"].nunique())
     df = pd.concat([old[old["asof"] != new["asof"].iloc[0]], new.astype(str)], ignore_index=True)
     df.sort_values(["asof", "weight"], ascending=[True, False], key=lambda c: c if c.name == "asof" else c.astype(float)).to_csv(W_FILE, index=False)
     return int(df["asof"].nunique())
