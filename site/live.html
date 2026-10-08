@@ -164,6 +164,16 @@ async function regime(){
       +((g.stale_core||[]).length?`<span class="meta">⚠️ ${esc(g.stale_core.join('、'))} 資料沒更新到最新交易日，燈可能是舊的</span>`:'');
     $('regime').hidden=false;
   }catch(e){}
+  // 盤勢主判：全市場等權指數 vs 200 日線（每日資料收盤後算好的 data/extras/ew_state.json）
+  try{
+    const r=await fetch(`https://raw.githubusercontent.com/${repo}/main/data/extras/ew_state.json?t=${Date.now()}`,{cache:'no-store'});
+    if(!r.ok)return;
+    const w=await r.json(),pc=v=>(v>0?'+':'')+Number(v).toFixed(1)+'%';
+    $('regime').insertAdjacentHTML('beforeend',w.above
+      ?`<span class="meta">盤勢：全市場等權指數在 200 日線上 ${pc(w.dev)}（${esc(String(w.since).slice(5))} 起）・${esc(w.judged_on)} 收盤</span>`
+      :`<span class="meta">🌧 <b>盤勢線下</b>：等權指數收在 200 日線下 ${pc(w.dev)}（${esc(String(w.since).slice(5))} 起 ${w.streak} 天）。突破策略在線下的歷史平均約 0、樣本不足，只提醒、部位不自動砍。</span>`);
+    $('regime').hidden=false;
+  }catch(e){}
 }
 
 async function get(){
