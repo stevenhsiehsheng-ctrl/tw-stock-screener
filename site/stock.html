@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>個股查詢</title>
+<title>個股查詢</title><meta name='description' content='一頁看完一檔：K 線、估值位階、月營收、法人籌碼、配息與填息。'><meta property='og:title' content='個股查詢'><meta property='og:description' content='一頁看完一檔：K 線、估值位階、月營收、法人籌碼、配息與填息。'><meta property='og:type' content='website'><link rel='icon' href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
 <style>
 :root{--bg:#f7f7f5;--fg:#1d1d1b;--muted:#6b6b66;--line:#ddddd6;--link:#2f55c4;--card:#fff;
   --s1:#2a78d6;--pos:#e34948;--neg:#2a78d6;--grid:#e6e5e0;--ref:#9a9890;--good:#0ca30c;--warn:#fab219;--crit:#d03b3b;--up:#d03b3b;--down:#0b8a3a}
@@ -225,6 +225,7 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
       <div class="tile"><div class="k">近 12 月殖利率</div><div class="v">${E.y12?fmt(E.y12,2)+'%':'—'}</div></div>
       <div class="tile"><div class="k">一年價格報酬</div><div class="v ${cls(E.r250)}">${E.r250==null?'—':sgn(E.r250,1)+'%'}</div></div>
       <div class="tile"><div class="k">一年含息報酬</div><div class="v ${cls(E.tr250)}">${E.tr250==null?'—':sgn(E.tr250,1)+'%'}</div></div>
+      ${E.tr3!=null||E.tr5!=null?`<div class="tile"><div class="k">含息年化（配息再投入）</div><div class="v">${E.tr3!=null?`<span class="${cls(E.tr3)}">${sgn(E.tr3,1)}%</span>`:'—'}</div><div class="meta">3 年${E.tr5!=null?`・5 年 ${sgn(E.tr5,1)}%`:''}</div></div>`:''}
       <div class="tile"><div class="k">每天成交值</div><div class="v">${E.val20==null?'—':fmt(E.val20,2)+' 億'}</div><div class="meta">近 20 日平均</div></div></div>`);
     h.push(`<p class="meta">${E.bad?'⚠️ 一年內有單日漲跌超過 50%（多半是分割或資料錯），長期報酬先不算。':''}殖利率高不等於賺比較多：配息可能來自本金，比較 ETF 請看含息報酬。<a href="etf.html">全部 ETF →</a></p>`);
     if(o.holdings&&o.holdings.rows.length){const R=o.holdings.rows,top=R.slice(0,10).reduce((a,x)=>a+(x[2]||0),0);
