@@ -18,7 +18,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 EX = ROOT / "data" / "extras"
 log = logging.getLogger(__name__)
-COLS = ["c", "n", "t", "px", "d1", "r20", "r60", "r250", "tr250", "div12", "y12", "nd", "last", "lastd", "fill", "next", "nextd", "val20", "days"]
+COLS = ["c", "n", "t", "bad", "px", "d1", "r20", "r60", "r250", "tr250", "div12", "y12", "nd", "last", "lastd", "fill", "next", "nextd", "val20", "days"]
 
 
 def _kind(code: str, name: str) -> str:
@@ -65,12 +65,14 @@ def build() -> dict | None:
         if s.empty or s.index[-1] != last:
             continue
         px = float(s.iloc[-1])
-        ret = lambda k: (px / s.iloc[-1 - k] - 1) * 100 if len(s) > k else None
+        jump = s.pct_change().abs()
+        clean = lambda k: not (jump.iloc[-k:] > 0.5).any()   # 窗內單日 >50%：多半是分割／合併或 Yahoo 資料錯，報酬不給
+        ret = lambda k: (px / s.iloc[-1 - k] - 1) * 100 if len(s) > k and clean(k) else None
         dv = xd[xd.code == c].sort_values("date")
         d12 = dv[dv.date > y1]
         div12 = float(d12.value.sum()) if len(d12) else 0.0
         tr = None
-        if len(s) > 250:
+        if len(s) > 250 and clean(250):
             start = s.index[-251]
             tr = ((px + dv[dv.date > start].value.sum()) / s.iloc[-251] - 1) * 100
         fill = lastd = lastv = None
@@ -84,7 +86,7 @@ def build() -> dict | None:
         nx = up[up.code == c]
         val20 = (s * V[c].reindex(s.index)).iloc[-20:].mean() / 1e8
         nm = str(names.get(c, "") or "")
-        rows.append([c, nm, _kind(c, nm), _r(px), _r(ret(1)), _r(ret(20), 1), _r(ret(60), 1), _r(ret(250), 1), _r(tr, 1),
+        rows.append([c, nm, _kind(c, nm), 0 if clean(min(250, len(s) - 1)) else 1, _r(px), _r(ret(1)), _r(ret(20), 1), _r(ret(60), 1), _r(ret(250), 1), _r(tr, 1),
                      _r(div12, 3), _r(div12 / px * 100) if div12 else 0, int(len(d12)), _r(lastv, 3), lastd, fill,
                      _r(nx.cash_div.iloc[0], 3) if len(nx) else None, nx.date.iloc[0] if len(nx) else None, _r(val20), int(len(s))])
     return {"date": last, "cols": COLS, "rows": rows, "n_days": len(days)}
@@ -136,7 +138,7 @@ const T=[['c','代號'],['n','名稱'],['t','類型'],['px','價格'],['d1','今
 const KD=['全部','股票','債券','主動','槓桿反向','商品期貨'];let S={k:'全部',sort:'val20',dir:-1};
 function freq(n){return n>=10?'m':n>=4?'q':n>=1?'h':'0'}
 function cell(r,k){const v=r[IX[k]];switch(k){
- case 'c':return `<td class="l"><b>${esc(v)}</b></td>`;case 'n':return `<td class="l">${esc(v)}</td>`;case 't':return `<td class="l"><span class="tag">${esc(v)}</span></td>`;
+ case 'c':return `<td class="l"><b>${esc(v)}</b></td>`;case 'n':return `<td class="l">${esc(v)}</td>`;case 't':return `<td class="l"><span class="tag">${esc(v)}</span>${r[IX.bad]?' <span class="tag" title="一年內有單日漲跌超過 50%（多半是分割、合併或資料錯），長期報酬先不算">⚠️ 資料可疑</span>':''}</td>`;
  case 'px':return `<td>${f(v)}</td>`;case 'd1':return `<td>${sg(v,2)}</td>`;case 'r20':case 'r250':case 'tr250':return `<td>${sg(v)}</td>`;
  case 'y12':return `<td>${v?'<b>'+f(v)+'%</b>':'—'}</td>`;case 'nd':return `<td>${v||'—'}</td>`;
  case 'last':return `<td>${v==null?'—':f(v,v<1?3:2)+` <span class="meta">${esc((r[IX.lastd]||'').slice(2))}</span>`}</td>`;
