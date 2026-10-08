@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 # 欄位順序＝網頁 JS 的 COLS（改這裡要一起改 PAGE）
 COLS = ["c", "n", "m", "i", "px", "d1", "r5", "r20", "r60", "r250", "v", "val20", "cap", "pe", "y", "pb",
-        "ry", "rc", "rm", "rs", "h52", "tpl", "f5", "f5p", "t5", "roe3", "cagr3", "w", "pe_pct", "pb_pct", "y_pct"]
+        "ry", "rc", "rm", "rs", "h52", "tpl", "f5", "f5p", "t5", "roe3", "cagr3", "w", "pe_pct", "pb_pct", "y_pct", "rh12"]
 
 
 def _read(p: Path, **kw) -> pd.DataFrame | None:
@@ -106,6 +106,18 @@ def build() -> dict | None:
         log.warning("估值位階失敗：%s", e)
         vt = pd.DataFrame()
     vcol = lambda k: vt[k] if k in vt.columns else pd.Series(dtype=float)
+    # 營收創 12 個月新高（跟 ry 同一個月份）：營收漂移籃子＝年增 ≥30% 且創 12 個月新高
+    rh12 = set()
+    try:
+        rh = _read(EX / "rev_hist.csv.gz")
+        if rh is not None and rmonth:
+            piv = rh.pivot_table(index="ym", columns="code", values="revenue").sort_index()
+            piv = piv[piv.index <= rmonth].tail(12)
+            if len(piv) == 12 and rmonth in piv.index:
+                cur, mx = piv.loc[rmonth], piv.max()
+                rh12 = set(cur.index[(cur >= mx - 1e-9) & piv.notna().all()])
+    except Exception as e:  # noqa: BLE001
+        log.warning("營收 12 個月新高失敗：%s", e)
     pe_p, pb_p, y_p = vcol("pe_pct"), vcol("pb_pct"), vcol("y_pct")
     rows = []
     for c in codes:
@@ -121,7 +133,7 @@ def build() -> dict | None:
             1 if str(tpl.get(c, "")).lower() == "true" else 0,
             f, None if f is None or not (v5 > 0) else round(f / v5 * 100, 1), num(t5, c, 0),
             num(roe3, c, 1), num(cagr3, c, 1), wflag.get(c, "") or "",
-            num(pe_p, c, 0), num(pb_p, c, 0), num(y_p, c, 0),
+            num(pe_p, c, 0), num(pb_p, c, 0), num(y_p, c, 0), 1 if c in rh12 else 0,
         ])
     inds = sorted({r[3] for r in rows if r[3]})
     return {"date": last, "rmonth": rmonth, "cols": COLS, "rows": rows, "inds": inds}
@@ -165,6 +177,7 @@ th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--car
  <select id="ind"><option value="">全部產業</option></select>
  <label><input type="checkbox" id="nw" checked> 排除注意／處置股</label>
  <label><input type="checkbox" id="tp"> 只看趨勢樣板 ✓</label>
+ <label><input type="checkbox" id="rh"> 只看營收創 12 個月新高</label>
  <button id="clr">清除條件</button><button id="csv">⬇ 匯出 CSV</button>
 </div>
 <div class="meta">符合 <span id="n">0</span> 檔<span id="cut"></span>・點欄位排序</div>
@@ -187,6 +200,7 @@ const T=[['c','代號'],['n','名稱'],['i','產業'],['px','股價',2],['d1','�
  ['val20','成交值(億)',2],['pe','本益比',1],['pe_pct','PE 位階',0],['y','殖利率',2],['pb','淨值比',2],['ry','營收年增',1,1],['rc','累計年增',1,1],['rs','RS',0],['h52','距高',1,1],
  ['f5p','外資占量',1,1],['t5','投信5日',0,1],['roe3','ROE3',1],['w','']];
 const PRE=[
+ ['📈 營收漂移籃子',{ry:[30,'']},'單月營收年增 ≥30% 且創 12 個月新高＝營收漂移籃子（5 年回測贏同流動性安慰劑，每批成績看「營收漂移」頁；判斷看整籃平均，不是單挑一檔）',{rh:1}],
  ['💎 低本益比高殖利率',{pe:[0,12],y:[5,''],cap:[50,'']},'本益比 12 倍以下、殖利率 5% 以上、市值 50 億以上'],
  ['🚀 營收爆發',{ry:[30,''],rc:[20,''],val20:[0.5,'']},'單月營收年增 ≥30%、累計年增 ≥20%、每天成交 5 千萬以上'],
  ['📈 強勢股',{rs:[80,''],h52:[-5,''],val20:[1,'']},'RS ≥80、離一年高不到 5%、每天成交 1 億以上'],
@@ -194,7 +208,7 @@ const PRE=[
  ['🛡 大型穩健',{cap:[1000,''],roe3:[15,'']},'市值 1,000 億以上、3 年平均 ROE ≥15%'],
  ['📉 跌深',{r60:['',-20],val20:[1,'']},'60 天跌超過 20%、每天成交 1 億以上（跌深不等於便宜）'],
  ['🏷 比自己過去便宜',{pe_pct:['',20],y_pct:[60,''],val20:[0.3,'']},'本益比在自己 5 年的最低 2 成、殖利率在自己 5 年的前 4 成。⚠️ 回測沒贏：2023-09～2026-07 共 35 批，本益比位階最低 2 成的之後 60 日超額比最高 2 成的平均還差 1.8pp（中位差 0.7pp），便宜通常有原因']];
-let S={f:{},sort:'cap',dir:-1,q:'',mk:'',ind:'',nw:1,tp:0};
+let S={f:{},sort:'cap',dir:-1,q:'',mk:'',ind:'',nw:1,tp:0,rh:0};
 const num=v=>v===''||v==null||isNaN(+v)?null:+v;
 function fmt(v,d){return v==null?'—':(+v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}
 function drawF(){$('flt').innerHTML=F.map(([k,n,u])=>{const r=S.f[k]||['',''];const on=r[0]!==''||r[1]!=='';
@@ -206,7 +220,7 @@ function markPre(){cnt();const cur=JSON.stringify(S.f);$('pre').querySelectorAll
 const norm=o=>Object.fromEntries(Object.entries(o).map(([k,[a,b]])=>[k,[String(a),String(b)]]));
 function rows(){const q=S.q.toLowerCase(),fs=Object.entries(S.f).map(([k,[a,b]])=>[IX[k],num(a),num(b)]);
  return R.filter(r=>{if(q&&!(r[IX.c]+r[IX.n]).toLowerCase().includes(q))return false;if(S.mk&&r[IX.m]!==S.mk)return false;
-  if(S.ind&&r[IX.i]!==S.ind)return false;if(S.nw&&r[IX.w])return false;if(S.tp&&!r[IX.tpl])return false;
+  if(S.ind&&r[IX.i]!==S.ind)return false;if(S.nw&&r[IX.w])return false;if(S.tp&&!r[IX.tpl])return false;if(S.rh&&!r[IX.rh12])return false;
   for(const[i,a,b]of fs){const v=r[i];if(v==null)return false;if(a!=null&&v<a)return false;if(b!=null&&v>b)return false}return true})}
 function run(){const out=rows(),i=IX[S.sort];out.sort((a,b)=>{const x=a[i],y=b[i];if(x==null)return 1;if(y==null)return -1;return(x<y?-1:x>y?1:0)*S.dir});
  $('n').textContent=out.length;$('cut').textContent=out.length>400?'（只列前 400 檔，匯出 CSV 有全部）':'';
@@ -217,21 +231,21 @@ function run(){const out=rows(),i=IX[S.sort];out.sort((a,b)=>{const x=a[i],y=b[i
   if(k==='w')return `<td class="l">${v?`<span class="tag">${esc(v)}</span>`:''}</td>`;
   return `<td${c&&v?` class="${v>0?'up':'down'}"`:''}>${c&&v>0?'+':''}${fmt(v,d)}</td>`}).join('')+'</tr>').join('')||`<tr><td class="l" colspan="${T.length}">沒有符合的，放寬條件試試</td></tr>`;
  save();window._out=out}
-function save(){const o={};if(Object.keys(S.f).length)o.f=JSON.stringify(S.f);for(const k of['q','mk','ind'])if(S[k])o[k]=S[k];if(!S.nw)o.nw='0';if(S.tp)o.tp='1';
+function save(){const o={};if(Object.keys(S.f).length)o.f=JSON.stringify(S.f);for(const k of['q','mk','ind'])if(S[k])o[k]=S[k];if(!S.nw)o.nw='0';if(S.tp)o.tp='1';if(S.rh)o.rh='1';
  if(S.sort!=='cap'||S.dir!==-1)o.s=S.sort+(S.dir<0?'-':'+');const h=new URLSearchParams(o).toString();history.replaceState(null,'',h?'#'+h:location.pathname+location.search)}
 function load(){try{const p=new URLSearchParams(location.hash.slice(1));if(p.get('f'))S.f=JSON.parse(p.get('f'));for(const k of['q','mk','ind'])S[k]=p.get(k)||'';
- S.nw=p.get('nw')==='0'?0:1;S.tp=p.get('tp')==='1'?1:0;const s=p.get('s');if(s&&IX[s.slice(0,-1)]!=null){S.sort=s.slice(0,-1);S.dir=s.endsWith('-')?-1:1}}catch(e){S.f={}}}
+ S.nw=p.get('nw')==='0'?0:1;S.tp=p.get('tp')==='1'?1:0;S.rh=p.get('rh')==='1'?1:0;const s=p.get('s');if(s&&IX[s.slice(0,-1)]!=null){S.sort=s.slice(0,-1);S.dir=s.endsWith('-')?-1:1}}catch(e){S.f={}}}
 load();
 $('more').open=matchMedia('(min-width:700px)').matches||Object.keys(S.f).length>0;
 $('ind').innerHTML+=D.inds.map(x=>`<option>${esc(x)}</option>`).join('');
 $('pre').innerHTML=PRE.map(([t,o,d])=>`<button title="${esc(d)}">${t}</button>`).join('');
-$('pre').querySelectorAll('button').forEach((b,i)=>b.onclick=()=>{S.f=norm(PRE[i][1]);drawF();markPre();run();$('pdesc').textContent=PRE[i][2]});
-$('q').value=S.q;$('mk').value=S.mk;$('ind').value=S.ind;$('nw').checked=!!S.nw;$('tp').checked=!!S.tp;
+$('pre').querySelectorAll('button').forEach((b,i)=>b.onclick=()=>{S.f=norm(PRE[i][1]);S.rh=PRE[i][3]&&PRE[i][3].rh?1:0;$('rh').checked=!!S.rh;drawF();markPre();run();$('pdesc').innerHTML=esc(PRE[i][2])+(PRE[i][3]&&PRE[i][3].rh?' <a href="revdrift.html">營收漂移每批成績 →</a>':'')});
+$('q').value=S.q;$('mk').value=S.mk;$('ind').value=S.ind;$('nw').checked=!!S.nw;$('tp').checked=!!S.tp;$('rh').checked=!!S.rh;
 $('q').oninput=e=>{S.q=e.target.value.trim();run()};$('mk').onchange=e=>{S.mk=e.target.value;run()};$('ind').onchange=e=>{S.ind=e.target.value;run()};
-$('nw').onchange=e=>{S.nw=e.target.checked?1:0;run()};$('tp').onchange=e=>{S.tp=e.target.checked?1:0;run()};
-$('clr').onclick=()=>{S.f={};S.q='';S.mk='';S.ind='';S.tp=0;$('q').value='';$('mk').value='';$('ind').value='';$('tp').checked=false;drawF();markPre();run()};
+$('nw').onchange=e=>{S.nw=e.target.checked?1:0;run()};$('tp').onchange=e=>{S.tp=e.target.checked?1:0;run()};$('rh').onchange=e=>{S.rh=e.target.checked?1:0;run()};
+$('clr').onclick=()=>{S.f={};S.q='';S.mk='';S.ind='';S.tp=0;S.rh=0;$('rh').checked=false;$('q').value='';$('mk').value='';$('ind').value='';$('tp').checked=false;drawF();markPre();run()};
 $('csv').onclick=()=>{const H=['代號','名稱','市場','產業','股價','今天%','5日%','20日%','60日%','一年%','成交量(張)','20日成交值(億)','市值(億)','本益比','殖利率%','淨值比',
- '營收年增%','累計營收年增%','營收月增%','RS','距一年高%','趨勢樣板','外資5日(張)','外資5日占量%','投信5日(張)','ROE3年%','營收3年CAGR%','注意處置','本益比5年位階','淨值比5年位階','殖利率5年位階'];
+ '營收年增%','累計營收年增%','營收月增%','RS','距一年高%','趨勢樣板','外資5日(張)','外資5日占量%','投信5日(張)','ROE3年%','營收3年CAGR%','注意處置','本益比5年位階','淨值比5年位階','殖利率5年位階','營收創12月新高'];
  const q=v=>v==null?'':/[",\\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':v;
  const s='\\ufeff'+[H.join(','),...window._out.map(r=>r.map(q).join(','))].join('\\n');
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/csv'}));a.download=`選股_${D.date}.csv`;a.click()};
