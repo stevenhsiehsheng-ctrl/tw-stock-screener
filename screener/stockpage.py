@@ -116,6 +116,14 @@ def build(out_dir: Path) -> int:
     exd = _read(EX / "exdiv.csv")
     exu = _read(EX / "exdiv_upcoming.csv")
     pos = _read(DATA / "positions.csv")
+    try:
+        from . import valuation
+        vl = valuation.load()
+        val_g = dict(tuple(vl[0].groupby("code"))) if vl else {}
+        val_now = vl[1] if vl else pd.DataFrame()
+    except Exception as e:  # noqa: BLE001
+        log.warning("估值位階讀取失敗：%s", e)
+        val_g, val_now = {}, pd.DataFrame()
     lt_screen = None
     top = {}
     tf = DATA / "longterm" / "top20.json"
@@ -185,6 +193,8 @@ def build(out_dir: Path) -> int:
                 row = one[k].loc[c]
                 o[k] = {x: (bool(row[x]) if x == "tpl" and pd.notna(row[x]) else _r(row[x]) if pd.notna(row[x]) else None)
                         for x in cols if x in row}
+        if val_g and (v := valuation.stats(val_g.get(c), val_now, c, series=True)):
+            o["val"] = v
         if c in one["warn"].index:
             o["warn"] = str(one["warn"].loc[c, "flag"])
         if (x := G["wh"].get(c)) is not None:
