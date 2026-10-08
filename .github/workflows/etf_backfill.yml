@@ -1,0 +1,44 @@
+name: 補抓 ETF 一年日 K
+
+# 一次性：etf.csv.gz 只有 0050 等少數幾檔有整年，其他從 2026-10 才開始存；用 Yahoo 把全部 ETF 補一年（官方已有的那天以官方為準）。
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "保留幾個交易日"
+        default: "260"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screener
+  cancel-in-progress: false
+
+jobs:
+  etf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 補抓
+        run: python -c "import logging,sys;logging.basicConfig(level=logging.INFO);from screener import fetch;print(fetch.backfill_etf_all(int(sys.argv[1])))" ${{ inputs.days }}
+      - name: 存檔
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/extras/etf.csv.gz
+          if git diff --cached --quiet; then echo "沒有變更"; else
+            git commit -m "ETF 一年日 K 回補 $(TZ=Asia/Taipei date +%F)"
+            ok=0; for i in 1 2 3; do
+              if git pull --rebase -X theirs && git push; then ok=1; break; fi
+              git rebase --abort 2>/dev/null || true; sleep 5
+            done; [ "$ok" = 1 ]
+          fi

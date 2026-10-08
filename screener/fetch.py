@@ -430,6 +430,34 @@ def _repair_gaps(hist: pd.DataFrame, stocks: pd.DataFrame, markets: list[str], l
     return merged
 
 
+def backfill_etf_all(keep_days: int = 260) -> int:
+    """一次性：etf.csv 最近一天出現的所有 ETF，用 Yahoo 補一年日 K；官方行情已經有的那天以官方為準。
+    先試上市（.TW），抓不到的再試上櫃（.TWO）。回傳有資料的檔數。"""
+    old = pd.read_csv(ETF_F, dtype={"code": str})
+    codes = sorted(set(old.code[old.date == old.date.max()]))
+    start = dt.date.today() - dt.timedelta(days=int(keep_days * 1.5) + 10)
+    got = [fetch_yahoo(pd.DataFrame({"code": codes, "market": "TWSE"}), start)]
+    miss = sorted(set(codes) - set(got[0].code))
+    if miss:
+        try:
+            got.append(fetch_yahoo(pd.DataFrame({"code": miss, "market": "TPEX"}), start))
+        except SourceUnavailable:
+            log.warning("上櫃 ETF Yahoo 也抓不到：%s", miss[:20])
+    y = pd.concat(got, ignore_index=True)
+    log.info("ETF 回補：Yahoo %d 檔、%d 筆；仍缺 %d 檔", y.code.nunique(), len(y), len(set(codes) - set(y.code)))
+    cols = COLS + ["name"]
+    df = pd.concat([y.reindex(columns=cols), old], ignore_index=True).drop_duplicates(["date", "code"], keep="last")
+    days = set(load_history().date.unique())
+    if days:
+        df = df[df.date.isin(days) | (df.date > max(days))]
+    px = ["open", "high", "low", "close"]
+    df[px] = df[px].apply(pd.to_numeric, errors="coerce").round(2)
+    df["name"] = df.groupby("code")["name"].transform(lambda x: x.replace("", pd.NA).ffill().bfill()).fillna("")
+    keep = sorted(df.date.unique())[-keep_days:]
+    df[df.date.isin(keep)].sort_values(["code", "date"]).to_csv(ETF_F, index=False)
+    return int(y.code.nunique())
+
+
 def load_history() -> pd.DataFrame:
     if HISTORY_FILE.exists():
         return pd.read_csv(HISTORY_FILE, dtype={"code": str})
