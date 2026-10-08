@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>我的自選</title>
+<style>
+:root{--bg:#f7f7f5;--fg:#1d1d1b;--muted:#6b6b66;--line:#ddddd6;--link:#2f55c4;--card:#fff;--up:#d03b3b;--down:#0b8a3a;--accent:#2f5bd3}
+@media(prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecebe6;--muted:#a3a29b;--line:#34342f;--link:#8fa8f5;--card:#1d1d1b;--up:#f06b6b;--down:#3fbf6a}}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 60px}a{color:var(--link)}
+h1{font-size:23px;margin:8px 0 4px}.meta{color:var(--muted);font-size:13px}
+.search{display:flex;gap:8px;margin:10px 0}.search input{flex:1;min-width:0;font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
+.search button,.tools button{font:inherit;padding:6px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);cursor:pointer}
+.search button{background:var(--accent);border-color:var(--accent);color:#fff}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.note{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:8px 0;font-size:14px}
+.tbl{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+th{color:var(--muted);font-weight:600;cursor:pointer;position:sticky;top:0;background:var(--card)}th.s{color:var(--accent)}td.l,th.l{text-align:left}
+.up{color:var(--up)}.down{color:var(--down)}.sub{color:var(--muted);font-size:12px}
+.tag{display:inline-block;font-size:11.5px;padding:0 7px;border-radius:999px;background:rgba(128,128,128,.14);margin-right:3px}.tag.crit{background:rgba(208,59,59,.15);color:var(--up)}
+td button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:16px}
+.empty{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<style>.sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 16px;padding:0 0 12px;border-bottom:1px solid rgba(128,128,128,.25);font-size:13px;line-height:1.4}.sitenav a{padding:4px 11px;border-radius:999px;text-decoration:none;color:inherit;background:rgba(128,128,128,.13);white-space:nowrap;cursor:pointer}.sitenav a:hover{background:rgba(128,128,128,.24)}.sitenav a.on{background:#2f5bd3;color:#fff;font-weight:600}.sitenav i{width:1px;height:18px;background:rgba(128,128,128,.35);margin:0 4px}@media(max-width:560px){.sitenav i{display:none}}.sitenav form{margin:0 0 0 auto}.sitenav input{font:inherit;padding:4px 11px;border-radius:999px;width:150px;border:1px solid rgba(128,128,128,.35);background:transparent;color:inherit}@media(max-width:560px){.sitenav form{flex:1 1 100%;margin:2px 0 0}.sitenav input{width:100%;box-sizing:border-box}}</style><nav class='sitenav'><a href='live.html'>⚡ 盤中即時</a><a href='index.html'>📊 每日篩選</a><a href='stock.html'>🔎 個股查詢</a><a class='on' href='watch.html'>⭐ 我的自選</a><a href='screen.html'>🧮 自訂選股</a><a href='map.html'>🗺 市場地圖</a><a href='compare.html'>⚖ 個股比較</a><a href='#' onclick='return openClaude()'>🔒 Claude 研判</a><i></i><a href='weekly/index.html'>📅 市場週報</a><a href='macro.html'>🌏 大環境</a><a href='chips.html'>🏦 法人籌碼</a><a href='exdiv.html'>💰 除權息</a><a href='etf.html'>🧺 ETF 專區</a><a href='usx.html'>🇺🇸 美股篩選</a><a href='us.html'>🌙 美股隔夜</a><a href='revdrift.html'>📈 營收漂移</a><a href='longterm.html'>🌱 長期 Top 20</a><i></i><a href='gifts.html'>🎁 股東紀念品</a><a href='archive.html'>🗂 歷史報表</a><form action='stock.html' method='get' role='search'><input name='code' placeholder='🔎 代號或名稱' aria-label='查個股' autocomplete='off'></form></nav><script src='claude_link.js'></script>
+<h1>⭐ 我的自選</h1>
+<div class="meta">把在意的股票、ETF 放在一張表：今天漲跌、近期報酬、估值位階、下次除息、外資動向、注意處置。</div>
+<form class="search" id="f"><input id="q" list="dl" placeholder="加一檔：代號或名稱（台股、ETF、美股都可以）" autocomplete="off"><button>加入</button></form>
+<datalist id="dl"></datalist>
+<div id="msg"></div>
+<div class="tools"><button id="share">🔗 分享／搬到別台裝置</button><button id="cmp">⚖ 前 4 檔放進比較</button><span class="meta" id="cnt"></span></div>
+<div id="out"><p class="empty">讀取中…</p></div>
+<p class="meta">清單只存在這台裝置的瀏覽器（不會上傳）；換手機或電腦用「🔗 分享」產生連結打開就會帶過去。估值位階＝在自己過去 5 年的第幾百分位。不構成投資建議。</p>
+</main>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=(v,d=2)=>v==null||!isFinite(v)?'—':(+v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const sg=(v,d=1)=>v==null||!isFinite(v)?'—':`<span class="${v>0?'up':v<0?'down':''}">${v>0?'+':''}${fmt(v,d)}%</span>`;
+function getWL(){try{return JSON.parse(localStorage.getItem('watchlist')||'[]')}catch(e){return[]}}
+function setWL(a){try{localStorage.setItem('watchlist',JSON.stringify(a))}catch(e){}}
+let INDEX=null,DATA={},SORT=null,DIR=-1;
+async function loadIndex(){if(INDEX)return INDEX;try{INDEX=await (await fetch('stocks/index.json')).json()}catch(e){INDEX={s:[]}}
+  $('#dl').innerHTML=INDEX.s.map(([c,n])=>`<option value="${esc(c)} ${esc(n)}">`).join('');return INDEX}
+function resolve(q){q=q.trim();if(!q)return null;const code=q.split(/\s+/)[0].toUpperCase(),ql=q.toLowerCase(),s=INDEX.s;
+  const h=s.find(x=>x[0]===code)||s.find(x=>x[1]===q)||s.find(x=>x[1].toLowerCase().includes(ql))||s.find(x=>x[0].startsWith(code));return h||null}
+async function get(c){if(c in DATA)return DATA[c];try{const r=await fetch(`stocks/${encodeURIComponent(c)}.json`);DATA[c]=r.ok?await r.json():null}catch(e){DATA[c]=null}return DATA[c]}
+const ret=(o,k)=>{const c=o.px&&o.px.c;if(!c||c.length<2)return null;const i=Math.max(0,c.length-1-Math.min(k,c.length-1));return(c[c.length-1]/c[i]-1)*100};
+const last=o=>o.px&&o.px.c.length?o.px.c[o.px.c.length-1]:null;
+/* 欄：[key, 標題, 取值, 顯示] */
+const COLS=[
+ ['name','股票',o=>o.code,o=>`<a href="stock.html?code=${esc(o.code)}"><b>${esc(o.name)}</b></a> <span class="sub">${esc(o.code)}</span>`],
+ ['px','收盤',last,o=>fmt(last(o))+(o.last!==o.asof?' <span class="sub">停</span>':'')],
+ ['chg','今天',o=>o.chg,o=>sg(o.chg,2)],
+ ['r5','5 日',o=>ret(o,5),o=>sg(ret(o,5))],
+ ['r20','20 日',o=>ret(o,20),o=>sg(ret(o,20))],
+ ['r250','一年',o=>ret(o,250),o=>sg(ret(o,250))],
+ ['h52','距一年高',o=>o.hi52?(last(o)/o.hi52-1)*100:null,o=>o.hi52?sg((last(o)/o.hi52-1)*100):'—'],
+ ['pe','本益比（位階）',o=>o.val&&o.val.pe?o.val.pe.pct:null,o=>o.pe&&o.pe.pe!=null?`${fmt(o.pe.pe,1)}${o.val&&o.val.pe?` <span class="sub">${o.val.pe.pct.toFixed(0)}</span>`:''}`:(o.fund&&o.fund.pe?fmt(o.fund.pe,1):'—')],
+ ['y','殖利率',o=>o.etf?o.etf.y12:o.pe?o.pe.yield:null,o=>{const v=o.etf?o.etf.y12:o.pe?o.pe.yield:null;return v==null?'—':fmt(v,2)+'%'+(o.val&&o.val.yield?` <span class="sub">${o.val.yield.pct.toFixed(0)}</span>`:'')}],
+ ['ex','下次除權息',o=>o.exdiv_next&&o.exdiv_next.length?o.exdiv_next[0][0]:null,o=>o.exdiv_next&&o.exdiv_next.length?`${esc(o.exdiv_next[0][0].slice(5))}${o.exdiv_next[0][2]?` <span class="sub">${fmt(o.exdiv_next[0][2],o.exdiv_next[0][2]<1?3:2)}</span>`:''}`:'—'],
+ ['f5','外資 5 日（張）',o=>o.inst?o.inst.slice(-5).reduce((a,x)=>a+(x[1]||0),0):null,o=>{if(!o.inst)return'—';const s=o.inst.slice(-5).reduce((a,x)=>a+(x[1]||0),0);return `<span class="${s>0?'up':s<0?'down':''}">${s>0?'+':''}${fmt(s,0)}</span>`}],
+ ['tag','狀態',o=>null,o=>{const t=[];if(o.warn)t.push(`<span class="tag crit">${esc(o.warn)}</span>`);if(o.lt&&o.lt.top)t.push('<span class="tag">長期 Top 20</span>');
+   (o.strats||[]).filter(x=>x[0]===o.asof).forEach(x=>t.push(`<span class="tag">${esc(x[1])}</span>`));if(o.market==='US')t.push('<span class="tag">美股</span>');if(o.kind==='ETF')t.push('<span class="tag">ETF</span>');return t.join('')||''}],
+ ['x','',o=>null,o=>`<button data-c="${esc(o.code)}" title="移出自選">×</button>`]];
+async function draw(){await loadIndex();const wl=getWL();$('#cnt').textContent=wl.length?`共 ${wl.length} 檔`:'';
+  if(!wl.length){$('#out').innerHTML='<p class="empty">還沒有自選股。在上面直接加，或在個股頁按「☆ 加自選」。</p>';return}
+  const os=(await Promise.all(wl.map(([c])=>get(c)))).map((o,i)=>o||{code:wl[i][0],name:wl[i][1]||wl[i][0],missing:1});
+  let rows=os.slice();if(SORT){const col=COLS.find(x=>x[0]===SORT);rows.sort((a,b)=>{const x=a.missing?null:col[2](a),y=b.missing?null:col[2](b);if(x==null)return 1;if(y==null)return -1;return(x<y?-1:x>y?1:0)*DIR})}
+  let h=`<div class="tbl"><table><tr>${COLS.map(([k,t])=>`<th class="${k==='name'||k==='tag'?'l ':''}${k===SORT?'s':''}" data-k="${k}">${t}${k===SORT?(DIR<0?' ▼':' ▲'):''}</th>`).join('')}</tr>`;
+  h+=rows.map(o=>'<tr>'+COLS.map(([k,,,f])=>`<td class="${k==='name'||k==='tag'?'l':''}">${o.missing&&!['name','x'].includes(k)?'—':o.missing&&k==='name'?`${esc(o.name)} <span class="sub">${esc(o.code)}・沒有資料</span>`:f(o)}</td>`).join('')+'</tr>').join('')+'</table></div>';
+  const asof=os.find(o=>o.asof&&o.market!=='US');h+=asof?`<p class="meta">台股資料日 ${esc(asof.asof)}；本益比、殖利率旁的小字是 5 年位階。</p>`:'';
+  $('#out').innerHTML=h;
+  $('#out').querySelectorAll('th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(k==='x'||k==='tag')return;DIR=SORT===k?-DIR:(k==='name'||k==='ex'?1:-1);SORT=k;draw()});
+  $('#out').querySelectorAll('td button').forEach(b=>b.onclick=()=>{setWL(getWL().filter(x=>x[0]!==b.dataset.c));draw()})}
+function say(t){$('#msg').innerHTML=t?`<div class="note">${t}</div>`:''}
+$('#f').onsubmit=async e=>{e.preventDefault();await loadIndex();const h=resolve($('#q').value);if(!h){say(`找不到「${esc($('#q').value)}」。`);return}
+  const wl=getWL();if(!wl.some(x=>x[0]===h[0])){wl.push([h[0],h[1]]);setWL(wl);say(`已加入 ${esc(h[1])}。`)}else say(`${esc(h[1])} 已經在清單裡。`);$('#q').value='';draw()};
+$('#share').onclick=async()=>{const wl=getWL();if(!wl.length){say('清單是空的。');return}
+  const url=location.origin+location.pathname+'?add='+wl.map(x=>x[0]).join(',');
+  try{await navigator.clipboard.writeText(url);say(`連結已複製，在別台裝置打開就會加入這 ${wl.length} 檔：<br><a href="${esc(url)}">${esc(url)}</a>`)}catch(e){say(`複製這個連結，在別台裝置打開：<br><a href="${esc(url)}">${esc(url)}</a>`)}};
+$('#cmp').onclick=()=>{const wl=getWL();if(wl.length<2){say('至少要 2 檔才能比較。');return}location.href='compare.html?c='+wl.slice(0,4).map(x=>x[0]).join(',')};
+(async()=>{await loadIndex();const p=new URLSearchParams(location.search).get('add');
+  if(p){const wl=getWL();let n=0;for(const q of p.split(',')){const h=resolve(q);if(h&&!wl.some(x=>x[0]===h[0])){wl.push([h[0],h[1]]);n++}}setWL(wl);
+    history.replaceState(null,'',location.pathname);say(n?`從分享連結加入 ${n} 檔。`:'分享連結裡的股票都已經在清單裡了。')}
+  draw()})();
+</script>
+</body>
+</html>
