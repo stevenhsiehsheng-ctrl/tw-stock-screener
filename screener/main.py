@@ -201,6 +201,10 @@ def main(argv=None) -> int:
         positions.fill_warn(sorted(hist.date.unique()))
     except Exception as e:  # noqa: BLE001
         log.warning("持有訊號補注意處置欄失敗：%s", e)
+    try:
+        positions.fill_lock(panel, cfg.get("base_filter", []))
+    except Exception as e:  # noqa: BLE001
+        log.warning("13:12 影子紀錄補鎖漲停家數失敗：%s", e)
     pos_md = positions.build_md(exits, holding)
     if senti:
         pos_md = sentiment.md_line(senti) + "\n" + pos_md
