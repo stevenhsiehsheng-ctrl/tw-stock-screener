@@ -62,7 +62,7 @@ def build() -> dict:
             exits.append({"code": r.code, "name": r.name, "exit_reason": r.exit_reason if isinstance(r.exit_reason, str) else ""})
         # 已出場（隔天開盤賣掉、exit_open 有值）的成績，扣 0.38% 成本。持倉平均只看活著的，輸的被量縮規則先洗出去，
         # 單看持倉會偏好看（分身 1415-cc-ac：10/1～10/6 持倉 17 筆 +8.05%、已出場 8 筆 −2.04%）
-        done = pos[pos.status == "closed"]   # 含出場訊號已出、明天開盤才賣的（報酬先用收盤估）
+        done = pos[(pos.status == "closed") & pos.exit_open.notna()]   # 真的賣掉的；明天開盤才賣的另一行（🚪）列
         r = pd.to_numeric(done.est_return_pct, errors="coerce").dropna() - 0.38
         if len(r):
             out["closed"] = {"n": int(len(r)), "avg": round(float(r.mean()), 2), "med": round(float(r.median()), 2),
@@ -132,7 +132,7 @@ function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉�
   const r=H.filter(x=>x.ret!=null),avg=r.length?r.reduce((a,x)=>a+x.ret,0)/r.length:null,worst=r.slice().sort((a,b)=>a.ret-b.ret)[0];
   const C=T.closed;
   add('💼',`系統訊號持倉（非虛擬帳戶）<b class="num">${H.length}</b> 檔・浮動平均 <b class="num">${P(avg)}</b>${worst?`・最差 <a href="${S(worst.code)}">${E(worst.name)}</a> <b class="num">${P(worst.ret)}</b>`:''}`+
-   (C&&C.n?`<br><span style="font-size:13px;opacity:.8">已出場 <b class="num">${C.n}</b> 筆（含明天開盤要賣的）：平均 <b class="num">${P(C.avg)}</b>、中位 ${P(C.med)}、賺錢 ${C.win}%（扣 0.38% 成本）。持倉中的是浮動，輸的會被量縮規則先賣掉，所以持倉平均會偏好看。</span>`:''),ts,stale)}
+   (C&&C.n?`<br><span style="font-size:13px;opacity:.8">已出場 <b class="num">${C.n}</b> 筆：平均 <b class="num">${P(C.avg)}</b>、中位 ${P(C.med)}、賺錢 ${C.win}%（扣 0.38% 成本）。持倉中的是浮動，輸的會被量縮規則先賣掉，所以持倉平均會偏好看。</span>`:''),ts,stale)}
 function exitsLine(when){const X=T.exits||[];if(!X.length)return;add('🚪',`${when}開盤要賣 <b>${X.length}</b> 檔：${X.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${X.length>4?' 等':''}`,T.tw_date)}
 function eventsLine(){const V=T.events||[];if(!V.length)return;add('📌',V.slice(0,4).map(v=>`${v.date?E(v.date.slice(5))+' ':''}<a href="${S(v.code)}">${E(v.name)}</a> ${E(v.kind)}${v.note?'（'+E(v.note)+'）':''}`).join('、')+(V.length>4?` 等 ${V.length} 件`:'')+'（只列持倉與長期 Top 20）',T.tw_date)}
 function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 訊號（<b>觀察</b>，5 年回測買得到的那 4 成平均 −0.4%）<b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}

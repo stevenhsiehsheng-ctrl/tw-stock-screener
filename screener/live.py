@@ -286,6 +286,17 @@ def save_vol_curve(today: str, hm: str, q: pd.DataFrame, codes: set[str]) -> Non
     x.assign(time=hm)[["time", "code", "vol_lots", "price"]].to_csv(f, mode="a", header=not f.exists(), index=False)
 
 
+def sell_open_codes() -> set[str]:
+    """今天開盤要賣的（之前收盤出量縮／停損訊號、還沒有開盤成交價）：一起記進 vol_curve，
+    累積後拿開盤價 vs 09:00～09:05 成交價量開盤滑價（分身 1615-cc-ac、Cowork 1553 開盤賣 A／B 題）。"""
+    try:
+        p = positions.load()
+        return set(p.code[(p.status == "closed") & p.exit_open.isna() & p.exit_signal_date.notna()])
+    except Exception as e:  # noqa: BLE001
+        log.warning("讀待賣清單失敗：%s", e)
+        return set()
+
+
 def save_heat_log(today: str, heat: list[dict]) -> None:
     """族群熱度存成 data/group_heat/YYYY-MM-DD.csv（每輪覆蓋成最新），之後統計「10 點前就發動的族群」後面幾天的表現。"""
     if not heat:
@@ -612,6 +623,7 @@ def main(argv=None) -> int:
             wl = [stock_row(qi.loc[c]) for c in watch if c in qi.index]
             wl.sort(key=lambda d: d["chg"] if d.get("chg") is not None else -99, reverse=True)
             holds = holdings_view(q, now, shrink, drop_pct, int(ic.get("max_hold_days", 20)))
+            sell_open = sell_open_codes()
             try:
                 heat = group_heat(q, st, hm, themes, int(lc.get("main_group_n", 5)), lc.get("main_group_by", "10:00"),
                                   float(lc.get("main_group_pct", 5)))
@@ -676,7 +688,7 @@ def main(argv=None) -> int:
             publish(_clean(payload))
             save_alert_log(today, alerts, st.get("official"))
             save_heat_log(today, heat)
-            save_vol_curve(today, hm, q, {*st["alerts"], *(c["code"] for c in cands), *(h["code"] for h in holds)})
+            save_vol_curve(today, hm, q, {*st["alerts"], *(c["code"] for c in cands), *(h["code"] for h in holds), *sell_open})
             if not a.test:
                 try:
                     save_touch(today, hm, q)
