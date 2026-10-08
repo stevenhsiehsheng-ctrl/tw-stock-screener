@@ -174,7 +174,8 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   document.title=`${o.name} ${o.code}｜個股查詢`;$('#q').value='';addRecent(o.code,o.name);drawRecent();
   if(o.market==='US'){showUS(o);return}
   const c=o.px.c,last=c[c.length-1],stale=o.last!==o.asof;const h=[];
-  h.push(`<h1>${esc(o.name)} ${star(o.code,o.name)} <span class="meta">${esc(o.code)}・${o.market==='TWSE'?'上市':o.market==='TPEX'?'上櫃':esc(o.market)}${o.industry?'・'+esc(o.industry):''}</span></h1>`);
+  const cmp=[o.code,...((o.peers&&o.peers.rows)||[]).map(r=>r[0]).filter(c=>c!==o.code).slice(0,1)].join(',');
+  h.push(`<h1>${esc(o.name)} ${star(o.code,o.name)} <a class="star" style="text-decoration:none" href="compare.html?c=${esc(cmp)}" title="跟同產業最大的那檔放一起比，可以再加">⚖ 比較</a> <span class="meta">${esc(o.code)}・${o.market==='TWSE'?'上市':o.market==='TPEX'?'上櫃':esc(o.market)}${o.industry?'・'+esc(o.industry):''}</span></h1>`);
   h.push(`<div class="hero"><span class="px">${fmt(last)}</span><span class="chg ${cls(o.chg)}">${o.chg>0?'▲':o.chg<0?'▼':''} ${sgn(o.chg)}%</span><span class="meta">${esc(o.last)} 收盤${stale?'（這檔最近沒有交易）':''}</span></div>`);
   const b=[];if(o.warn)b.push(`<span class="b crit">⚠️ ${esc(o.warn)}中</span>`);
   if(o.dt_ok===false)b.push(`<span class="b warn">🚫 不可當沖</span>`);
