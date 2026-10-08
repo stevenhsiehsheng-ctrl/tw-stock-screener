@@ -92,6 +92,14 @@ def build(out_dir: Path) -> int:
     h = pd.read_csv(DATA / "history.csv.gz", dtype={"code": str}).sort_values(["code", "date"])
     asof = h.date.max()
     hg = _by_code(h)
+    # 走勢圖、一年高低、漲跌、異動通知距離用接起來的價格（減資／變更面額／大比例配股，跟盤中 intraday 同一套）；
+    # 填息天數、市值仍用原始收盤（除權息前收盤是原始價）。10/8 緯穎 9/2 配股 factor 2.98，原始價看起來一年 −29%，接起來是 +113%
+    try:
+        from . import corpact
+        hga = _by_code(corpact.adjust(h))
+    except Exception as e:  # noqa: BLE001
+        log.warning("個股頁價格接軌失敗，用原始價：%s", e)
+        hga = hg
     days = sorted(h.date.unique())
 
     rev = _read(EX / "rev_hist.csv.gz")
@@ -179,15 +187,20 @@ def build(out_dir: Path) -> int:
         g = g.dropna(subset=["close"]).tail(260)
         if g.empty:
             continue
+        ga = hga.get(c)
+        ga = g if ga is None else ga.dropna(subset=["close"]).tail(260)
+        adj = not np.allclose(ga.close.to_numpy(), g.close.to_numpy()) if len(ga) == len(g) else True
         o = {"code": c, "name": r.name, "market": r.market, "industry": r.industry if isinstance(r.industry, str) else "",
-             "asof": asof, "last": g.date.iloc[-1],
-             "px": {"d": g.date.tolist(), "c": [_r(x) for x in g.close], "v": [int(x // 1000) for x in g.volume.fillna(0)]}}
-        if g.date.iloc[-1] == asof:
-            o["trig"] = trigger(g.close, g.high, g.volume, lc)
-        hi52, lo52 = g.high.max(), g.low.min()
+             "asof": asof, "last": ga.date.iloc[-1],
+             "px": {"d": ga.date.tolist(), "c": [_r(x) for x in ga.close], "v": [int(x // 1000) for x in ga.volume.fillna(0)]}}
+        if adj:
+            o["px_adj"] = True
+        if ga.date.iloc[-1] == asof:
+            o["trig"] = trigger(ga.close, ga.high, ga.volume, lc)
+        hi52, lo52 = ga.high.max(), ga.low.min()
         o["hi52"], o["lo52"] = _r(hi52), _r(lo52)
-        if len(g) >= 2:
-            o["chg"] = _r((g.close.iloc[-1] / g.close.iloc[-2] - 1) * 100)
+        if len(ga) >= 2:
+            o["chg"] = _r((ga.close.iloc[-1] / ga.close.iloc[-2] - 1) * 100)
         for k, cols in (("pe", ["pe", "pb", "yield"]), ("tech", ["rs", "tpl", "hi52_dist"]), ("odd", ["price", "shares"])):
             if c in one[k].index:
                 row = one[k].loc[c]
@@ -373,8 +386,9 @@ def write(site_dir: Path) -> bool:
         return False
     n = build(site_dir)
     (site_dir / "stock.html").write_text(TEMPLATE.read_text("utf-8"), "utf-8")
-    cmp = TEMPLATE.with_name("compare_page.html")
-    if cmp.exists():
-        (site_dir / "compare.html").write_text(cmp.read_text("utf-8"), "utf-8")
+    for tpl, out in (("compare_page.html", "compare.html"), ("watch_page.html", "watch.html")):
+        p = TEMPLATE.with_name(tpl)
+        if p.exists():
+            (site_dir / out).write_text(p.read_text("utf-8"), "utf-8")
     log.info("個股頁：%d 檔", n)
     return n > 0

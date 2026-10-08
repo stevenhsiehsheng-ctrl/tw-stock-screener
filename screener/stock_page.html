@@ -203,6 +203,7 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
     <div class="tile"><div class="k">距一年高</div><div class="v">${sgn((last/hi52-1)*100,1)}%</div></div>
     ${o.tech?`<div class="tile"><div class="k">相對強度 RS</div><div class="v">${fmt(o.tech.rs,0)}</div></div><div class="tile"><div class="k">趨勢樣板</div><div class="v">${o.tech.tpl?'✅ 符合':'—'}</div></div>`:''}</div>`);
   h.push('<div class="chart" id="cpx"></div>');
+  if(o.px_adj)h.push('<p class="meta">這一年有減資、變更面額或大比例配股，之前的價格已經接起來（還原），所以會跟當時的成交價不一樣。</p>');
   if(ETF){const E=o.etf||{};h.push('<h2>ETF 配息與報酬</h2>');
     h.push(`<div class="grid"><div class="tile"><div class="k">近 12 月配息</div><div class="v">${E.div12?fmt(E.div12,E.div12<1?3:2)+' 元':'沒配'}</div><div class="meta">${E.nd||0} 次</div></div>
       <div class="tile"><div class="k">近 12 月殖利率</div><div class="v">${E.y12?fmt(E.y12,2)+'%':'—'}</div></div>
