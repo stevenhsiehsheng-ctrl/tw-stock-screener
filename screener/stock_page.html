@@ -245,6 +245,14 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   /* 估值與股利 */
   h.push('<h2>估值與股利</h2>');
   if(o.pe)h.push(`<div class="grid"><div class="tile"><div class="k">本益比</div><div class="v">${fmt(o.pe.pe,1)}</div></div><div class="tile"><div class="k">股價淨值比</div><div class="v">${fmt(o.pe.pb,2)}</div></div><div class="tile"><div class="k">殖利率</div><div class="v">${fmt(o.pe.yield,2)}%</div></div></div>`);
+  if(o.val){const V=o.val,nm={pe:'本益比',pb:'股價淨值比',yield:'殖利率'},u={pe:' 倍',pb:' 倍',yield:'%'};
+    const word=(k,p)=>k==='yield'?(p>=80?'比過去多數時候高（相對便宜）':p<=20?'比過去多數時候低（相對貴）':'在過去區間中段'):(p<=20?'比過去多數時候低（相對便宜）':p>=80?'比過去多數時候高（相對貴）':'在過去區間中段');
+    const bar=(d)=>{const span=d.hi-d.lo||1,x=v=>Math.max(0,Math.min(100,(v-d.lo)/span*100));
+      return `<div style="position:relative;height:8px;border-radius:4px;background:var(--grid);margin:8px 0 2px"><div style="position:absolute;left:${x(d.p25)}%;width:${x(d.p75)-x(d.p25)}%;top:0;bottom:0;background:rgba(128,128,128,.35);border-radius:4px"></div><div style="position:absolute;left:calc(${x(d.now)}% - 5px);top:-3px;width:10px;height:14px;border-radius:3px;background:var(--s1)"></div></div><div class="meta" style="display:flex;justify-content:space-between"><span>${fmt(d.lo,d.lo<10?2:1)}</span><span>中位 ${fmt(d.med,d.med<10?2:1)}</span><span>${fmt(d.hi,d.hi<10?2:1)}</span></div>`};
+    h.push('<h3 style="margin:14px 0 4px;font-size:15px">估值位階（跟自己過去 5 年比）</h3><div class="grid">'+['pe','pb','yield'].filter(k=>V[k]).map(k=>{const d=V[k];
+      return `<div class="tile"><div class="k">${nm[k]} ${fmt(d.now,d.now<10?2:1)}${u[k]}</div><div class="v">第 ${d.pct.toFixed(0)} 百分位</div><div class="meta">${word(k,d.pct)}</div>${bar(d)}</div>`}).join('')+'</div>');
+    if(V.pe&&V.pe.s)h.push('<div class="chart" id="cval"></div>');
+    h.push(`<p class="meta">每月第一個交易日的快照，${esc((V.pe||V.pb||V.yield).from)} 起共 ${(V.pe||V.pb||V.yield).n} 個月；灰色＝中間一半（25～75 百分位），藍點＝現在；圖上藍線＝每月本益比、橘線＝5 年中位。本益比只算賺錢的月份。便宜不等於會漲：獲利掉下來時本益比也會「變便宜」。</p>`)}
   const ex=[...(o.exdiv_next||[]).map(e=>[...e,'即將']),...(o.exdiv||[]).slice().reverse().map(e=>[...e,''])];
   const fillTxt=e=>e[4]==='即將'?'即將':e[4]==null||e[4]===''?'':e[4]===0?'還沒填':`${e[4]} 天填息`;
   h.push(ex.length?`<div class="tbl"><table><tr><th>除權息日</th><th>類別</th><th class="n">現金股利</th><th class="n">配股比例</th><th>填息</th></tr>${ex.map(e=>`<tr><td>${esc(e[0])}</td><td>${esc(e[1])}</td><td class="n">${e[2]?fmt(e[2],2):'—'}</td><td class="n">${e[3]?fmt(e[3],4):'—'}</td><td>${fillTxt(e)}</td></tr>`).join('')}</table></div><p class="meta">填息天數：除息當天算第 1 天，收盤回到除息前一天收盤那天；只算近一年。<a href="exdiv.html">除權息行事曆 →</a></p>`:'<p class="empty">近年沒有除權息紀錄。</p>');
@@ -258,7 +266,8 @@ let CUR=null,RT=0;
 function charts(){const o=CUR;if(!o)return;priceChart($('#cpx'),o);
   if(o.rev&&o.rev.length)divBars($('#crev'),o.rev.map(x=>[x[0],x[2]]),'年增','%',1);
   if(o.inst&&o.inst.length)divBars($('#cinst'),o.inst.map(x=>[x[0],x[1]]),'外資買賣超',' 張',0);
-  if(o.inst_long)lines($('#cinstl'),o.inst_long.d,[['外資累計',o.inst_long.f,'--s1'],['投信累計',o.inst_long.t,'--warn']],' 張')}
+  if(o.inst_long)lines($('#cinstl'),o.inst_long.d,[['外資累計',o.inst_long.f,'--s1'],['投信累計',o.inst_long.t,'--warn']],' 張');
+  if(o.val&&o.val.pe&&o.val.pe.s&&$('#cval')){const s=o.val.pe.s;lines($('#cval'),s.map(x=>x[0]),[['本益比',s.map(x=>x[1]),'--s1'],['5 年中位',s.map(()=>o.val.pe.med),'--warn']],' 倍')}}
 let LASTW=0;window.addEventListener('resize',()=>{clearTimeout(RT);RT=setTimeout(()=>{const w=$('#cpx')?.clientWidth;if(w&&w!==LASTW){LASTW=w;charts()}},200)});
 (async()=>{drawRecent();drawWL();await loadIndex();const c=fromURL();
   if(c)show(c);else $('#q').focus()})();

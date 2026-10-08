@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 # 欄位順序＝網頁 JS 的 COLS（改這裡要一起改 PAGE）
 COLS = ["c", "n", "m", "i", "px", "d1", "r5", "r20", "r60", "r250", "v", "val20", "cap", "pe", "y", "pb",
-        "ry", "rc", "rm", "rs", "h52", "tpl", "f5", "f5p", "t5", "roe3", "cagr3", "w"]
+        "ry", "rc", "rm", "rs", "h52", "tpl", "f5", "f5p", "t5", "roe3", "cagr3", "w", "pe_pct", "pb_pct", "y_pct"]
 
 
 def _read(p: Path, **kw) -> pd.DataFrame | None:
@@ -99,6 +99,14 @@ def build() -> dict | None:
     rv_y, rv_c, rv_m = _col(rev, "rev_yoy"), _col(rev, "rev_cum_yoy"), _col(rev, "rev_mom")
     rs, h52 = _col(tech, "rs"), _col(tech, "hi52_dist")
     roe3, cagr3 = _col(lt, "roe3_avg"), _col(lt, "rev_cagr3")
+    try:
+        from . import valuation
+        vt = valuation.table()
+    except Exception as e:  # noqa: BLE001
+        log.warning("估值位階失敗：%s", e)
+        vt = pd.DataFrame()
+    vcol = lambda k: vt[k] if k in vt.columns else pd.Series(dtype=float)
+    pe_p, pb_p, y_p = vcol("pe_pct"), vcol("pb_pct"), vcol("y_pct")
     rows = []
     for c in codes:
         cap = raw_px.get(c, np.nan) * shares.get(c, np.nan) / 1e8
@@ -113,6 +121,7 @@ def build() -> dict | None:
             1 if str(tpl.get(c, "")).lower() == "true" else 0,
             f, None if f is None or not (v5 > 0) else round(f / v5 * 100, 1), num(t5, c, 0),
             num(roe3, c, 1), num(cagr3, c, 1), wflag.get(c, "") or "",
+            num(pe_p, c, 0), num(pb_p, c, 0), num(y_p, c, 0),
         ])
     inds = sorted({r[3] for r in rows if r[3]})
     return {"date": last, "rmonth": rmonth, "cols": COLS, "rows": rows, "inds": inds}
@@ -162,7 +171,7 @@ th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--car
 <div class="tbl"><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table></div>
 <details style="margin-top:10px"><summary>欄位說明</summary><div class="meta" style="margin-top:6px">
 RS＝過去一年漲幅在全市場的百分位（99 最強）；距一年高＝現價離 52 週最高價差幾 %；趨勢樣板＝收盤 > 50 日線 > 150 日線 > 200 日線且 200 日線上彎等條件（Minervini）。
-ROE 3 年、營收 3 年 CAGR 只有長期篩選有算到的公司才有。市值＝當天收盤 × 已發行股數。20 日成交值＝近 20 天平均每天成交金額。不構成投資建議。</div></details>
+ROE 3 年、營收 3 年 CAGR 只有長期篩選有算到的公司才有。5 年位階＝現在的值在這檔自己過去 5 年每月快照的第幾百分位（本益比 10＝比過去 9 成時間都便宜；殖利率 90＝比過去 9 成時間都高），至少 24 個月才算。市值＝當天收盤 × 已發行股數。20 日成交值＝近 20 天平均每天成交金額。不構成投資建議。</div></details>
 </main><script>
 const D=__DATA__;
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -171,10 +180,11 @@ const IX=Object.fromEntries(D.cols.map((k,i)=>[k,i])),R=D.rows;
 const F=[['px','股價','元'],['d1','今天漲跌','%'],['r5','5 日漲跌','%'],['r20','20 日漲跌','%'],['r60','60 日漲跌','%'],['r250','一年漲跌','%'],
  ['cap','市值','億'],['val20','20 日成交值','億/天'],['pe','本益比','倍'],['y','殖利率','%'],['pb','股價淨值比','倍'],
  ['ry','營收年增','%'],['rc','累計營收年增','%'],['rm','營收月增','%'],['rs','RS 強弱','1-99'],['h52','距一年高','%'],
- ['f5p','外資 5 日占量','%'],['t5','投信 5 日','張'],['roe3','ROE 3 年平均','%'],['cagr3','營收 3 年 CAGR','%']];
+ ['f5p','外資 5 日占量','%'],['t5','投信 5 日','張'],['roe3','ROE 3 年平均','%'],['cagr3','營收 3 年 CAGR','%'],
+ ['pe_pct','本益比 5 年位階','0-100'],['pb_pct','淨值比 5 年位階','0-100'],['y_pct','殖利率 5 年位階','0-100']];
 /* 表格欄：[key, 標題, 小數, 上色] */
 const T=[['c','代號'],['n','名稱'],['i','產業'],['px','股價',2],['d1','今天',2,1],['r20','20 日',1,1],['r250','一年',1,1],['cap','市值(億)',0],
- ['val20','成交值(億)',2],['pe','本益比',1],['y','殖利率',2],['pb','淨值比',2],['ry','營收年增',1,1],['rc','累計年增',1,1],['rs','RS',0],['h52','距高',1,1],
+ ['val20','成交值(億)',2],['pe','本益比',1],['pe_pct','PE 位階',0],['y','殖利率',2],['pb','淨值比',2],['ry','營收年增',1,1],['rc','累計年增',1,1],['rs','RS',0],['h52','距高',1,1],
  ['f5p','外資占量',1,1],['t5','投信5日',0,1],['roe3','ROE3',1],['w','']];
 const PRE=[
  ['💎 低本益比高殖利率',{pe:[0,12],y:[5,''],cap:[50,'']},'本益比 12 倍以下、殖利率 5% 以上、市值 50 億以上'],
@@ -182,7 +192,8 @@ const PRE=[
  ['📈 強勢股',{rs:[80,''],h52:[-5,''],val20:[1,'']},'RS ≥80、離一年高不到 5%、每天成交 1 億以上'],
  ['🏦 外資在買',{f5p:[10,''],val20:[1,'']},'近 5 天外資買超占成交量 ≥10%'],
  ['🛡 大型穩健',{cap:[1000,''],roe3:[15,'']},'市值 1,000 億以上、3 年平均 ROE ≥15%'],
- ['📉 跌深',{r60:['',-20],val20:[1,'']},'60 天跌超過 20%、每天成交 1 億以上（跌深不等於便宜）']];
+ ['📉 跌深',{r60:['',-20],val20:[1,'']},'60 天跌超過 20%、每天成交 1 億以上（跌深不等於便宜）'],
+ ['🏷 比自己過去便宜',{pe_pct:['',20],y_pct:[60,''],val20:[0.3,'']},'本益比在自己 5 年的最低 2 成、殖利率在自己 5 年的前 4 成（便宜可能是因為獲利要變差）']];
 let S={f:{},sort:'cap',dir:-1,q:'',mk:'',ind:'',nw:1,tp:0};
 const num=v=>v===''||v==null||isNaN(+v)?null:+v;
 function fmt(v,d){return v==null?'—':(+v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}
@@ -220,7 +231,7 @@ $('q').oninput=e=>{S.q=e.target.value.trim();run()};$('mk').onchange=e=>{S.mk=e.
 $('nw').onchange=e=>{S.nw=e.target.checked?1:0;run()};$('tp').onchange=e=>{S.tp=e.target.checked?1:0;run()};
 $('clr').onclick=()=>{S.f={};S.q='';S.mk='';S.ind='';S.tp=0;$('q').value='';$('mk').value='';$('ind').value='';$('tp').checked=false;drawF();markPre();run()};
 $('csv').onclick=()=>{const H=['代號','名稱','市場','產業','股價','今天%','5日%','20日%','60日%','一年%','成交量(張)','20日成交值(億)','市值(億)','本益比','殖利率%','淨值比',
- '營收年增%','累計營收年增%','營收月增%','RS','距一年高%','趨勢樣板','外資5日(張)','外資5日占量%','投信5日(張)','ROE3年%','營收3年CAGR%','注意處置'];
+ '營收年增%','累計營收年增%','營收月增%','RS','距一年高%','趨勢樣板','外資5日(張)','外資5日占量%','投信5日(張)','ROE3年%','營收3年CAGR%','注意處置','本益比5年位階','淨值比5年位階','殖利率5年位階'];
  const q=v=>v==null?'':/[",\\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':v;
  const s='\\ufeff'+[H.join(','),...window._out.map(r=>r.map(q).join(','))].join('\\n');
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/csv'}));a.download=`選股_${D.date}.csv`;a.click()};

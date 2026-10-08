@@ -497,6 +497,12 @@ def refresh(d: dt.date, backfill: int = 25) -> dict[str, int]:
         got[name] = len(df)
         if len(df):
             df.to_csv(DIR / f"{name}.csv", index=False)
+            if name == "pe":
+                try:
+                    from . import valuation
+                    got["pe_months"] = valuation.append_month(df, d)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("估值月檔更新失敗：%s", e)
             if name == "shares":
                 try:
                     got["shares_hist"] = update_shares_history(df, d)
