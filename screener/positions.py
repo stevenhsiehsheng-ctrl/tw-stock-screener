@@ -19,7 +19,11 @@ COLS = ["code", "name", "industry", "signal_date", "signal_time", "alert_price",
         # 排隊買漲停買不買得到：正式提醒時、收盤後的委買／委賣第一檔張數與累計成交張數
         "bid1_lots_1312", "ask1_lots_1312", "vol_lots_1312", "bid1_lots_close", "ask1_lots_close", "vol_lots_close",
         # 訊號日開盤前就知道的注意／處置狀態（前一交易日以前的公告），與前 7 天被注意幾天
-        "warn", "warn_n5"]
+        "warn", "warn_n5",
+        # 13:12 影子紀錄：基準母體收盤鎖漲停家數、在前 250 日的百分位（不含當天）、前 1/3＝熱、13:12 當下家數
+        "lock_n_close", "lock_pct250", "lock_hot", "lock_n_1312"]
+LOCK_FILE = ROOT / "data" / "lock_count.csv"
+LOCK_WIN = 250
 
 
 def load() -> pd.DataFrame:
@@ -73,6 +77,68 @@ def set_close_book(day: str, book: dict[str, dict]) -> None:
         for k in ("bid1_lots", "ask1_lots", "vol_lots"):
             df.at[i, f"{k}_close"] = b.get(k)
     save(df)
+
+
+def _lock_hit(chg, price, high):
+    """鎖漲停近似：漲幅 9.5%～10.5% 且收（現）價＝最高。還原價回測、prediscovery hot 模式同一條。"""
+    return (chg >= 9.5) & (chg <= 10.5) & (price >= high - 1e-6 * price)
+
+
+def lock_counts(p, base_filter: list[dict]) -> pd.Series:
+    """每天基準母體收盤鎖漲停家數：4 碼普通股、當天和前一天都有成交、過 base_filter（量 ≥500 張、收盤 ≥10 元）。"""
+    from . import rules
+    cols = p.close.columns[p.close.columns.astype(str).str.fullmatch(r"[1-9]\d{3}")]
+    base = (p.traded & p.traded.shift(1, fill_value=False))[cols]
+    for c in base_filter:
+        m = rules.CONDITIONS[c["type"]][0](p, c).fillna(False).astype(bool)[cols]
+        base &= ~m if c.get("not") else m
+    return (base & _lock_hit(p.change_pct[cols], p.close[cols], p.high[cols]).fillna(False)).sum(axis=1)
+
+
+def lock_now(q: pd.DataFrame, min_lots: float = 500, min_price: float = 10) -> int:
+    """盤中當下的基準家數（13:12 用）：同一套母體，量用當下累計張數。"""
+    x = q[q.code.astype(str).str.fullmatch(r"[1-9]\d{3}") & q.yclose.gt(0)]
+    chg = (x.price / x.yclose - 1) * 100
+    ok = (x.vol_lots >= min_lots) & (x.price >= min_price) & _lock_hit(chg, x.price, x.high.fillna(x.price))
+    return int(ok.fillna(False).sum())
+
+
+def set_lock_1312(day: str, n: int) -> None:
+    """13:12 正式提醒後寫入：當下基準家數。每天也記一列到 data/lock_count.csv（沒訊號的日子也留著）。"""
+    d = pd.read_csv(LOCK_FILE, dtype={"date": str}) if LOCK_FILE.exists() else pd.DataFrame(columns=["date", "n_1312"])
+    d = pd.concat([d[d.date != day], pd.DataFrame([{"date": day, "n_1312": n}])]).sort_values("date")
+    d.to_csv(LOCK_FILE, index=False)
+    df = load()
+    m = df.signal_date == day
+    if m.any():
+        df.loc[m, "lock_n_1312"] = n
+        save(df)
+
+
+def fill_lock(p, base_filter: list[dict]) -> int:
+    """收盤後補：訊號日的收盤鎖漲停家數、前 250 日百分位（同分算一半）、熱＝高於前 250 日的 2/3 分位。
+    前面不滿 250 天的只填家數。回傳補了幾列。"""
+    df = load()
+    todo = df.index[df.lock_n_close.isna() | df.lock_pct250.isna()]
+    if not len(todo):
+        return 0
+    cnt = lock_counts(p, base_filter)
+    pos = {d: i for i, d in enumerate(cnt.index)}
+    n = 0
+    for i in todo:
+        k = pos.get(df.at[i, "signal_date"])
+        if k is None:
+            continue
+        x = cnt.iloc[k]
+        df.at[i, "lock_n_close"] = int(x)
+        if k >= LOCK_WIN:
+            prior = cnt.iloc[k - LOCK_WIN:k]
+            df.at[i, "lock_pct250"] = round(((prior < x).mean() + 0.5 * (prior == x).mean()) * 100, 1)
+            df.at[i, "lock_hot"] = int(x > np.quantile(prior, 2 / 3))
+        n += 1
+    if n:
+        save(df)
+    return n
 
 
 def update(hist: pd.DataFrame, data_date: str, shrink: float = 0.5, max_hold: int = 20,

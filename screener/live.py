@@ -634,6 +634,12 @@ def main(argv=None) -> int:
                               | {c for c in st["alerts"] if c in set(q.code[q.locked])})
                 except Exception as e:  # noqa: BLE001
                     log.warning("委買委賣快照失敗：%s", e)
+                try:
+                    n_lock = positions.lock_now(q)
+                    positions.set_lock_1312(today, n_lock)
+                    log.info("13:12 基準母體鎖漲停 %d 家", n_lock)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("13:12 鎖漲停家數失敗：%s", e)
 
             try:
                 senti = sentiment.from_quotes(q, hist)
