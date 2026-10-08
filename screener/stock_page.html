@@ -82,7 +82,10 @@ function resolve(q){q=q.trim();if(!q)return null;const code=q.split(/\s+/)[0].to
 $('#f').onsubmit=async e=>{e.preventDefault();await loadIndex();const c=resolve($('#q').value);
   if(!c){$('#out').innerHTML=`<p class="empty">找不到「${esc($('#q').value)}」。</p>`;return}
   history.pushState(null,'','?code='+c);show(c)};
-window.onpopstate=()=>{const c=new URLSearchParams(location.search).get('code');if(c)show(c)};
+/* 網址帶名稱（例如導覽列搜尋 ?code=台積電）也能開：先解析成代號，網址換成代號 */
+function fromURL(){const c=new URLSearchParams(location.search).get('code');if(!c)return null;const r=resolve(c);
+  if(r&&r!==c)history.replaceState(null,'','?code='+r);if(!r&&!/^[0-9A-Za-z]{4,6}$/.test(c)&&INDEX.s.length){$('#q').value=c;$('#out').innerHTML=`<p class="empty">找不到「${esc(c)}」。</p>`;return null}return r||c}
+window.onpopstate=()=>{const c=fromURL();if(c)show(c)};
 
 /* ---------- 圖：共用 hover ---------- */
 function hover(box,svg,n,xAt,tipHtml,onMove){const tip=document.createElement('div');tip.className='tip';box.appendChild(tip);
@@ -257,7 +260,7 @@ function charts(){const o=CUR;if(!o)return;priceChart($('#cpx'),o);
   if(o.inst&&o.inst.length)divBars($('#cinst'),o.inst.map(x=>[x[0],x[1]]),'外資買賣超',' 張',0);
   if(o.inst_long)lines($('#cinstl'),o.inst_long.d,[['外資累計',o.inst_long.f,'--s1'],['投信累計',o.inst_long.t,'--warn']],' 張')}
 let LASTW=0;window.addEventListener('resize',()=>{clearTimeout(RT);RT=setTimeout(()=>{const w=$('#cpx')?.clientWidth;if(w&&w!==LASTW){LASTW=w;charts()}},200)});
-(async()=>{drawRecent();drawWL();await loadIndex();const c=new URLSearchParams(location.search).get('code');
+(async()=>{drawRecent();drawWL();await loadIndex();const c=fromURL();
   if(c)show(c);else $('#q').focus()})();
 </script>
 </body>

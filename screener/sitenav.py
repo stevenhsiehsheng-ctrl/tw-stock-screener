@@ -23,7 +23,10 @@ CSS = ("<style>.sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;m
        "background:rgba(128,128,128,.13);white-space:nowrap;cursor:pointer}"
        ".sitenav a:hover{background:rgba(128,128,128,.24)}"
        ".sitenav a.on{background:#2f5bd3;color:#fff;font-weight:600}"
-       ".sitenav i{width:1px;height:18px;background:rgba(128,128,128,.35);margin:0 4px}@media(max-width:560px){.sitenav i{display:none}}</style>")
+       ".sitenav i{width:1px;height:18px;background:rgba(128,128,128,.35);margin:0 4px}@media(max-width:560px){.sitenav i{display:none}}"
+       ".sitenav form{margin:0 0 0 auto}.sitenav input{font:inherit;padding:4px 11px;border-radius:999px;width:150px;"
+       "border:1px solid rgba(128,128,128,.35);background:transparent;color:inherit}"
+       "@media(max-width:560px){.sitenav form{flex:1 1 100%;margin:2px 0 0}.sitenav input{width:100%;box-sizing:border-box}}</style>")
 
 MARK = re.compile(r"<!--SITENAV:(\w+)(?::([./]*))?-->")
 
@@ -45,6 +48,10 @@ def render(current: str, available: set[str], prefix: str = "", need_js: bool = 
             out.append(f"<a{on} href='#' onclick='return openClaude()'>{label}</a>")
         else:
             out.append(f"<a{on} href='{prefix}{href}'>{label}</a>")
+    # 每頁都能直接查個股（代號或名稱，個股頁自己會解析名稱）；個股頁本身已有搜尋框就不放
+    if current != "stock" and "stock.html" in available:
+        out.append(f"<form action='{prefix}stock.html' method='get' role='search'>"
+                   "<input name='code' placeholder='🔎 代號或名稱' aria-label='查個股' autocomplete='off'></form>")
     js = f"<script src='{prefix}claude_link.js'></script>" if need_js else ""
     return CSS + "<nav class='sitenav'>" + "".join(out) + "</nav>" + js
 
