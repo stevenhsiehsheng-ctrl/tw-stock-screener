@@ -86,6 +86,7 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
         log.warning("零股歷史讀不到：%s", e)
         odd = None
     rows = []
+    prev_b: set[str] = set()   # 上一批籃子：算續抱（Cowork 0856 carryover、分身 0915-cc-ab）
     for ym, codes in sorted(baskets(rev).items()):
         i = _batch_day(ym, days)
         if i is None or not codes:
@@ -100,6 +101,10 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
         if not b:
             continue
         avg = float(ex[b].mean())
+        carry = [c for c in b if c in prev_b]
+        new = [c for c in b if c not in prev_b]
+        ov = len(carry) / len(b) if prev_b else np.nan
+        prev_b = set(b)
         rng = np.random.default_rng(int(e.replace("-", "")))
         pick = list(rng.choice(sorted(b), size=min(3, len(b)), replace=False))
         nt = np_ = None
@@ -141,7 +146,12 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
                      "placebo_avg_median": round(pm, 2), "beat": bool(avg > pm) if not np.isnan(pm) else None,
                      "pick3": " ".join(pick), "pick3_avg": round(float(ex[pick].mean()), 2) if pick else np.nan,
                      "pick6": " ".join(pick6), "pick6_avg": round(float(ex[pick6].mean()), 2) if pick6 else np.nan,
-                     "n_pool": n_pool, "n_twse": nt, "n_tpex": np_, "cov_ok": cov_ok})
+                     "n_pool": n_pool, "n_twse": nt, "n_tpex": np_, "cov_ok": cov_ok,
+                     # 續抱比例、續抱／新進各自的超額、只交易差額的批超額（續抱的不付來回 0.38）
+                     "overlap": round(ov * 100, 1) if ov == ov else np.nan,
+                     "avg_carry": round(float(ex[carry].mean()), 2) if carry else np.nan,
+                     "avg_new": round(float(ex[new].mean()), 2) if new else np.nan,
+                     "avg_diff": round(avg + ov * COST, 2) if ov == ov else np.nan})
     df = pd.DataFrame(rows)
     if df.empty:
         return df
@@ -174,16 +184,18 @@ def write(site_dir: Path) -> bool:
         f"<tr><td>{r.rev_month}</td><td>{r.batch_date}</td><td>{r.exit_date}{'' if r.done else '（未滿）'}</td><td>{r.n}</td>"
         f"<td>{f(r.avg)}</td><td>{f(r.median)}</td><td>{f(r.placebo_avg_median)}</td>"
         f"<td>{'' if r.beat is None or not r.done else ('贏' if r.beat else '輸')}</td><td>{r.lose_streak}</td><td>{f(r.avg6)}</td>"
+        f"<td>{'' if pd.isna(r.overlap) else f'{r.overlap:.0f}%'}<div class='meta'>{'' if pd.isna(r.avg_carry) else '續 ' + f(r.avg_carry)}{'' if pd.isna(r.avg_new) else '／新 ' + f(r.avg_new)}</div></td>"
         f"<td>{(links(r.pick6) + (f' <span class=meta>（池 {int(r.n_pool)} 檔）</span>' if pd.notna(r.n_pool) else '')) if r.cov_ok else '⚠️ 營收資料有缺，這批不抽'}</td><td>{f(r.pick6_avg)}</td><td>{'⚠️ 下架' if r.delist and r.done else ''}</td></tr>"
         for r in df.iloc[::-1].itertuples())
     body = ("<h1>月營收漂移（revdrift）每批成績</h1>"
             "<p>籃子＝年增 ≥30% 且營收創 12 個月新高；11 日後第一個交易日（10 日期限遇假日順延時再往後）開盤進、第 20 個交易日收盤出；"
             "超額＝減同期全市場等權、扣 0.38%。安慰劑＝每檔換成同日同流動性五分位的隨機股票，籃子平均 300 次取中位。"
             "下架：連 3 批輸安慰劑，或最近 6 批平均 ≤0。抽 6 檔＝從籃內『股價 ≤2,000 且前 5 日盤後零股均量×20% 買得到 2,000 元』的池子，"
-            "numpy default_rng(批次日) 不放回抽；零股資料 2026-07 才開始，更早的批次只限股價。判斷策略好壞看籃子平均，6 檔那欄只是帳本會買到的樣子。</p>"
+            "numpy default_rng(批次日) 不放回抽；零股資料 2026-07 才開始，更早的批次只限股價。判斷策略好壞看籃子平均，6 檔那欄只是帳本會買到的樣子。"
+            "續抱＝這批籃子裡上一批也有的比例（續＝續抱那幾檔的平均超額、新＝新進的）；帳本只交易差額，續抱的不付來回 0.38%。</p>"
             "<p class='meta'>虛擬帳本實際做法（Cowork 10/8 定案）：批次日<b>收盤</b>換批、只交易差額，記零股收盤價×(1±滑價)（&lt;50 元 0、50～100 元 0.15%、≥100 元 0.3%、ETF 0.05%）。開盤限價換批試算過被收盤換壓著打，已經廢掉。所以帳本損益跟『開盤進、20 天出』的數字不會一模一樣，下表是拿來判斷策略的。</p>"
             "<div class='tbl'><table><tr><th>營收月</th><th>批次日</th><th>出場日</th><th>檔數</th><th>籃子平均</th><th>籃子中位</th>"
-            "<th>安慰劑平均中位</th><th>輸贏</th><th>連輸</th><th>近 6 批平均</th><th>抽 6 檔</th><th>6 檔平均</th><th></th></tr>"
+            "<th>安慰劑平均中位</th><th>輸贏</th><th>連輸</th><th>近 6 批平均</th><th>續抱</th><th>抽 6 檔</th><th>6 檔平均</th><th></th></tr>"
             f"{trs}</table></div>")
     (site_dir / "revdrift.html").write_text(_page("月營收漂移每批成績", body, "<!--SITENAV:revdrift-->"), "utf-8")
     return True
