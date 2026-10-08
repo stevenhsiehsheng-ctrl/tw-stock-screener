@@ -197,7 +197,8 @@ def build(out_dir: Path) -> int:
         adj = not np.allclose(ga.close.to_numpy(), g.close.to_numpy()) if len(ga) == len(g) else True
         o = {"code": c, "name": r.name, "market": r.market, "industry": r.industry if isinstance(r.industry, str) else "",
              "asof": asof, "last": ga.date.iloc[-1],
-             "px": {"d": ga.date.tolist(), "c": [_r(x) for x in ga.close], "v": [int(x // 1000) for x in ga.volume.fillna(0)]}}
+             "px": {"d": ga.date.tolist(), "c": [_r(x) for x in ga.close], "v": [int(x // 1000) for x in ga.volume.fillna(0)],
+                    "o": [_r(x) for x in ga.open], "h": [_r(x) for x in ga.high], "l": [_r(x) for x in ga.low]}}
         if adj:
             o["px_adj"] = True
         if ga.date.iloc[-1] == asof:
@@ -321,7 +322,8 @@ def build_etf(sd: Path, idx: list, G: dict) -> int:
         S = {k: r[i] for k, i in ix.items()}
         o = {"code": c, "name": S["n"], "kind": "ETF", "market": "ETF", "industry": f"ETF・{S['t']}",
              "asof": g.date.iloc[-1], "last": g.date.iloc[-1],
-             "px": {"d": g.date.tolist(), "c": [_r(x) for x in g.close], "v": [int(x // 1000) for x in g.volume.fillna(0)]},
+             "px": {"d": g.date.tolist(), "c": [_r(x) for x in g.close], "v": [int(x // 1000) for x in g.volume.fillna(0)],
+                    "o": [_r(x) for x in g.open], "h": [_r(x) for x in g.high], "l": [_r(x) for x in g.low]},
              "hi52": _r(g.high.max()), "lo52": _r(g.low.min()),
              "etf": {k: S.get(k) for k in ("r20", "r250", "tr250", "div12", "y12", "nd", "val20", "bad")}}
         if len(g) >= 2:
