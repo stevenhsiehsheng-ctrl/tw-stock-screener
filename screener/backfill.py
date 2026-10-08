@@ -22,7 +22,7 @@ from . import fetch
 log = logging.getLogger("backfill")
 
 
-def yahoo_adjusted(stocks: pd.DataFrame, start: dt.date) -> pd.DataFrame:
+def yahoo_adjusted(stocks: pd.DataFrame, start: dt.date, end: dt.date | None = None) -> pd.DataFrame:
     import yfinance as yf
 
     suffix = {"TWSE": ".TW", "TPEX": ".TWO"}
@@ -32,7 +32,7 @@ def yahoo_adjusted(stocks: pd.DataFrame, start: dt.date) -> pd.DataFrame:
     for i in range(0, len(names), 100):
         chunk = names[i : i + 100]
         log.info("Yahoo %d-%d / %d", i + 1, i + len(chunk), len(names))
-        raw = yf.download(chunk, start=start.isoformat(), auto_adjust=True, group_by="ticker",
+        raw = yf.download(chunk, start=start.isoformat(), end=end.isoformat() if end else None, auto_adjust=True, group_by="ticker",
                           threads=True, progress=False)
         for t in chunk:
             if t not in raw.columns.get_level_values(0):
@@ -170,6 +170,115 @@ def add_delisted(df: pd.DataFrame, start: dt.date, end: dt.date, out_list: str, 
     return pd.concat([df, *parts], ignore_index=True) if parts else df
 
 
+def find_holes(df: pd.DataFrame, tol: float = 0.98, win: int = 5) -> list[str]:
+    """資料洞：當天檔數比前後各 win 天的中位少 (1-tol) 以上（Yahoo 偶爾整天缺一大批）。"""
+    n = df.groupby("date").code.size().sort_index()
+    ref = pd.concat([n.shift(k) for k in [*range(1, win + 1), *range(-win, 0)]], axis=1).median(axis=1)
+    return sorted(n[n < ref * tol].index)
+
+
+def _ex_dates(path: str = "data/extras/exdiv_5y.csv.gz") -> dict[str, list[str]]:
+    try:
+        x = pd.read_csv(path, dtype={"code": str})
+        x2 = pd.read_csv("data/extras/exdiv.csv", dtype={"code": str})
+        x = pd.concat([x[["date", "code"]], x2[["date", "code"]]])
+        return x.drop_duplicates().groupby("code").date.apply(sorted).to_dict()
+    except Exception as e:  # noqa: BLE001
+        log.warning("讀不到除權息日：%s", e)
+        return {}
+
+
+def fill_holes(df: pd.DataFrame, holes: list[str] | None = None) -> pd.DataFrame:
+    """用官方當日全市場行情補 Yahoo 資料洞，換算到 Yahoo 還原價的刻度：
+    因子＝前一個（或後一個）正常日的 還原收盤／官方收盤；兩邊因子不同（中間有除權息）就看除權息日在洞的前後決定用哪邊。"""
+    holes = find_holes(df) if holes is None else holes
+    if not holes:
+        log.info("沒有資料洞")
+        return df
+    dates = sorted(df.date.unique())
+    pos = {d: i for i, d in enumerate(dates)}
+    hs = set(holes)
+    plan, need = [], set(holes)
+    for h in holes:
+        i = pos[h]
+        p = next((dates[j] for j in range(i - 1, -1, -1) if dates[j] not in hs), None)
+        a = next((dates[j] for j in range(i + 1, len(dates)) if dates[j] not in hs), None)
+        plan.append((h, p, a))
+        need |= {x for x in (p, a) if x}
+    log.info("資料洞 %d 天：%s；連前後正常日共抓官方 %d 天", len(holes), holes, len(need))
+    off = fetch.fetch_official_range([dt.date.fromisoformat(d) for d in sorted(need)], ["TWSE", "TPEX"])
+    for c in ("open", "high", "low", "close", "volume"):
+        off[c] = pd.to_numeric(off[c], errors="coerce")
+    off = off.dropna(subset=["close"])
+    off = off[(off.close > 0) & (off.volume > 0)]
+    raw = off.set_index(["date", "code"]).close
+    yah = df[df.get("adjusted", 1) != 0]
+    adj = yah.set_index(["date", "code"]).close
+    have = set(zip(df.date, df.code))
+    exd = _ex_dates()
+    add, skipped = [], 0
+    for h, p, a in plan:
+        lo_d = dates[max(0, pos[h] - 5)]
+        hi_d = dates[min(len(dates) - 1, pos[h] + 5)]
+        near = set(yah[(yah.date >= lo_d) & (yah.date <= hi_d)].code)
+        for r in off[off.date == h].itertuples():
+            c = r.code
+            if (h, c) in have or c not in near:
+                continue
+            fp = adj.get((p, c)) / raw.get((p, c)) if p and (p, c) in adj.index and (p, c) in raw.index else None
+            fa = adj.get((a, c)) / raw.get((a, c)) if a and (a, c) in adj.index and (a, c) in raw.index else None
+            if fp and fa and abs(fp / fa - 1) > 0.002:
+                e = next((x for x in exd.get(c, []) if p < x <= a), None)
+                f = (fp if h < e else fa) if e else None
+            else:
+                f = fp or fa
+            if not f:
+                skipped += 1
+                continue
+            add.append({"date": h, "code": c, "open": r.open * f, "high": r.high * f, "low": r.low * f,
+                        "close": r.close * f, "volume": r.volume, "adjusted": 1})
+    log.info("補洞 %d 筆（換算不了略過 %d 筆）", len(add), skipped)
+    out = pd.concat([df, pd.DataFrame(add)], ignore_index=True) if add else df
+    for h in holes:
+        log.info("  %s：%d → %d 檔", h, (df.date == h).sum(), (out.date == h).sum())
+    return out
+
+
+def prepend(df: pd.DataFrame, start: dt.date, stocks: pd.DataFrame, list_out: str) -> pd.DataFrame:
+    """回測檔往前延伸到 start：現存股用 Yahoo 還原價（在接縫重疊 2 週、逐檔對齊刻度），
+    下市股（期間內下市、或檔裡本來就是官方原始價的）用官方當日全市場行情（未還原，adjusted=0，同 add_delisted）。"""
+    first = df.date.min()
+    f0 = dt.date.fromisoformat(first)
+    y = yahoo_adjusted(stocks, start, f0 + dt.timedelta(days=15))
+    ov = y[y.date >= first].merge(df[["date", "code", "close"]], on=["date", "code"], suffixes=("", "_old"))
+    k = (ov.close_old / ov.close).groupby(ov.code).median()
+    y = y[(y.date < first) & y.code.isin(k.index)].copy()
+    for c in ("open", "high", "low", "close"):
+        y[c] = y[c] * y.code.map(k)
+    y["adjusted"] = 1
+    log.info("Yahoo 往前補 %d 檔、%d 筆（%s～%s）", y.code.nunique(), len(y), y.date.min(), y.date.max())
+    dl = delisted(_session(), start)
+    raw_codes = set(dl.code) | set(df.loc[df.get("adjusted", 1) == 0, "code"])
+    raw_codes -= set(y.code)
+    dates = [start + dt.timedelta(days=i) for i in range((f0 - start).days)]
+    off = fetch.fetch_official_range([d for d in dates if d.weekday() < 5], ["TWSE", "TPEX"])
+    for c in ("open", "high", "low", "close", "volume"):
+        off[c] = pd.to_numeric(off[c], errors="coerce")
+    off = off.dropna(subset=["close"])
+    off = off[(off.close > 0) & (off.volume > 0)]
+    o = off[off.code.isin(raw_codes)][fetch.COLS].assign(adjusted=0)
+    o = o.merge(dl[["code", "delist_date"]], on="code", how="left")
+    o = o[o.delist_date.isna() | (o.date <= o.delist_date)].drop(columns="delist_date")
+    log.info("下市股往前補 %d 檔、%d 筆", o.code.nunique(), len(o))
+    old = pd.read_csv(list_out) if Path(list_out).exists() else pd.DataFrame()
+    dl.assign(rows=dl.code.map(pd.concat([o, df[df.get("adjusted", 1) == 0]]).groupby("code").size()).fillna(0).astype(int)) \
+        .to_csv(list_out, index=False)
+    log.info("下市名單 %d → %d 檔", len(old), len(dl))
+    out = pd.concat([y, o, df], ignore_index=True)
+    # 往前那段也可能有 Yahoo 洞：用剛抓的官方當日行情一起補
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--years", type=float, default=5)
@@ -178,9 +287,24 @@ def main():
     ap.add_argument("--no-delisted", action="store_true", help="不補期間內下市的股票")
     ap.add_argument("--append-delisted", metavar="CSV", help="不重抓 Yahoo：讀現有的回測檔，只補下市股")
     ap.add_argument("--budget-min", type=float, default=0, help="補下市股最多花幾分鐘（0＝不限），超過就存已抓到的")
+    ap.add_argument("--extend", metavar="CSV", help="讀現有回測檔：往前延伸到 --start、再補資料洞（不重抓整段）")
+    ap.add_argument("--start", help="--extend 用：新的起點 YYYY-MM-DD（不填就只補洞）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     stocks = fetch.load_stock_list(["TWSE", "TPEX"])
+    if a.extend:
+        df = pd.read_csv(a.extend, dtype={"code": str})
+        n0 = len(df)
+        if a.start and a.start < df.date.min():
+            df = prepend(df, dt.date.fromisoformat(a.start), stocks, str(Path(a.out).with_name("delisted.csv")))
+        df = fill_holes(df)
+        df = df.drop_duplicates(["date", "code"], keep="last")
+        for c in ["open", "high", "low", "close"]:
+            df[c] = df[c].astype(float).round(3)
+        df["volume"] = df["volume"].astype(float).round(0).astype("Int64")
+        df.sort_values(["date", "code"]).to_csv(a.out, index=False, compression="gzip")
+        log.info("完成：%d → %d 筆，%s ~ %s，%d 檔", n0, len(df), df.date.min(), df.date.max(), df.code.nunique())
+        return
     end = dt.date.today()
     start = end - dt.timedelta(days=int(a.years * 365.25))
     df = None
