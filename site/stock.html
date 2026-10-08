@@ -179,8 +179,8 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   const today=(o.strats||[]).filter(x=>x[0]===o.asof).map(x=>x[1]);today.forEach(t=>b.push(`<span class="b">📊 今天上榜：${esc(t)}</span>`));
   if(o.exdiv_next&&o.exdiv_next.length){const e=o.exdiv_next[0];b.push(`<span class="b">💰 ${esc(e[0])} 除${esc(e[1])}${e[2]?' 現金 '+fmt(e[2],2)+' 元':''}</span>`)}
   if(b.length)h.push(`<div class="badges">${b.join('')}</div>`);
-  /* 明天預警 */
-  const t=o.trig;h.push('<h2>明天會不會跳盤中預警？</h2>');
+  /* 明天異動通知 */
+  const t=o.trig;h.push('<h2>明天會不會跳異動通知？</h2>');
   if(stale||!t){h.push('<p class="empty">這檔今天沒有收盤資料，算不出來。</p>')}
   else if(t.note){h.push(`<p class="empty">${esc(t.note)}。</p>`)}
   else{const ok=t.reachable;
@@ -191,7 +191,7 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
     <li><span class="ic">📊</span><span>量：預估全日量 ≥ 5 日均量 ${fmt(t.avg5,0)} 張的 3 倍＝<b>${fmt(t.vol_full,0)} 張</b>，而且當下已成交 ≥ ${fmt(t.vol_now,0)} 張（至少 300 張）</span></li>
     <li><span class="ic">🕯️</span><span>當下價格高於開盤價（紅 K），或鎖漲停</span></li>
     <li><span class="ic">💲</span><span>股價 ≥ 10 元${t.close<10?'（<b>現在不到 10 元</b>）':''}</span></li></ul>
-    <div class="meta">09:30 後每 3 分鐘掃一次，以上全部同時成立才記成「早期預警」。13:12 的正式進場提醒是另一套更嚴的條件。</div></div>`)}
+    <div class="meta">09:30 後每 3 分鐘掃一次，以上全部同時成立才記成「異動通知」（5 年回測追價沒贏等權，只是提醒有東西在動）。13:12 訊號是另一套更嚴的條件，目前也只當觀察。</div></div>`)}
   /* 走勢 */
   const hi52=o.hi52,lo52=o.lo52;h.push('<h2>近一年走勢</h2>');
   h.push(`<div class="grid"><div class="tile"><div class="k">一年最高</div><div class="v">${fmt(hi52)}</div></div><div class="tile"><div class="k">一年最低</div><div class="v">${fmt(lo52)}</div></div>
@@ -200,12 +200,12 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   h.push('<div class="chart" id="cpx"></div>');
   /* 訊號紀錄 */
   h.push('<h2>我們的系統怎麼看它</h2>');const sig=[];
-  (o.alerts||[]).slice().reverse().forEach(a=>sig.push([a[0],`⚡ 盤中早期預警 ${esc(a[1])}（${fmt(a[2])}）${a[3]?'→ <b>13:12 正式訊號</b>':''}`]));
+  (o.alerts||[]).slice().reverse().forEach(a=>sig.push([a[0],`⚡ 盤中異動通知 ${esc(a[1])}（${fmt(a[2])}）${a[3]?'→ <b>13:12 訊號</b>':''}`]));
   (o.strats||[]).slice().reverse().forEach(s=>sig.push([s[0],`📊 每日篩選：${esc(s[1])}`]));
-  (o.pos||[]).forEach(p=>sig.push([p.signal_date,`🎯 正式訊號 ${esc(p.signal_time||'')} 進場 ${fmt(+p.entry_price)}，${p.status==='open'?'持有中':'已出場（'+esc(p.exit_reason||'')+'）'}${p.est_return_pct!=null?'，報酬 '+sgn(+p.est_return_pct)+'%':''}`]));
+  (o.pos||[]).forEach(p=>sig.push([p.signal_date,`🎯 13:12 訊號 ${esc(p.signal_time||'')} 進場 ${fmt(+p.entry_price)}，${p.status==='open'?'持有中':'已出場（'+esc(p.exit_reason||'')+'）'}${p.est_return_pct!=null?'，報酬 '+sgn(+p.est_return_pct)+'%':''}`]));
   sig.sort((a,b)=>a[0]<b[0]?1:-1);
   h.push(sig.length?`<div class="tbl"><table><tr><th>日期</th><th>紀錄</th></tr>${sig.slice(0,30).map(r=>`<tr><td>${esc(r[0])}</td><td>${r[1]}</td></tr>`).join('')}</table></div>`
-    :'<p class="empty">最近沒有出現在每日篩選、盤中預警或正式訊號裡。</p>');
+    :'<p class="empty">最近沒有出現在每日篩選、異動通知或 13:12 訊號裡。</p>');
   if(o.lt){const l=o.lt;h.push(`<div class="card">🌱 長期篩選：${l.rank?`量化分數第 ${l.rank} 名／${l.n} 檔（${fmt(l.score,3)}）`:''}${l.top?'，<b>在長期 Top 20 觀察名單</b>':''}
     ${l.thesis?`<div>看好理由：${esc(l.thesis)}</div><div class="meta">風險：${esc(l.risk||'')}｜破功條件：${esc(l.break_rule||'')}</div>`:''} <a href="longterm.html">看整份名單 →</a></div>`)}
   /* 營收 */
