@@ -175,7 +175,7 @@ def state(d: pd.DataFrame) -> dict | None:
         "date": last.date, "judged_on": j.date, "ew_close": round(float(last.ew_close), 2), "ma200": round(float(last.ma200), 2),
         "dev": round(float(j.ew_close / j.ma200 - 1) * 100, 2), "above": bool(j.close_above == 1),
         "streak": k, "since": ok.date.iloc[-k] if k else j.date, "gap": int(last.gap), "n_stocks": int(last.n_stocks),
-        "note": "" if j.close_above == 1 else "盤勢線下：突破策略歷史平均約 0、樣本不足（Cowork 1957 觀察標記，部位不自動砍）",
+        "note": "" if j.close_above == 1 else "盤勢線下：線下沒有可靠的超額（月t 為負）、樣本不足（Cowork 1957 觀察標記、0056 改字，部位不自動砍）",
     }
     if pd.notna(last.tr_0050) and pd.notna(last.ma200_0050):
         st["dev_0050"] = round(float(last.tr_0050 / last.ma200_0050 - 1) * 100, 2)

@@ -431,7 +431,10 @@ def close_book(today: str, stocks: pd.DataFrame, at: dt.datetime) -> None:
     log.info("收盤委買／委賣：%s", "、".join(f"{c} 買{b['bid1_lots']}／賣{b['ask1_lots']}／量{b['vol_lots']}" for c, b in book.items()))
 
 
-def official_result(today: str) -> dict | None:
+_DT_FRESH = False   # daytrade_hist 最新一天＝市場前一個交易日才用前日當沖（Cowork 0255 定義 A：缺就不掛、不往回找）
+
+
+def official_result(today: str, q: pd.DataFrame | None = None) -> dict | None:
     sf = ROOT / "data" / "intraday_state.json"
     if not sf.exists():
         return None
@@ -440,9 +443,21 @@ def official_result(today: str) -> dict | None:
         return None
     pos = positions.load()
     pos = pos[pos.signal_date == today]
-    return {"time": s.get("time"), "count": s.get("hits", len(pos)),
-            "stocks": [{"code": r.code, "name": r.name, "price": _num(r.alert_price),
-                        "rev_yoy": _num((_EXT.get(r.code) or {}).get("rev_yoy"), 0)} for r in pos.itertuples()]}
+    qq = q.set_index("code") if q is not None and len(q) and "code" in q else None
+    out = []
+    for r in pos.itertuples():
+        d = {"code": r.code, "name": r.name, "price": _num(r.alert_price),
+             "rev_yoy": _num((_EXT.get(r.code) or {}).get("rev_yoy"), 0)}
+        try:   # 13:12 當下是否鎖漲停（盤中頁灰色『只看不追』）、漲幅、前日當沖（非漲停 >36% 掛警示）
+            if qq is not None and r.code in qq.index:
+                d["lu"] = bool(qq.at[r.code, "locked"]) if "locked" in qq else None
+                d["chg"] = _num(qq.at[r.code, "chg"]) if "chg" in qq else None
+            dt = (_EXT.get(r.code) or {}).get("dt_ratio")
+            d["dt"] = _num(dt, 0) if _DT_FRESH else None
+        except Exception as e:  # noqa: BLE001
+            log.warning("13:12 訊號附加欄位失敗 %s：%s", r.code, e)
+        out.append(d)
+    return {"time": s.get("time"), "count": s.get("hits", len(pos)), "stocks": out}
 
 
 def stock_row(r, first: dict | None = None) -> dict:
@@ -557,6 +572,14 @@ def main(argv=None) -> int:
                 if c in ex.columns]
         _EXT.update(ex[cols].to_dict("index"))
         log.info("載入本益比／營收／法人資料 %d 檔", len(_EXT))
+        global _DT_FRESH
+        try:
+            dtd = pd.read_csv(ROOT / "data" / "extras" / "daytrade_hist.csv.gz", usecols=["date"]).date.max()
+            prev_day = max(d for d in hist.date.unique() if d < today)
+            _DT_FRESH = dtd == prev_day
+            log.info("前日當沖資料 %s（前一交易日 %s）%s", dtd, prev_day, "可用" if _DT_FRESH else "不是前一交易日，不掛當沖警示")
+        except Exception as e:  # noqa: BLE001
+            log.warning("前日當沖日期檢查失敗：%s", e)
     except Exception as e:  # noqa: BLE001
         log.warning("消息面資料載入失敗：%s", e)
     watch = watchlist()
@@ -640,7 +663,7 @@ def main(argv=None) -> int:
                     log.error("正式提醒失敗：%s", e)
                 finally:
                     intraday.QUOTES = None
-                st["official"] = official_result(today) or {"time": hm, "count": 0, "stocks": []}
+                st["official"] = official_result(today, q) or {"time": hm, "count": 0, "stocks": []}
                 try:
                     save_book(today, "1312", q, {s["code"] for s in st["official"].get("stocks", [])}
                               | {c for c in st["alerts"] if c in set(q.code[q.locked])})

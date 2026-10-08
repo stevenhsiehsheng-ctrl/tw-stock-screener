@@ -78,7 +78,7 @@ tr.off td{opacity:.55}
   <p class="hint" id="globhint"></p>
 
   <h2>🎯 13:12 訊號（觀察）</h2>
-  <p class="hint">只記錄，不是買進訊號。這批大多是鎖漲停的股票，排隊幾乎買不到；5 年回測裡真正買得到的那 4 成（摸到漲停、收盤沒鎖住）20 天後平均 −0.4%（2025-09 以前）。</p>
+  <p class="hint">只記錄，不是買進訊號。6 年回測（含下市股、扣 0.38% 和零股滑價、減全市場等權）：<b>收盤鎖漲停</b>的那批超額約 +1.5%，但收盤排隊幾乎排不到，改隔天開盤買平均只剩 +0.4%、中位 −3.5%，所以標灰色「只看不追」；<b>沒鎖漲停</b>的排得到，但若收盤也沒鎖，歷史超額約 −0.3%（月t −2.9）。13:12 還不知道收盤會不會鎖，所以只標 13:12 當下的狀態。沒鎖的再看「前日當沖」：前一交易日當沖占量 &gt;36% 標 ⚠️（一年資料平均約 −2%，還在等 5 年驗證，只提醒不禁買）。</p>
   <div class="box" id="official"></div>
 
   <h2>🔥 族群熱度</h2>
@@ -171,7 +171,7 @@ async function regime(){
     const w=await r.json(),pc=v=>(v>0?'+':'')+Number(v).toFixed(1)+'%';
     $('regime').insertAdjacentHTML('beforeend',w.above
       ?`<span class="meta">盤勢：全市場等權指數在 200 日線上 ${pc(w.dev)}（${esc(String(w.since).slice(5))} 起）・${esc(w.judged_on)} 收盤</span>`
-      :`<span class="meta">🌧 <b>盤勢線下</b>：等權指數收在 200 日線下 ${pc(w.dev)}（${esc(String(w.since).slice(5))} 起 ${w.streak} 天）。突破策略在線下的歷史平均約 0、樣本不足，只提醒、部位不自動砍。</span>`);
+      :`<span class="meta">🌧 <b>盤勢線下</b>：等權指數收在 200 日線下 ${pc(w.dev)}（${esc(String(w.since).slice(5))} 起 ${w.streak} 天）。線下沒有可靠的超額（月t 為負）、樣本不足，只提醒、部位不自動砍。</span>`);
     $('regime').hidden=false;
   }catch(e){}
 }
@@ -229,7 +229,7 @@ function render(d){
 
   const o=d.official;
   $('official').innerHTML=!o?'<span class="meta">13:12 掃描後顯示</span>':
-    o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.map(s=>`<span class="tag r"><a href="stock.html?code=${encodeURIComponent(s.code)}">${s.code}</a> ${esc(s.name)} ${num(s.price)}${s.rev_yoy==null?'':` ・ 營收 ${s.rev_yoy>0?'+':''}${s.rev_yoy.toFixed(0)}%${s.rev_yoy<=0?' ⚠️':''}`}</span>`).join(''):
+    o.stocks&&o.stocks.length?`<b>${o.time}</b> 共 ${o.stocks.length} 檔：`+o.stocks.slice().sort((a,b)=>(a.lu?1:0)-(b.lu?1:0)).map(s=>`<span class="tag ${s.lu?'':'r'}"${s.lu?' style="opacity:.6" title="13:12 已鎖漲停：收盤排隊多半排不到，隔天開盤買的歷史平均 +0.4%、中位 −3.5%"':''}><a href="stock.html?code=${encodeURIComponent(s.code)}">${s.code}</a> ${esc(s.name)} ${num(s.price)}${s.lu?' ・ 🔒鎖漲停・只看不追':''}${!s.lu&&s.dt!=null&&s.dt>36?` ・ ⚠️前日當沖 ${s.dt.toFixed(0)}%`:''}${s.rev_yoy==null?'':` ・ 營收 ${s.rev_yoy>0?'+':''}${s.rev_yoy.toFixed(0)}%${s.rev_yoy<=0?' ⚠️':''}`}</span>`).join(''):
     `<b>${o.time}</b> 今天沒有符合正式條件的股票`;
 
   // 本益比（虧損或無資料顯示「—」）、月營收年增%、外資前一日買賣超（張）、三大法人近 5 日買賣超占成交量%、前一日當沖比%
