@@ -308,7 +308,7 @@ function senti(){
   const k=(v,l)=>`<div class="k"><b>${v}</b><span>${l}</span></div>`;
   el.innerHTML=`<div class="hd"><span class="lv">${s.icon} 市場情緒：${s.level}</span>
    <span class="more">站上月線 ${s.above_ma20.toFixed(0)}%${s.above_ma20_5d_ago!=null?`（5 天前 ${s.above_ma20_5d_ago.toFixed(0)}%）`:''}</span></div>
-   <div class="adv">${s.advice}${s.weak_market?' ⚠️ 大盤近 20 日跌超過 3%，回測顯示此時爆量突破平均虧損。':''}</div>
+   <div class="adv">${s.advice}${s.weak_market?' ⚠️ 大盤近 20 日跌超過 3%：6 年回測這種時候爆量突破每筆超額約 0（−0.2%，一般時候 +0.5%）。':''}</div>
    <div class="kpis">${k(s.up_pct.toFixed(0)+'%','上漲家數')}${k(s.above_ma60.toFixed(0)+'%','站上季線')}
    ${k(s.new_high+' / '+s.new_low,'創60日新高 / 新低')}${k(s.limit_up+' / '+s.limit_down,'漲停 / 跌停')}
    ${k(s.surge_pct.toFixed(1)+'%','爆量家數')}${k((s.mkt20>0?'+':'')+s.mkt20.toFixed(1)+'%','大盤近20日')}</div>`;
@@ -324,7 +324,7 @@ function breadthBox(){
   if(!BREADTH||BREADTH.length<2)return;const el=$('breadth');el.hidden=false;
   const a=BREADTH.map(r=>r[1]),m=BREADTH.map(r=>r[2]),la=a.at(-1),lm=m.at(-1);
   const mlo=Math.min(-6,...m.filter(v=>v!=null)),mhi=Math.max(6,...m.filter(v=>v!=null));
-  el.innerHTML=`<div class="hd"><b>大盤寬度</b><span>近 ${BREADTH.length} 個交易日（${BREADTH[0][0]} ~ ${BREADTH.at(-1)[0]}）・ 回測：寬度 < 30% 或近 20 日跌超過 3% 時，突破策略平均虧錢</span></div>
+  el.innerHTML=`<div class="hd"><b>大盤寬度</b><span>近 ${BREADTH.length} 個交易日（${BREADTH[0][0]} ~ ${BREADTH.at(-1)[0]}）・ 6 年回測：寬度 < 30% 或近 20 日跌超過 3% 時，突破策略每筆超額約 0（一般時候 +0.5%）</span></div>
   <div class="bgrid"><div class="bchart"><div class="t">站上月線比例 <b class="${la<30?'down':''}">${la==null?'—':la.toFixed(1)+'%'}</b>（20 日均量 ≥ 100 張的股票）</div>${lineSvg(a,0,100,[[30,'warnline','30%'],[50,'midline','50%']],'var(--accent)')}</div>
   <div class="bchart"><div class="t">全市場等權近 20 日 <b class="${lm<-3?'down':lm>0?'up':''}">${lm==null?'—':(lm>0?'+':'')+lm.toFixed(2)+'%'}</b></div>${lineSvg(m,mlo,mhi,[[-3,'warnline','-3%'],[0,'midline','0%']],'var(--ink2)')}</div></div>`;
 }
