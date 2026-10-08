@@ -1,80 +1,80 @@
 {
  "from": "2026-10-01",
- "to": "2026-10-07",
- "days": 5,
+ "to": "2026-10-08",
+ "days": 6,
  "all": {
-  "n": 113,
-  "close_hit": 42.5,
-  "ret3": 3.23,
-  "ret3_n": 34,
-  "ret5": null,
-  "ret5_n": 0
+  "n": 146,
+  "close_hit": 43.8,
+  "ret3": 2.66,
+  "ret3_n": 61,
+  "ret5": 5.29,
+  "ret5_n": 20
  },
  "by_time": [
   {
    "bucket": "09:30–10:30",
-   "n": 85,
-   "close_hit": 41.2,
-   "ret3": 3.64,
-   "ret3_n": 26,
-   "ret5": null,
-   "ret5_n": 0
+   "n": 111,
+   "close_hit": 42.3,
+   "ret3": 2.93,
+   "ret3_n": 48,
+   "ret5": 6.5,
+   "ret5_n": 17
   },
   {
    "bucket": "10:30–12:00",
-   "n": 18,
-   "close_hit": 55.6,
-   "ret3": 0.68,
-   "ret3_n": 5,
-   "ret5": null,
-   "ret5_n": 0
+   "n": 20,
+   "close_hit": 55.0,
+   "ret3": 0.58,
+   "ret3_n": 8,
+   "ret5": -4.53,
+   "ret5_n": 1
   },
   {
    "bucket": "12:00 後",
-   "n": 10,
-   "close_hit": 30.0,
-   "ret3": 3.89,
-   "ret3_n": 3,
-   "ret5": null,
-   "ret5_n": 0
+   "n": 15,
+   "close_hit": 40.0,
+   "ret3": 3.34,
+   "ret3_n": 5,
+   "ret5": -0.14,
+   "ret5_n": 2
   }
  ],
  "by_peers": [
   {
    "bucket": "0 家",
-   "n": 22,
-   "close_hit": 36.4,
+   "n": 25,
+   "close_hit": 32.0,
    "ret3": -4.32,
-   "ret3_n": 6,
-   "ret5": null,
-   "ret5_n": 0
+   "ret3_n": 10,
+   "ret5": -6.35,
+   "ret5_n": 5
   },
   {
    "bucket": "1~2 家",
-   "n": 29,
-   "close_hit": 55.2,
-   "ret3": 7.58,
-   "ret3_n": 13,
-   "ret5": null,
-   "ret5_n": 0
+   "n": 39,
+   "close_hit": 51.3,
+   "ret3": 6.9,
+   "ret3_n": 15,
+   "ret5": 12.44,
+   "ret5_n": 7
   },
   {
    "bucket": "3~5 家",
-   "n": 22,
-   "close_hit": 22.7,
-   "ret3": 4.21,
-   "ret3_n": 2,
+   "n": 30,
+   "close_hit": 33.3,
+   "ret3": 6.53,
+   "ret3_n": 5,
    "ret5": null,
    "ret5_n": 0
   },
   {
    "bucket": "6 家以上",
-   "n": 40,
-   "close_hit": 47.5,
+   "n": 52,
+   "close_hit": 50.0,
    "ret3": 2.22,
-   "ret3_n": 13,
-   "ret5": null,
-   "ret5_n": 0
+   "ret3_n": 31,
+   "ret5": 6.3,
+   "ret5_n": 8
   }
  ]
 }
