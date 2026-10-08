@@ -325,7 +325,7 @@ def build_etf(sd: Path, idx: list, G: dict) -> int:
              "px": {"d": g.date.tolist(), "c": [_r(x) for x in g.close], "v": [int(x // 1000) for x in g.volume.fillna(0)],
                     "o": [_r(x) for x in g.open], "h": [_r(x) for x in g.high], "l": [_r(x) for x in g.low]},
              "hi52": _r(g.high.max()), "lo52": _r(g.low.min()),
-             "etf": {k: S.get(k) for k in ("r20", "r250", "tr250", "div12", "y12", "nd", "val20", "bad")}}
+             "etf": {k: S.get(k) for k in ("r20", "r250", "tr250", "tr3", "tr5", "div12", "y12", "nd", "val20", "bad")}}
         if len(g) >= 2:
             o["chg"] = _r((g.close.iloc[-1] / g.close.iloc[-2] - 1) * 100)
         cl = g.set_index("date").close

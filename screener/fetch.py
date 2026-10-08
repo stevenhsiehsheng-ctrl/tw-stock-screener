@@ -458,6 +458,42 @@ def backfill_etf_all(keep_days: int = 260) -> int:
     return int(y.code.nunique())
 
 
+ETF_TR_F = ROOT / "data" / "extras" / "etf_tr_m.csv.gz"
+
+
+def backfill_etf_tr(years: int = 6) -> int:
+    """ETF 含息（配息再投入）月底指數：Yahoo auto_adjust 的收盤，每月最後一個交易日一筆 → data/extras/etf_tr_m.csv.gz。
+    給 ETF 專區算 3／5 年含息年化、給「高股息 ETF vs 0050」題用。先試 .TW，抓不到再 .TWO。回傳有資料的檔數。"""
+    import yfinance as yf
+
+    e = pd.read_csv(ETF_F, dtype={"code": str})
+    codes = sorted(set(e.code[e.date == e.date.max()]))
+    start = (dt.date.today() - dt.timedelta(days=int(years * 365.25) + 40)).isoformat()
+    frames, got = [], set()
+    for suf in (".TW", ".TWO"):
+        todo = [c for c in codes if c not in got]
+        for i in range(0, len(todo), 100):
+            chunk = [c + suf for c in todo[i:i + 100]]
+            raw = yf.download(chunk, start=start, auto_adjust=True, group_by="ticker", threads=True, progress=False)
+            for t in chunk:
+                if t not in raw.columns.get_level_values(0):
+                    continue
+                cl = raw[t]["Close"].dropna()
+                if len(cl) < 20:
+                    continue
+                m = cl.groupby(cl.index.to_period("M")).last()
+                c = t.rsplit(".", 1)[0]
+                frames.append(pd.DataFrame({"ym": m.index.astype(str), "code": c, "tr": m.values.round(4)}))
+                got.add(c)
+            time.sleep(2)
+    if not frames:
+        raise SourceUnavailable("Yahoo 抓不到 ETF 含息月資料")
+    df = pd.concat(frames, ignore_index=True).sort_values(["code", "ym"])
+    df.to_csv(ETF_TR_F, index=False, compression="gzip")
+    log.info("ETF 含息月資料：%d 檔、%d 筆（缺 %d 檔）", len(got), len(df), len(set(codes) - got))
+    return len(got)
+
+
 def load_history() -> pd.DataFrame:
     if HISTORY_FILE.exists():
         return pd.read_csv(HISTORY_FILE, dtype={"code": str})
