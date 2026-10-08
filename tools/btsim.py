@@ -8,8 +8,13 @@
   量 ≥ 前 5 日均量 3 倍、漲幅 3%～10.5%、紅 K、收盤 > 前 60 日最高價、量 ≥ 500 張、收盤 ≥ 10 元（還原價）。
   min_turnover20：另加前 20 日均成交額門檻（元，不含當天），分身那幾班用 1,000 萬
 - 進場：訊號日收盤
-- 出場＝screener/positions.update：之後每個有成交的日子收盤檢查——量 < 爆量日 × 0.5 且當天不是漲停（還原漲幅 ≥9.5% 近似）
+- 出場＝screener/positions.update：之後每個有成交的日子收盤檢查——量 < 爆量日 × 0.5 且當天不是收盤鎖漲停
   → 隔天開盤賣；持有滿 20 個交易日 → 隔天開盤賣。資料結束還沒出場＝censored（用最後收盤估、旗標標出來，不丟）
+- 收盤鎖漲停（P["lu"]，lu_rule="v2" 預設；分身 0315-cc-ac、Cowork 0326／0356 定案）：
+  有原始價的日子（data/history.csv.gz，約最近一年）用官方檔位精算漲停價，基準＝前一日原始收盤，
+  除權息日用 exdiv.csv 的參考價、減資／變更面額恢復買賣日用 corp_actions.csv 的參考價；
+  沒有原始價的舊年份用『還原漲幅 ≥9.5% 且收盤＝當天最高』。lu_rule="approx95" 是 #222 的舊口徑（只看漲幅 ≥9.5%）。
+  重疊期兩種算法逐年的誤抓／漏抓用 lu_check(P) 印。trades() 的 lu 欄＝訊號日收盤鎖漲停（真鎖）
 - 成本：來回 0.38%（買 0.04、賣 0.34）；slip=True 再加零股滑價每邊 <50 元 0、50～100 元 0.15%、≥100 元 0.3%
   （價格段用還原價，舊年份還原價偏低 → 會少扣，偏樂觀）
 - 對照組：data/extras/ew_index.csv 的 ew_close（網站盤勢那條）進場日收盤 → 出場訊號日收盤，再接出場日的等權隔夜（開盤÷前收）
@@ -21,7 +26,8 @@
 用法：
   from tools.btsim import load, signals, trades, account, paired
   P = load()                              # 第一次會從 backtest-data 分支取檔（快取在 ~/.cache/tw-screener/）
-  T = trades(P, signals(P))               # 逐筆：date code entry exit_date gross net bench ex censored corp_jump above above_0050
+  print(provenance(min_turnover20=1e7))   # 回測留言第一行貼這串：commit 短碼＋clean/DIRTY＋參數（DIRTY 只能當討論）
+  T = trades(P, signals(P))               # 逐筆：date code entry exit_date days gross net bench ex lu censored corp_jump above above_0050
   from tools.btstats import summarize, account as acct_summary
   print(summarize(T[~T.corp_jump & ~T.censored], ret="ex"))
   eq = account(P, T, seed=0)              # 每日權益
@@ -42,6 +48,8 @@ EW = ROOT / "data" / "extras" / "ew_index.csv"
 CORP = ROOT / "data" / "extras" / "corp_actions.csv"
 BUY_COST, SELL_COST = 0.04, 0.34          # %，合計 0.38
 LIMIT_APPROX = 9.5                        # 還原價判漲停用漲幅近似
+HIST = ROOT / "data" / "history.csv.gz"   # 原始價（約最近一年）：漲停用檔位精算
+EXDIV = ROOT / "data" / "extras" / "exdiv.csv"
 JUMP = 11.0                               # 超過漲跌停的單日變動 → corp_jump
 
 
@@ -49,6 +57,77 @@ def slip_pct(px):
     """零股滑價（每邊，%）：Cowork 10/7 定案三段中位。"""
     px = np.asarray(px, dtype=float)
     return np.where(px >= 100, 0.3, np.where(px >= 50, 0.15, 0.0))
+
+
+def provenance(**params) -> str:
+    """『btsim <commit 短碼> clean|DIRTY｜參數』：回測留言第一行貼這串，DIRTY（tools／screener 有沒 commit 的改動）的結果只能當討論。"""
+    try:
+        h = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "tools", "screener"], cwd=ROOT,
+                               capture_output=True, text=True).stdout.strip()
+    except Exception:  # noqa: BLE001
+        h, dirty = "nogit", "?"
+    p = bt_path() if (CACHE / "backtest.csv.gz").exists() else None
+    data = f"bt {p.stat().st_size // 1_000_000}MB" if p else "bt 未取"
+    kv = "、".join(f"{k}={v}" for k, v in sorted(params.items()))
+    return f"btsim {h or 'nogit'} {'DIRTY' if dirty else 'clean'}｜{data}" + (f"｜{kv}" if kv else "")
+
+
+def _raw_limit_up(dates, cols) -> pd.DataFrame | None:
+    """有原始價的日子：收盤＝官方檔位漲停價（基準＝前一日原始收盤；除權息日／恢復買賣日用參考價）。沒資料的格子 NaN。"""
+    if not HIST.exists():
+        return None
+    from screener.rules import limit_price
+    h = pd.read_csv(HIST, dtype={"code": str})
+    h = h[h.code.isin(set(cols)) & h.close.notna() & (h.volume.fillna(0) > 0)]
+    rc = h.pivot(index="date", columns="code", values="close").sort_index()
+    ref = rc.ffill().shift(1)
+    for f in (EXDIV, CORP):
+        if f.exists():
+            x = pd.read_csv(f, dtype={"code": str})
+            x = x[x.date.isin(set(rc.index)) & x.code.isin(set(rc.columns))]
+            for r in x.itertuples():
+                if r.ref_price and r.ref_price > 0:
+                    ref.at[r.date, r.code] = r.ref_price
+    lu = rc >= limit_price(ref, True) - 1e-6
+    lu = lu.where(rc.notna() & ref.notna())
+    return lu.iloc[1:].reindex(index=[d for d in dates if d in lu.index], columns=cols)
+
+
+def lu_matrix(P: dict, rule: str = "v2") -> pd.DataFrame:
+    c, h, chg = P["close"], P["high"], P["chg"]
+    approx = (chg >= LIMIT_APPROX) & (chg <= 10.5) & P["traded"]
+    if rule == "approx95":
+        return approx
+    approx = approx & (c >= h * (1 - 1e-6))
+    raw = P.get("lu_raw")
+    if raw is None or raw.empty:
+        return approx
+    out = approx.copy()
+    sub = raw.reindex_like(out)
+    has = sub.notna()
+    out = out.where(~has, sub.fillna(False).astype(bool))
+    return out & P["traded"]
+
+
+def lu_check(P: dict) -> pd.DataFrame:
+    """重疊期（有原始價的日子）：還原價近似 vs 原始價精算，逐年 抓到／誤抓／漏抓。"""
+    raw = P.get("lu_raw")
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+    c, h, chg = P["close"], P["high"], P["chg"]
+    rows = []
+    for name, ap in [("9.5", (chg >= LIMIT_APPROX) & (chg <= 10.5)), ("9.5＋收＝高", (chg >= LIMIT_APPROX) & (chg <= 10.5) & (c >= h * (1 - 1e-6)))]:
+        a = ap.reindex_like(raw) & P["traded"].reindex_like(raw)
+        has = raw.notna()
+        r = raw.fillna(False).astype(bool)
+        for y in sorted({d[:4] for d in raw.index}):
+            m = [d for d in raw.index if d.startswith(y)]
+            hh = has.loc[m]
+            aa, rr = a.loc[m] & hh, r.loc[m] & hh
+            rows.append({"近似": name, "年": y, "精算漲停": int(rr.sum().sum()), "抓到": int((aa & rr).sum().sum()),
+                         "誤抓": int((aa & ~rr).sum().sum()), "漏抓": int((~aa & rr).sum().sum())})
+    return pd.DataFrame(rows)
 
 
 def bt_path(path: str | None = None) -> Path:
@@ -100,8 +179,15 @@ def load(path: str | None = None) -> dict:
     ew = pd.read_csv(EW).set_index("date") if EW.exists() else pd.DataFrame()
     on = (o / cf.shift(1) - 1) * 100
     ew_on = on.where(on.abs() <= JUMP).mean(axis=1)          # 等權隔夜（開盤÷前收）
-    return {"open": o, "high": h, "low": lo, "close": c, "cf": cf, "volume": v.fillna(0), "traded": traded,
-            "chg": chg, "ew": ew, "ew_on": ew_on, "dates": list(c.index), "corp_adjusted": n_adj}
+    P = {"open": o, "high": h, "low": lo, "close": c, "cf": cf, "volume": v.fillna(0), "traded": traded,
+         "chg": chg, "ew": ew, "ew_on": ew_on, "dates": list(c.index), "corp_adjusted": n_adj}
+    try:
+        P["lu_raw"] = _raw_limit_up(list(c.index), list(c.columns))
+    except Exception as e:  # noqa: BLE001
+        print("原始價漲停精算失敗，全部改用近似：", e)
+        P["lu_raw"] = None
+    P["lu"] = lu_matrix(P, "v2")
+    return P
 
 
 def signals(P: dict, vol_mult: float = 3, chg_min: float = 3, chg_max: float = 10.5, high_days: int = 60,
@@ -121,13 +207,15 @@ def signals(P: dict, vol_mult: float = 3, chg_min: float = 3, chg_max: float = 1
     return s[["date", "code"]].sort_values(["date", "code"]).reset_index(drop=True)
 
 
-def trades(P: dict, sig: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, slip: bool = True) -> pd.DataFrame:
+def trades(P: dict, sig: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, slip: bool = True,
+           lu_rule: str = "v2") -> pd.DataFrame:
     dates = P["dates"]
     di = {d: i for i, d in enumerate(dates)}
     cols = list(P["close"].columns)
     ci = {c: i for i, c in enumerate(cols)}
     C, O, V = P["close"].to_numpy(), P["open"].to_numpy(), P["volume"].to_numpy()
     TR, CHG = P["traded"].to_numpy(), P["chg"].to_numpy()
+    LU = (P["lu"] if lu_rule == "v2" else lu_matrix(P, lu_rule)).to_numpy()
     big = (np.abs(CHG) > JUMP) & TR
     ewc = P["ew"].ew_close.reindex(dates).to_numpy() if len(P["ew"]) else np.full(len(dates), np.nan)
     ewon = P["ew_on"].reindex(dates).to_numpy()
@@ -142,7 +230,7 @@ def trades(P: dict, sig: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, 
         for k in range(i + 1, n):
             if not TR[k, j]:
                 continue
-            if (V[k, j] < shrink * surge and not CHG[k, j] >= LIMIT_APPROX) or k - i >= max_hold:
+            if (V[k, j] < shrink * surge and not LU[k, j]) or k - i >= max_hold:
                 xs = k
                 break
         xo = None
@@ -163,7 +251,7 @@ def trades(P: dict, sig: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, 
         lo_i = max(0, i - 60)
         out.append({"date": d, "code": code, "entry": entry, "exit_date": dates[exit_i], "exit_px": exit_px,
                     "days": exit_i - i, "gross": gross, "net": net, "bench": bench * 100, "ex": net - bench * 100,
-                    "censored": censored, "corp_jump": bool(big[lo_i:exit_i + 1, j].any()),
+                    "lu": bool(LU[i, j]), "censored": censored, "corp_jump": bool(big[lo_i:exit_i + 1, j].any()),
                     "above": ab[i], "above_0050": ab50[i]})
     return pd.DataFrame(out)
 
