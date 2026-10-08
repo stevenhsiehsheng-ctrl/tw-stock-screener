@@ -157,6 +157,57 @@ def update_margin_history(s, d: dt.date, backfill: int = 25) -> dict:
     return {"margin_days": len(keep), "daytrade_days": th.date.nunique()}
 
 
+DT_LONG = DIR / "daytrade_5y.csv.gz"
+
+
+def backfill_daytrade_long(s, d: dt.date, years: float, budget_min: float = 25, bt_path: str | None = None) -> int:
+    """當沖往回補 years 年（研究用，存 daytrade_5y.csv.gz；每天用的 daytrade_hist 仍只留一年）。分身 0215-cc-ac、Cowork 0226／0255：
+    前日當沖 >36% 警示要做 2021～2025 樣本外驗證。一天打證交所 TWTB4U＋櫃買 intraday/stat 各一次（約 8 秒），
+    每次只跑 budget_min 分鐘、從最近往回補，已經有的日子跳過，重跑會接著補。
+    dt_ratio＝當沖股數 ÷ 當天成交股數；成交股數有 history.csv.gz（官方）就用它，沒有的舊年份用回測檔（bt_path，Yahoo 量）。"""
+    if DT_LONG.exists():
+        hist = pd.read_csv(DT_LONG, dtype={"code": str})
+    elif DT_HIST.exists():
+        hist = pd.read_csv(DT_HIST, dtype={"code": str}).reindex(columns=DT_COLS)
+    else:
+        hist = pd.DataFrame(columns=DT_COLS)
+    have = set(hist.date)
+    from .enrich import ROOT
+    tw = pd.read_csv(ROOT / "data" / "macro" / "long.csv.gz").query("sym == '^TWII'").date
+    start = (d - dt.timedelta(days=int(years * 365.25))).isoformat()
+    need = sorted((x for x in tw if start <= x < d.isoformat() and x not in have), reverse=True)
+    bt = None
+    if bt_path:
+        try:
+            b = pd.read_csv(bt_path, dtype={"code": str}, usecols=["date", "code", "volume"])
+            bt = {k: g.drop_duplicates("code").set_index("code").volume for k, g in b[b.date.isin(set(need))].groupby("date")}
+            log.info("回測檔成交量：%d 天", len(bt))
+        except Exception as e:  # noqa: BLE001
+            log.warning("回測檔讀不到，舊年份 dt_ratio 會是空的：%s", e)
+    t0, done, parts = time.time(), 0, [hist]
+    for x in need:
+        if time.time() - t0 > budget_min * 60:
+            break
+        try:
+            t = daytrade(s, dt.date.fromisoformat(x))
+        except Exception as e:  # noqa: BLE001
+            log.warning("當沖 %s 失敗：%s", x, e)
+            continue
+        if len(t):
+            vol = _volume_map(x)
+            if vol.empty and bt is not None:
+                vol = bt.get(x, pd.Series(dtype=float))
+            t["dt_ratio"] = (t.dt_vol * 1000 / t.code.map(vol).where(lambda v: v > 0) * 100).round(2)
+            parts.append(t.assign(date=x)[DT_COLS])
+            done += 1
+        if done and done % 20 == 0:
+            pd.concat(parts, ignore_index=True).to_csv(DT_LONG, index=False, compression="gzip")
+    out = pd.concat(parts, ignore_index=True).drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
+    out.to_csv(DT_LONG, index=False, compression="gzip")
+    log.info("當沖長歷史：這次補 %d 天，還差 %d 天（%s 起），共 %d 天", done, len(need) - done, start, out.date.nunique())
+    return out.date.nunique()
+
+
 def margin_metrics() -> pd.DataFrame:
     """每檔：融資增減、使用率、券資比、融資連續增減天數、融資 5 日增減 %、當沖比率。"""
     if not MARGIN_HIST.exists():
