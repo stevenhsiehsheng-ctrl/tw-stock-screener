@@ -18,7 +18,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 EX = ROOT / "data" / "extras"
 log = logging.getLogger(__name__)
-COLS = ["c", "n", "t", "bad", "px", "d1", "r20", "r60", "r250", "tr250", "div12", "y12", "nd", "last", "lastd", "fill", "next", "nextd", "val20", "days"]
+COLS = ["c", "n", "t", "bad", "px", "d1", "r20", "r60", "r250", "tr250", "tr3", "tr5", "div12", "y12", "nd", "last", "lastd", "fill", "next", "nextd", "val20", "days"]
 
 
 def _kind(code: str, name: str) -> str:
@@ -59,6 +59,21 @@ def build() -> dict | None:
     up = pd.read_csv(EX / "exdiv_upcoming.csv", dtype={"code": str}) if (EX / "exdiv_upcoming.csv").exists() else pd.DataFrame(columns=["date", "code", "cash_div"])
     up = up[(up.date > last) & up.code.isin(codes)].sort_values("date").drop_duplicates("code")
     y1 = (dt.date.fromisoformat(last) - dt.timedelta(days=365)).isoformat()
+    # 3／5 年含息年化：Yahoo 配息再投入的月底指數（fetch.backfill_etf_tr）；窗內任一月漲跌 >60% 當資料錯不給
+    trm = {}
+    tf = EX / "etf_tr_m.csv.gz"
+    if tf.exists():
+        t = pd.read_csv(tf, dtype={"code": str})
+        for code, g in t.groupby("code"):
+            v = g.sort_values("ym").tr.to_numpy(dtype=float)
+            out = {}
+            for yrs in (3, 5):
+                k = 12 * yrs
+                if len(v) > k and v[-1 - k] > 0:
+                    w = v[-1 - k:]
+                    if np.all(np.abs(w[1:] / w[:-1] - 1) <= 0.6):
+                        out[yrs] = ((v[-1] / v[-1 - k]) ** (1 / yrs) - 1) * 100
+            trm[code] = out
     rows = []
     for c in codes:
         s = C[c].dropna()
@@ -86,7 +101,7 @@ def build() -> dict | None:
         nx = up[up.code == c]
         val20 = (s * V[c].reindex(s.index)).iloc[-20:].mean() / 1e8
         nm = str(names.get(c, "") or "")
-        rows.append([c, nm, _kind(c, nm), 0 if clean(min(250, len(s) - 1)) else 1, _r(px), _r(ret(1)), _r(ret(20), 1), _r(ret(60), 1), _r(ret(250), 1), _r(tr, 1),
+        rows.append([c, nm, _kind(c, nm), 0 if clean(min(250, len(s) - 1)) else 1, _r(px), _r(ret(1)), _r(ret(20), 1), _r(ret(60), 1), _r(ret(250), 1), _r(tr, 1), _r(trm.get(c, {}).get(3), 1), _r(trm.get(c, {}).get(5), 1),
                      _r(div12, 3), _r(div12 / px * 100) if div12 else 0, int(len(d12)), _r(lastv, 3), lastd, fill,
                      _r(nx.cash_div.iloc[0], 3) if len(nx) else None, nx.date.iloc[0] if len(nx) else None, _r(val20), int(len(s))])
     return {"date": last, "cols": COLS, "rows": rows, "n_days": len(days)}
@@ -127,19 +142,19 @@ th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--car
 </div>
 <div class="meta">共 <b id="n">0</b> 檔・點欄位排序</div>
 <div class="tbl"><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table></div>
-<p class="meta">報酬都是價格報酬，含息總報酬另外一欄（不假設再投入）。一年＝250 個交易日；上市不滿一年的留空。填息＝上次除息後第幾個交易日收盤回到除息前價格，負數＝還沒填、已經過了幾天。不構成投資建議。</p>
+<p class="meta">報酬都是價格報酬，一年含息另外一欄（不假設再投入）；3／5 年含息/年＝配息再投入的年化報酬（Yahoo 還原價月底，上市不滿 3／5 年的留空）。一年＝250 個交易日；上市不滿一年的留空。填息＝上次除息後第幾個交易日收盤回到除息前價格，負數＝還沒填、已經過了幾天。不構成投資建議。</p>
 </main><script>
 const D=__DATA__;
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const IX=Object.fromEntries(D.cols.map((k,i)=>[k,i])),R=D.rows;
 const f=(v,d=2)=>v==null?'—':(+v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
 const sg=(v,d=1)=>v==null?'—':`<span class="${v>0?'up':v<0?'down':''}">${v>0?'+':''}${f(v,d)}%</span>`;
-const T=[['c','代號'],['n','名稱'],['t','類型'],['px','價格'],['d1','今天'],['r20','20 日'],['r250','一年'],['tr250','一年含息'],['y12','近 12 月殖利率'],['nd','配息次數'],['last','上次配息'],['fill','填息'],['nextd','下次除息'],['val20','成交值(億/天)']];
+const T=[['c','代號'],['n','名稱'],['t','類型'],['px','價格'],['d1','今天'],['r20','20 日'],['r250','一年'],['tr250','一年含息'],['tr3','3 年含息/年'],['tr5','5 年含息/年'],['y12','近 12 月殖利率'],['nd','配息次數'],['last','上次配息'],['fill','填息'],['nextd','下次除息'],['val20','成交值(億/天)']];
 const KD=['全部','股票','債券','主動','槓桿反向','商品期貨'];let S={k:'全部',sort:'val20',dir:-1};
 function freq(n){return n>=10?'m':n>=4?'q':n>=1?'h':'0'}
 function cell(r,k){const v=r[IX[k]];switch(k){
  case 'c':return `<td class="l"><a href="stock.html?code=${esc(v)}"><b>${esc(v)}</b></a></td>`;case 'n':return `<td class="l">${esc(v)}</td>`;case 't':return `<td class="l"><span class="tag">${esc(v)}</span>${r[IX.bad]?' <span class="tag" title="一年內有單日漲跌超過 50%（多半是分割、合併或資料錯），長期報酬先不算">⚠️ 資料可疑</span>':''}</td>`;
- case 'px':return `<td>${f(v)}</td>`;case 'd1':return `<td>${sg(v,2)}</td>`;case 'r20':case 'r250':case 'tr250':return `<td>${sg(v)}</td>`;
+ case 'px':return `<td>${f(v)}</td>`;case 'd1':return `<td>${sg(v,2)}</td>`;case 'r20':case 'r250':case 'tr250':case 'tr3':case 'tr5':return `<td>${sg(v)}</td>`;
  case 'y12':return `<td>${v?'<b>'+f(v)+'%</b>':'—'}</td>`;case 'nd':return `<td>${v||'—'}</td>`;
  case 'last':return `<td>${v==null?'—':f(v,v<1?3:2)+` <span class="meta">${esc((r[IX.lastd]||'').slice(2))}</span>`}</td>`;
  case 'fill':return `<td>${v==null?'—':v>0?`<span class="up">${v} 天</span>`:`<span class="meta">還沒（${-v} 天）</span>`}</td>`;
