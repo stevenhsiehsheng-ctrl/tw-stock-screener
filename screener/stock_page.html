@@ -282,7 +282,7 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
     h.push('<h3 style="margin:14px 0 4px;font-size:15px">估值位階（跟自己過去 5 年比）</h3><div class="grid">'+['pe','pb','yield'].filter(k=>V[k]).map(k=>{const d=V[k];
       return `<div class="tile"><div class="k">${nm[k]} ${fmt(d.now,d.now<10?2:1)}${u[k]}</div><div class="v">第 ${d.pct.toFixed(0)} 百分位</div><div class="meta">${word(k,d.pct)}</div>${bar(d)}</div>`}).join('')+'</div>');
     if(V.pe&&V.pe.s)h.push('<div class="chart" id="cval"></div>');
-    h.push(`<p class="meta">每月第一個交易日的快照，${esc((V.pe||V.pb||V.yield).from)} 起共 ${(V.pe||V.pb||V.yield).n} 個月；灰色＝中間一半（25～75 百分位），藍點＝現在；圖上藍線＝每月本益比、橘線＝5 年中位。本益比只算賺錢的月份。便宜不等於會漲：獲利掉下來時本益比也會「變便宜」。</p>`)}
+    h.push(`<p class="meta">每月第一個交易日的快照，${esc((V.pe||V.pb||V.yield).from)} 起共 ${(V.pe||V.pb||V.yield).n} 個月；灰色＝中間一半（25～75 百分位），藍點＝現在；圖上藍線＝每月本益比、橘線＝5 年中位。本益比只算賺錢的月份。便宜不等於會漲：獲利掉下來時本益比也會「變便宜」；回測（2023-09～2026-07，35 批）本益比位階最低 2 成的，之後 60 天反而比最高 2 成的平均差 1.8pp。</p>`)}
   const ex=[...(o.exdiv_next||[]).map(e=>[...e,'即將']),...(o.exdiv||[]).slice().reverse().map(e=>[...e,''])];
   const fillTxt=e=>e[4]==='即將'?'即將':e[4]==null||e[4]===''?'':e[4]===0?'還沒填':`${e[4]} 天填息`;
   h.push(ex.length?`<div class="tbl"><table><tr><th>除權息日</th><th>類別</th><th class="n">現金股利</th><th class="n">配股比例</th><th>填息</th></tr>${ex.map(e=>`<tr><td>${esc(e[0])}</td><td>${esc(e[1])}</td><td class="n">${e[2]?fmt(e[2],2):'—'}</td><td class="n">${e[3]?fmt(e[3],4):'—'}</td><td>${fillTxt(e)}</td></tr>`).join('')}</table></div><p class="meta">填息天數：除息當天算第 1 天，收盤回到除息前一天收盤那天；只算近一年。<a href="exdiv.html">除權息行事曆 →</a></p>`:'<p class="empty">近年沒有除權息紀錄。</p>');
