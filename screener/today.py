@@ -11,6 +11,7 @@ import json
 import logging
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 log = logging.getLogger("today")
@@ -24,6 +25,45 @@ def _csv(p: Path) -> pd.DataFrame:
         return pd.read_csv(p, dtype={"code": str}) if p.exists() else pd.DataFrame()
     except Exception:  # noqa: BLE001
         return pd.DataFrame()
+
+
+def _sys_stats(pos: pd.DataFrame) -> dict | None:
+    """系統訊號合計（Cowork 0427、分身 0415-cc-ac）：主數字＝全部訊號（持有中按最新收盤估、已出場用實際出場），
+    扣 0.38%；並列同期 0050 含息（訊號日收盤 → 出場訊號日收盤／最新收盤，近似）與超額；照訊號日收盤是否鎖漲停（close_lu）拆兩組。"""
+    p = pos.copy()
+    est = pd.to_numeric(p.est_return_pct, errors="coerce")
+    est = est.where(est.notna() | (p.status != "open"), 0.0)   # 今天才出的訊號：進場價＝今天收盤，浮動 0
+    p = p[est.notna()].copy()
+    if p.empty:
+        return None
+    p["ret"] = est[p.index] - 0.38
+    tr = pd.Series(dtype=float)
+    try:
+        b = pd.read_csv(EX / "bench.csv", dtype={"code": str})
+        tr = b[b.code.isin(["0050", "50"]) & b.tr.notna()].set_index("date").tr.astype(float).sort_index()
+    except Exception:  # noqa: BLE001
+        pass
+    if len(tr):
+        idx = list(tr.index)
+
+        def at(d):   # 當天或之前最近一個交易日的 tr（日期是字串，不能用 Series.asof）
+            if not isinstance(d, str) or d < idx[0]:
+                return np.nan
+            return float(tr.iloc[np.searchsorted(idx, d, side="right") - 1])
+        end = p.exit_signal_date.where(p.exit_signal_date.notna(), idx[-1])
+        t0, t1 = p.signal_date.map(at), end.map(at)
+        p["bench"] = (t1 / t0 - 1) * 100
+    else:
+        p["bench"] = np.nan
+    lu = pd.to_numeric(p.get("close_lu"), errors="coerce")
+    f = lambda x: None if x is None or x != x else round(float(x), 2)
+    out = {"n": int(len(p)), "avg": f(p.ret.mean()), "med": f(p.ret.median()), "bench": f(p.bench.mean()),
+           "ex": f((p.ret - p.bench).mean()), "n_open": int((p.status == "open").sum()),
+           "n_lu": int((lu == 1).sum()), "n_nolu": int((lu == 0).sum()),
+           "lu_avg": f(p.ret[lu == 1].mean()), "nolu_avg": f(p.ret[lu == 0].mean()),
+           "since": str(p.signal_date.min())}
+    out["win"] = int(round(float((p.ret > 0).mean()) * 100)) if len(p) >= 30 else None
+    return out
 
 
 def build() -> dict:
@@ -70,7 +110,8 @@ def build() -> dict:
         r = pd.to_numeric(done.est_return_pct, errors="coerce").dropna() - 0.38
         if len(r):
             out["closed"] = {"n": int(len(r)), "avg": round(float(r.mean()), 2), "med": round(float(r.median()), 2),
-                             "win": int(round(float((r > 0).mean()) * 100))}
+                             "win": int(round(float((r > 0).mean()) * 100)) if len(r) >= 30 else None}
+        out["sys"] = _sys_stats(pos)
     out.update({"hold": hold, "exits": exits, "today_sig": today_sig})
     # Cowork 虛擬帳戶（協作板 ledger_daily → 本尊 16:25 commit 成 data/ledger/YYYY-MM-DD.json，Cowork 0027 格式）
     lf = sorted((DATA / "ledger").glob("20??-??-??.json")) if (DATA / "ledger").exists() else []
@@ -129,19 +170,23 @@ const L={green:'🟢 綠燈',yellow:'🟡 黃燈',red:'🔴 紅燈'};
 const rows=[];const add=(ic,html,ts,stale)=>rows.push(`<div class="row${stale?' stale':''}"><span class="ic">${ic}</span><span class="tx">${html}</span><span class="ts">${E(ts||'')}</span></div>`);
 function regime(){const r=T.regime,w=T.ew;
   if(r)add('🚦',`大盤燈號 <b>${L[r.light]||E(r.light)}</b>（${E(r.light_since||'')} 起）${r.stale_core&&r.stale_core.length?'・<b>資料落後</b>':''}${w&&w.above?`・等權指數在 200 日線上 <b class="num">${P(w.dev)}</b>`:''} <a href="macro.html">大環境 →</a>`,r.date);
-  if(w&&!w.above)add('🌧',`<b>盤勢線下</b>：全市場等權指數收在 200 日線下 <b class="num">${P(w.dev)}</b>（${E(String(w.since).slice(5))} 起 ${w.streak} 天）。突破策略在線下的歷史平均約 0、樣本不足，只提醒、部位不自動砍 <a href="macro.html#ew">看圖 →</a>`,w.judged_on)}
+  if(w&&!w.above)add('🌧',`<b>盤勢線下</b>：全市場等權指數收在 200 日線下 <b class="num">${P(w.dev)}</b>（${E(String(w.since).slice(5))} 起 ${w.streak} 天）。線下沒有可靠的超額（月t 為負）、樣本不足，只提醒、部位不自動砍 <a href="macro.html#ew">看圖 →</a>`,w.judged_on)}
 function overnight(){const s=T.sox,t=T.tsm;if(!s&&!t)return;add('🌙',`昨夜費半 <b class="num">${P(s&&s.chg)}</b>${t?`・台積電 ADR <b class="num">${P(t.chg)}</b>${t.tw2330?`（換算台積電約 <b class="num">${t.tw2330}</b>）`:''}`:''} <a href="us.html">美股隔夜 →</a>`,(s||t).date)}
 function ledgerLine(kind){const G=T.ledger;if(!G)return false;const N=G.names||{};
   if(kind==='pre'){const Q=G.pending||[];add('🧾',Q.length?`虛擬帳戶今天要執行 <b>${Q.length}</b> 筆：${Q.slice(0,4).map(q=>`${q.side==='buy'?'買':'賣'} <a href="${S(q.code)}">${E(N[q.code]||q.code)}</a>`).join('、')}`:'虛擬帳戶今天沒有要執行的單',G.date);return true}
   add('🧾',`虛擬帳戶今天 <b class="num">${P(G.ret_today)}</b>（0050 含息 ${P(G.bench_tr_today)}）・累計 <b class="num">${P(G.ret_cum)}</b>${G.core_ret_cum!=null?`（核心選股 ${P(G.core_ret_cum)}）`:''} vs 0050 ${P(G.bench_tr_cum)}${G.bench_base_date?`（從 ${E(String(G.bench_base_date).slice(5))} 收盤起算）`:''}・持倉 ${G.n_pos} 檔`+((G.exits_tomorrow||[]).length?`・明天要出場 ${G.exits_tomorrow.map(c=>`<a href="${S(c)}">${E(N[c]||c)}</a>`).join('、')}`:''),G.date);return true}
 function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉：<b>0</b> 檔',ts,stale);return}
   const r=H.filter(x=>x.ret!=null),avg=r.length?r.reduce((a,x)=>a+x.ret,0)/r.length:null,worst=r.slice().sort((a,b)=>a.ret-b.ret)[0];
-  const C=T.closed;
-  add('💼',`系統訊號持倉（非虛擬帳戶）<b class="num">${H.length}</b> 檔・浮動平均 <b class="num">${P(avg)}</b>${worst?`・最差 <a href="${S(worst.code)}">${E(worst.name)}</a> <b class="num">${P(worst.ret)}</b>`:''}`+
-   (C&&C.n?`<br><span style="font-size:13px;opacity:.8">已出場 <b class="num">${C.n}</b> 筆：平均 <b class="num">${P(C.avg)}</b>、中位 ${P(C.med)}、賺錢 ${C.win}%（扣 0.38% 成本）。持倉中的是浮動，輸的會被量縮規則先賣掉，所以持倉平均會偏好看。</span>`:''),ts,stale)}
+  const C=T.closed,Y=T.sys;
+  const head=Y&&Y.n?`系統訊號（非虛擬帳戶，${E(String(Y.since).slice(5))} 起）合計 <b class="num">${Y.n}</b> 筆：平均 <b class="num">${P(Y.avg)}</b>、中位 ${P(Y.med)}${Y.win!=null?`、賺錢 ${Y.win}%`:''}；同期 0050 含息 ${P(Y.bench)}、超額 <b class="num">${P(Y.ex)}</b>`
+    :`系統訊號持倉（非虛擬帳戶）<b class="num">${H.length}</b> 檔・浮動平均 <b class="num">${P(avg)}</b>`;
+  const sub=[`持有中 ${H.length} 檔${worst?`（最差 <a href="${S(worst.code)}">${E(worst.name)}</a> ${P(worst.ret)}）`:''}`,
+    C&&C.n?`已出場 ${C.n} 筆 ${P(C.avg)}（早出場先天偏負：回測 1～3 天出場平均 −2.8%）`:'',
+    Y&&(Y.n_lu||Y.n_nolu)?`收盤鎖漲停 ${Y.n_lu} 筆 ${P(Y.lu_avg)}（排隊多半排不到）、沒鎖 ${Y.n_nolu} 筆 ${P(Y.nolu_avg)}（回測超額 −0.3%）`:''].filter(Boolean);
+  add('💼',head+`<br><span style="font-size:13px;opacity:.8">${sub.join('｜')}。持有中按收盤估、扣 0.38%。</span>`,ts,stale)}
 function exitsLine(when){const X=T.exits||[];if(!X.length)return;add('🚪',`${when}開盤要賣 <b>${X.length}</b> 檔：${X.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${X.length>4?' 等':''}`,T.tw_date)}
 function eventsLine(){const V=T.events||[];if(!V.length)return;add('📌',V.slice(0,4).map(v=>`${v.date?E(v.date.slice(5))+' ':''}<a href="${S(v.code)}">${E(v.name)}</a> ${E(v.kind)}${v.note?'（'+E(v.note)+'）':''}`).join('、')+(V.length>4?` 等 ${V.length} 件`:'')+'（只列持倉與長期 Top 20）',T.tw_date)}
-function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 訊號（<b>觀察</b>，5 年回測買得到的那 4 成平均 −0.4%）<b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
+function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 訊號（<b>只記錄</b>：鎖漲停的排不到、沒鎖的歷史超額為負）<b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
 function draw(title){el.innerHTML=`<h2>📍 今天重點<span>${title}</span></h2>`+(rows.length?rows.slice(0,6).join(''):'<div class="row"><span class="ic">✅</span><span class="tx">今天沒事</span></div>')+'<div id="wlrow"></div>'+TOOLS;el.hidden=false;watch()}
 const TOOLS='<div class="tools">'+[['screen.html','🧮 自訂選股'],['map.html','🗺 市場地圖'],['etf.html','🧺 ETF 專區'],['compare.html','⚖ 個股比較'],['watch.html','⭐ 我的自選']].map(([h,t])=>`<a href="${h}">${t}</a>`).join('')+'</div>';
 // 自選股（存在這台瀏覽器；個股頁按 ☆ 加入）：最近收盤漲跌、今天上榜的策略、處置／除權息
