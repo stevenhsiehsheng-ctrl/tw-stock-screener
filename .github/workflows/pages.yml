@@ -17,6 +17,7 @@ on:
       - screener/stockpage.py
       - screener/chipspage.py
       - screener/exdivpage.py
+      - screener/screenpage.py
       - screener/usx.py
       - screener/stock_page.html
       - screener/sitenav.py
