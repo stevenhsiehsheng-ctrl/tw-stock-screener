@@ -793,6 +793,9 @@ def main():
     ap.add_argument("--oddlot-days", type=int, metavar="N", help="盤後零股往回補 N 個交易日（存 oddlot_hist.csv.gz）")
     ap.add_argument("--rev-months", type=int, metavar="N", help="月營收往回補 N 個月（研究用，存 rev_5y.csv.gz）")
     ap.add_argument("--inst-years", type=float, metavar="N", help="三大法人往回補 N 年（研究用，存 inst_5y.csv.gz；每次最多 25 分鐘，重跑會接著補）")
+    ap.add_argument("--dt-years", type=float, metavar="N", help="當沖往回補 N 年（研究用，存 daytrade_5y.csv.gz；重跑會接著補）")
+    ap.add_argument("--dt-budget", type=float, default=25, help="--dt-years 這次最多跑幾分鐘")
+    ap.add_argument("--bt", help="--dt-years 用：回測檔路徑（舊年份的成交量）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     if a.rev_months:
@@ -806,6 +809,10 @@ def main():
     if a.inst_years:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
         print("法人長歷史", backfill_inst_long(_session(), d, a.inst_years), "天")
+        return
+    if a.dt_years:
+        d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()
+        print("當沖長歷史", _chips().backfill_daytrade_long(_session(), d, a.dt_years, a.dt_budget, a.bt), "天")
         return
     if a.dispo_years or a.attn_years:
         d = dt.date.fromisoformat(a.date) if a.date else dt.date.today()

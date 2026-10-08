@@ -8,6 +8,9 @@ on:
       days:
         description: "融資融券／當沖往前補幾個交易日"
         default: "250"
+      dt_years:
+        description: "改成只補當沖長歷史幾年（研究用，存 daytrade_5y.csv.gz，一次最多跑 130 分鐘，沒補完再跑一次；留空＝照舊補融資融券）"
+        default: ""
 
 permissions:
   contents: write
@@ -30,7 +33,13 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: 補抓
+        if: ${{ inputs.dt_years == '' || inputs.dt_years == null }}
         run: python -m screener.enrich --backfill-chips ${{ inputs.days }} --date "$(TZ=Asia/Taipei date +%F)"
+      - name: 當沖長歷史
+        if: ${{ inputs.dt_years != '' && inputs.dt_years != null }}
+        run: |
+          git fetch origin backtest-data && git show origin/backtest-data:backtest.csv.gz > /tmp/bt.csv.gz || true
+          python -m screener.enrich --dt-years "${{ inputs.dt_years }}" --dt-budget 130 --bt /tmp/bt.csv.gz --date "$(TZ=Asia/Taipei date +%F)"
       - name: 存檔
         if: always()
         run: |
