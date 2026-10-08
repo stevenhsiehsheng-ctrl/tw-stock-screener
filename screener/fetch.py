@@ -494,6 +494,37 @@ def backfill_etf_tr(years: int = 6) -> int:
     return len(got)
 
 
+ETF_LONG_F = ROOT / "data" / "extras" / "etf_long.csv.gz"
+ETF_LONG = ["0050", "0056", "006208", "00878", "00919", "0052"]
+
+
+def backfill_etf_long(start: str = "2007-01-01") -> int:
+    """長歷史（研究用，Cowork 1456 高股息題）：幾檔 ETF 從 2007 起的日 K，原始收盤＋配息再投入收盤（auto_adjust）
+    → data/extras/etf_long.csv.gz（date, code, close, adj）。回傳檔數。"""
+    import yfinance as yf
+
+    frames = []
+    for c in ETF_LONG:
+        t = c + ".TW"
+        raw = yf.download(t, start=start, auto_adjust=False, progress=False)
+        adj = yf.download(t, start=start, auto_adjust=True, progress=False)
+        if raw.empty or adj.empty:
+            log.warning("ETF 長歷史 %s 抓不到", c)
+            continue
+        cl = raw["Close"].squeeze().rename("close")
+        ad = adj["Close"].squeeze().rename("adj")
+        df = pd.concat([cl, ad], axis=1).dropna()
+        frames.append(pd.DataFrame({"date": df.index.strftime("%Y-%m-%d"), "code": c,
+                                    "close": df.close.round(3).values, "adj": df.adj.round(4).values}))
+        time.sleep(2)
+    if not frames:
+        raise SourceUnavailable("Yahoo 抓不到 ETF 長歷史")
+    out = pd.concat(frames, ignore_index=True)
+    out.to_csv(ETF_LONG_F, index=False, compression="gzip")
+    log.info("ETF 長歷史：%s", out.groupby("code").date.agg(["min", "max", "size"]).to_dict("index"))
+    return out.code.nunique()
+
+
 def load_history() -> pd.DataFrame:
     if HISTORY_FILE.exists():
         return pd.read_csv(HISTORY_FILE, dtype={"code": str})
