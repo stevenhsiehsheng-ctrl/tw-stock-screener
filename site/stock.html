@@ -54,7 +54,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:13.5px}
 </head>
 <body>
 <main>
-<style>.sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 16px;padding:0 0 12px;border-bottom:1px solid rgba(128,128,128,.25);font-size:13px;line-height:1.4}.sitenav a{padding:4px 11px;border-radius:999px;text-decoration:none;color:inherit;background:rgba(128,128,128,.13);white-space:nowrap;cursor:pointer}.sitenav a:hover{background:rgba(128,128,128,.24)}.sitenav a.on{background:#2f5bd3;color:#fff;font-weight:600}.sitenav i{width:1px;height:18px;background:rgba(128,128,128,.35);margin:0 4px}@media(max-width:560px){.sitenav i{display:none}}</style><nav class='sitenav'><a href='live.html'>⚡ 盤中即時</a><a href='index.html'>📊 每日篩選</a><a class='on' href='stock.html'>🔎 個股查詢</a><a href='#' onclick='return openClaude()'>🔒 Claude 研判</a><i></i><a href='weekly/index.html'>📅 市場週報</a><a href='macro.html'>🌏 大環境</a><a href='chips.html'>🏦 法人籌碼</a><a href='exdiv.html'>💰 除權息</a><a href='usx.html'>🇺🇸 美股篩選</a><a href='us.html'>🌙 美股隔夜</a><a href='revdrift.html'>📈 營收漂移</a><a href='longterm.html'>🌱 長期 Top 20</a><i></i><a href='gifts.html'>🎁 股東紀念品</a><a href='archive.html'>🗂 歷史報表</a></nav><script src='claude_link.js'></script>
+<style>.sitenav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 16px;padding:0 0 12px;border-bottom:1px solid rgba(128,128,128,.25);font-size:13px;line-height:1.4}.sitenav a{padding:4px 11px;border-radius:999px;text-decoration:none;color:inherit;background:rgba(128,128,128,.13);white-space:nowrap;cursor:pointer}.sitenav a:hover{background:rgba(128,128,128,.24)}.sitenav a.on{background:#2f5bd3;color:#fff;font-weight:600}.sitenav i{width:1px;height:18px;background:rgba(128,128,128,.35);margin:0 4px}@media(max-width:560px){.sitenav i{display:none}}.sitenav form{margin:0 0 0 auto}.sitenav input{font:inherit;padding:4px 11px;border-radius:999px;width:150px;border:1px solid rgba(128,128,128,.35);background:transparent;color:inherit}@media(max-width:560px){.sitenav form{flex:1 1 100%;margin:2px 0 0}.sitenav input{width:100%;box-sizing:border-box}}</style><nav class='sitenav'><a href='live.html'>⚡ 盤中即時</a><a href='index.html'>📊 每日篩選</a><a class='on' href='stock.html'>🔎 個股查詢</a><a href='#' onclick='return openClaude()'>🔒 Claude 研判</a><i></i><a href='weekly/index.html'>📅 市場週報</a><a href='macro.html'>🌏 大環境</a><a href='chips.html'>🏦 法人籌碼</a><a href='exdiv.html'>💰 除權息</a><a href='usx.html'>🇺🇸 美股篩選</a><a href='us.html'>🌙 美股隔夜</a><a href='revdrift.html'>📈 營收漂移</a><a href='longterm.html'>🌱 長期 Top 20</a><i></i><a href='gifts.html'>🎁 股東紀念品</a><a href='archive.html'>🗂 歷史報表</a></nav><script src='claude_link.js'></script>
 <form class="search" id="f"><input id="q" list="dl" placeholder="代號或名稱：2330、台玻、NVDA、蘋果" autocomplete="off"><button>查詢</button></form>
 <datalist id="dl"></datalist>
 <div class="recent" id="wl"></div>
@@ -82,7 +82,10 @@ function resolve(q){q=q.trim();if(!q)return null;const code=q.split(/\s+/)[0].to
 $('#f').onsubmit=async e=>{e.preventDefault();await loadIndex();const c=resolve($('#q').value);
   if(!c){$('#out').innerHTML=`<p class="empty">找不到「${esc($('#q').value)}」。</p>`;return}
   history.pushState(null,'','?code='+c);show(c)};
-window.onpopstate=()=>{const c=new URLSearchParams(location.search).get('code');if(c)show(c)};
+/* 網址帶名稱（例如導覽列搜尋 ?code=台積電）也能開：先解析成代號，網址換成代號 */
+function fromURL(){const c=new URLSearchParams(location.search).get('code');if(!c)return null;const r=resolve(c);
+  if(r&&r!==c)history.replaceState(null,'','?code='+r);if(!r&&!/^[0-9A-Za-z]{4,6}$/.test(c)&&INDEX.s.length){$('#q').value=c;$('#out').innerHTML=`<p class="empty">找不到「${esc(c)}」。</p>`;return null}return r||c}
+window.onpopstate=()=>{const c=fromURL();if(c)show(c)};
 
 /* ---------- 圖：共用 hover ---------- */
 function hover(box,svg,n,xAt,tipHtml,onMove){const tip=document.createElement('div');tip.className='tip';box.appendChild(tip);
@@ -257,7 +260,7 @@ function charts(){const o=CUR;if(!o)return;priceChart($('#cpx'),o);
   if(o.inst&&o.inst.length)divBars($('#cinst'),o.inst.map(x=>[x[0],x[1]]),'外資買賣超',' 張',0);
   if(o.inst_long)lines($('#cinstl'),o.inst_long.d,[['外資累計',o.inst_long.f,'--s1'],['投信累計',o.inst_long.t,'--warn']],' 張')}
 let LASTW=0;window.addEventListener('resize',()=>{clearTimeout(RT);RT=setTimeout(()=>{const w=$('#cpx')?.clientWidth;if(w&&w!==LASTW){LASTW=w;charts()}},200)});
-(async()=>{drawRecent();drawWL();await loadIndex();const c=new URLSearchParams(location.search).get('code');
+(async()=>{drawRecent();drawWL();await loadIndex();const c=fromURL();
   if(c)show(c);else $('#q').focus()})();
 </script>
 </body>
