@@ -99,6 +99,19 @@ def update() -> int:
                 df = pd.concat([df, add], ignore_index=True)
         except Exception as e:  # noqa: BLE001
             log.warning("證交所補加權指數失敗：%s", e)
+    # 0050.TW 同理（分身 0815）：直接取 data/extras/bench.csv（每天從官方行情切出來、已是分割後口徑）。
+    # Yahoo 最新一根的 close_adj 本來就等於 close，所以補的列 close_adj＝close。
+    e_last = df.loc[df.sym == "0050.TW", "date"].max() if (df.sym == "0050.TW").any() else ""
+    if tw_done and e_last and tw_done > e_last:
+        try:
+            b = pd.read_csv(ROOT / "data" / "extras" / "bench.csv", dtype={"code": str})
+            b = b[(b.code.str.zfill(4) == "0050") & (b.date > e_last) & (b.date <= tw_done)]
+            if len(b):
+                add = pd.DataFrame({"date": b.date, "sym": "0050.TW", "close": b.close.round(4), "close_adj": b.close.round(4)})
+                log.warning("0050.TW Yahoo 只到 %s，用 bench.csv 補 %s", e_last, add.date.tolist())
+                df = pd.concat([df, add], ignore_index=True)
+        except Exception as e:  # noqa: BLE001
+            log.warning("bench.csv 補 0050 失敗：%s", e)
     DATA.mkdir(parents=True, exist_ok=True)
     df.sort_values(["sym", "date"]).to_csv(LONG, index=False, compression="gzip")
     return len(df)
