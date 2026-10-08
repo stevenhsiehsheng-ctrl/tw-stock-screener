@@ -138,7 +138,7 @@ const T=[['c','代號'],['n','名稱'],['t','類型'],['px','價格'],['d1','今
 const KD=['全部','股票','債券','主動','槓桿反向','商品期貨'];let S={k:'全部',sort:'val20',dir:-1};
 function freq(n){return n>=10?'m':n>=4?'q':n>=1?'h':'0'}
 function cell(r,k){const v=r[IX[k]];switch(k){
- case 'c':return `<td class="l"><b>${esc(v)}</b></td>`;case 'n':return `<td class="l">${esc(v)}</td>`;case 't':return `<td class="l"><span class="tag">${esc(v)}</span>${r[IX.bad]?' <span class="tag" title="一年內有單日漲跌超過 50%（多半是分割、合併或資料錯），長期報酬先不算">⚠️ 資料可疑</span>':''}</td>`;
+ case 'c':return `<td class="l"><a href="stock.html?code=${esc(v)}"><b>${esc(v)}</b></a></td>`;case 'n':return `<td class="l">${esc(v)}</td>`;case 't':return `<td class="l"><span class="tag">${esc(v)}</span>${r[IX.bad]?' <span class="tag" title="一年內有單日漲跌超過 50%（多半是分割、合併或資料錯），長期報酬先不算">⚠️ 資料可疑</span>':''}</td>`;
  case 'px':return `<td>${f(v)}</td>`;case 'd1':return `<td>${sg(v,2)}</td>`;case 'r20':case 'r250':case 'tr250':return `<td>${sg(v)}</td>`;
  case 'y12':return `<td>${v?'<b>'+f(v)+'%</b>':'—'}</td>`;case 'nd':return `<td>${v||'—'}</td>`;
  case 'last':return `<td>${v==null?'—':f(v,v<1?3:2)+` <span class="meta">${esc((r[IX.lastd]||'').slice(2))}</span>`}</td>`;
@@ -154,7 +154,7 @@ function run(){const q=$('q').value.trim().toLowerCase(),fq=$('fq').value,liq=$(
  $('bd').innerHTML=out.map(r=>'<tr>'+T.map(([k])=>cell(r,k)).join('')+'</tr>').join('')||`<tr><td class="l" colspan="${T.length}">沒有符合的</td></tr>`}
 $('kinds').innerHTML=KD.map(k=>`<button class="${k===S.k?'on':''}">${k}</button>`).join('');
 $('kinds').querySelectorAll('button').forEach(b=>b.onclick=()=>{S.k=b.textContent;$('kinds').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));run()});
-$('hot').innerHTML=R.slice().sort((a,b)=>(b[IX.val20]||0)-(a[IX.val20]||0)).slice(0,10).map(r=>`<div class="tile"><b>${esc(r[IX.c])}</b> ${esc(r[IX.n])}<br>${f(r[IX.px])} ${sg(r[IX.d1],2)}・一年含息 ${sg(r[IX.tr250])}<br><span class="meta">殖利率 ${r[IX.y12]?f(r[IX.y12])+'%':'—'}・成交 ${f(r[IX.val20],1)} 億/天</span></div>`).join('');
+$('hot').innerHTML=R.slice().sort((a,b)=>(b[IX.val20]||0)-(a[IX.val20]||0)).slice(0,10).map(r=>`<div class="tile"><a href="stock.html?code=${esc(r[IX.c])}"><b>${esc(r[IX.c])}</b> ${esc(r[IX.n])}</a><br>${f(r[IX.px])} ${sg(r[IX.d1],2)}・一年含息 ${sg(r[IX.tr250])}<br><span class="meta">殖利率 ${r[IX.y12]?f(r[IX.y12])+'%':'—'}・成交 ${f(r[IX.val20],1)} 億/天</span></div>`).join('');
 $('q').oninput=run;$('fq').onchange=run;$('liq').onchange=run;run();
 </script></body></html>"""
 

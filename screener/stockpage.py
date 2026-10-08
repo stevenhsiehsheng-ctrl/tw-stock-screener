@@ -258,11 +258,74 @@ def build(out_dir: Path) -> int:
         idx.append([c, r.name])
         n += 1
     try:
+        n += build_etf(sd, idx, G)
+    except Exception as e:  # noqa: BLE001
+        log.warning("ETF 個股頁失敗：%s", e)
+    try:
         n += build_us(sd, idx)
     except Exception as e:  # noqa: BLE001
         log.warning("美股個股頁失敗：%s", e)
     (sd / "index.json").write_text(json.dumps({"asof": asof, "dt_day": dt_day, "s": idx},
                                               ensure_ascii=False, separators=(",", ":")), "utf-8")
+    return n
+
+
+def build_etf(sd: Path, idx: list, G: dict) -> int:
+    """台股 ETF（data/extras/etf.csv.gz）：價量、配息紀錄與填息、下次除息、法人、融資，配息摘要跟 ETF 專區同一份算法。"""
+    f = EX / "etf.csv.gz"
+    if not f.exists():
+        return 0
+    from . import etfpage
+    e = pd.read_csv(f, dtype={"code": str}).sort_values(["code", "date"])
+    eg = _by_code(e)
+    d = etfpage.build() or {"cols": [], "rows": []}
+    ix = {k: i for i, k in enumerate(d["cols"])}
+    summ = {r[0]: r for r in d["rows"]}
+    xd = _read(EX / "exdiv_5y.csv.gz")
+    XD = _by_code(xd[xd.kind.astype(str).str.contains("息")]) if xd is not None else {}
+    up = _read(EX / "exdiv_upcoming.csv")
+    UP = _by_code(up) if up is not None else {}
+    n = 0
+    for c, r in summ.items():
+        g = eg.get(c)
+        if g is None or (sd / f"{c}.json").exists():
+            continue
+        g = g.dropna(subset=["close"]).tail(260)
+        if g.empty:
+            continue
+        S = {k: r[i] for k, i in ix.items()}
+        o = {"code": c, "name": S["n"], "kind": "ETF", "market": "ETF", "industry": f"ETF・{S['t']}",
+             "asof": g.date.iloc[-1], "last": g.date.iloc[-1],
+             "px": {"d": g.date.tolist(), "c": [_r(x) for x in g.close], "v": [int(x // 1000) for x in g.volume.fillna(0)]},
+             "hi52": _r(g.high.max()), "lo52": _r(g.low.min()),
+             "etf": {k: S.get(k) for k in ("r20", "r250", "tr250", "div12", "y12", "nd", "val20", "bad")}}
+        if len(g) >= 2:
+            o["chg"] = _r((g.close.iloc[-1] / g.close.iloc[-2] - 1) * 100)
+        cl = g.set_index("date").close
+        if (x := XD.get(c)) is not None:
+            rows = []
+            for a in x.sort_values("date").tail(16).itertuples():
+                after = cl[cl.index >= a.date]
+                fill = None
+                if len(after) and cl.index[0] <= a.date and pd.notna(a.prev_close):
+                    hit = np.flatnonzero(after.values >= float(a.prev_close) - 1e-9)
+                    fill = int(hit[0]) + 1 if len(hit) else 0
+                rows.append([a.date, "息", _r(a.value, 4), 0.0, fill])
+            o["exdiv"] = rows
+        if (x := UP.get(c)) is not None:
+            x = x[x.date > o["last"]].sort_values("date")
+            if len(x):
+                o["exdiv_next"] = [[a.date, a.kind, _r(a.cash_div, 4)] for a in x.itertuples()]
+        if (x := G["inst"].get(c)) is not None:
+            x = x.sort_values("date").tail(60)
+            o["inst"] = [[dd, _r(ff, 0), _r(t, 0), _r(de, 0)] for dd, ff, t, de in zip(x.date, x.foreign, x.trust, x.dealer)]
+        if (x := G["marg"].get(c)) is not None:
+            x = x.sort_values("date").tail(60)
+            o["margin"] = [[dd, _r(m, 0), _r(sh, 0)] for dd, m, sh in zip(x.date, x.margin_bal, x.short_bal)]
+        (sd / f"{c}.json").write_text(json.dumps(o, ensure_ascii=False, separators=(",", ":"), default=str), "utf-8")
+        idx.append([c, o["name"]])
+        n += 1
+    log.info("ETF 個股頁：%d 檔", n)
     return n
 
 
