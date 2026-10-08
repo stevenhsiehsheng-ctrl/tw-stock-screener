@@ -64,13 +64,43 @@ def render(current: str, available: set[str], prefix: str = "", need_js: bool = 
     return CSS + "<nav class='sitenav'><div class='links'>" + "".join(out) + "</div>" + form + "</nav>" + CENTER + js
 
 
+# 分享到 LINE／臉書時的預覽（標題、說明）和分頁小圖示；每頁只加一次
+DESC = {"daily": "每天收盤後篩選台股，策略都附 5 年回測成績，沒過驗證的照實標示。",
+        "live": "盤中每 3 分鐘更新：異動通知、族群熱度、13:12 訊號（觀察）。",
+        "stock": "一頁看完一檔：K 線、估值位階、月營收、法人籌碼、配息與填息。",
+        "watch": "自己的自選股一張表：漲跌、估值位階、下次除息、外資動向。",
+        "screen": "全部上市櫃股票自己設條件篩：本益比、殖利率、營收、強弱、法人，條件可分享。",
+        "map": "台股市場地圖：產業分組，方塊大小＝市值，紅漲綠跌。",
+        "compare": "最多 4 檔並排比較：走勢、估值位階、營收、法人。",
+        "etf": "全部台股 ETF：含息總報酬、近 12 月殖利率、配息頻率、填息天數。",
+        "exdiv": "除權息行事曆：殖利率、上次填息天數、過去一年填息統計。",
+        "chips": "三大法人買賣超排行、產業資金流向。",
+        "macro": "大環境：大盤燈號、美債、美元、費半、VIX、外資、融資、景氣燈號。"}
+ICON = ("<link rel='icon' href=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>"
+        "<text y='.9em' font-size='90'>📈</text></svg>\">")
+
+
+def _head(s: str, key: str) -> str:
+    if "og:title" in s or "</title>" not in s:
+        return s
+    t = re.search(r"<title>(.*?)</title>", s, re.S)
+    title = (t.group(1).strip() if t else "台股篩選")
+    desc = DESC.get(key, "台股每日篩選、盤中監控、個股查詢與研究。")
+    tags = (f"<meta name='description' content='{desc}'><meta property='og:title' content='{title}'>"
+            f"<meta property='og:description' content='{desc}'><meta property='og:type' content='website'>"
+            + ("" if "rel='icon'" in s or 'rel="icon"' in s else ICON))
+    return s.replace("</title>", "</title>" + tags, 1)
+
+
 def apply(site_dir: Path) -> None:
-    """把 site 底下所有頁面的導覽標記換成導覽列。"""
+    """把 site 底下所有頁面的導覽標記換成導覽列，順便補分享預覽標籤。"""
     available = {str(p.relative_to(site_dir)).replace("\\", "/") for p in site_dir.rglob("*.html")}
     for p in site_dir.rglob("*.html"):
         s = p.read_text("utf-8")
         if "<!--SITENAV:" not in s:
             continue
         need_js = "claude_link.js" not in MARK.sub("", s)
+        m0 = MARK.search(s)
+        s = _head(s, m0.group(1) if m0 else "")
         s = MARK.sub(lambda m: render(m.group(1), available, m.group(2) or "", need_js), s)
         p.write_text(s, "utf-8")
