@@ -13,6 +13,9 @@ on:
         description: "不重抓 Yahoo，只在現有回測檔上補期間內下市的股票"
         type: boolean
         default: false
+      extend_start:
+        description: "不重抓整段：現有回測檔往前延伸到這天（YYYY-MM-DD）並補資料洞；填 holes 就只補洞"
+        default: ""
 
 permissions:
   contents: write
@@ -31,7 +34,17 @@ jobs:
       - name: 下載
         timeout-minutes: 330   # 留時間給下一步存檔
         run: |
-          if [ "${{ inputs.delisted_only }}" = "true" ]; then
+          if [ -n "${{ inputs.extend_start }}" ]; then
+            git fetch origin backtest-data
+            git show origin/backtest-data:backtest.csv.gz > /tmp/old.csv.gz
+            git show origin/backtest-data:delisted.csv > /tmp/delisted.csv || true
+            S="${{ inputs.extend_start }}"
+            if [ "$S" = "holes" ]; then
+              python -m screener.backfill --extend /tmp/old.csv.gz --out /tmp/backtest.csv.gz
+            else
+              python -m screener.backfill --extend /tmp/old.csv.gz --start "$S" --out /tmp/backtest.csv.gz
+            fi
+          elif [ "${{ inputs.delisted_only }}" = "true" ]; then
             git fetch origin backtest-data
             git show origin/backtest-data:backtest.csv.gz > /tmp/old.csv.gz
             python -m screener.backfill --append-delisted /tmp/old.csv.gz --out /tmp/backtest.csv.gz --budget-min 300
@@ -50,5 +63,7 @@ jobs:
           cp /tmp/backtest.csv.gz backtest.csv.gz
           git add backtest.csv.gz
           if [ -e /tmp/delisted.csv ]; then cp /tmp/delisted.csv delisted.csv; git add delisted.csv; fi
+          # 上一版留一份，延伸／補洞出問題可以退回
+          if [ -s /tmp/old.csv.gz ]; then cp /tmp/old.csv.gz backtest_prev.csv.gz; git add backtest_prev.csv.gz; fi
           git commit -m "回測資料 $(date +%F)"
           git push -f origin backtest-data
