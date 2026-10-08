@@ -14,9 +14,10 @@
   - 只限線上：同在線下樣本夠，而且 平均≤0 或 月 t<0 → 原則要加註「只限等權在 200 日線上」
 
 用法：
-  from tools.btstats import summarize
+  from tools.btstats import summarize, account
   print(summarize(df, ret="ex5"))      # df：date（進場日 YYYY-MM-DD）＋報酬欄（%，已扣成本、已減對照組）
   python -m tools.btstats events.csv --ret ex5 [--date date]
+  print(account(equity))               # 帳戶級：每日權益序列（index＝日期），印全部＋兩段 總報酬／最大回撤／月 t
 """
 from __future__ import annotations
 
@@ -116,6 +117,31 @@ def summarize(df: pd.DataFrame, ret: str = "ret", date: str = "date", title: str
         lines.append(f"{r.段:<16}{r.N:>7,}{f(r.平均):>8}{f(r.中位):>8}{(f'{r.勝率:.0f}%' if r.勝率 == r.勝率 else '—'):>7}"
                      f"{f(r.月t):>7}{r.月數:>5}  {r.註}")
     lines += ["→ " + x for x in v]
+    return "\n".join(lines)
+
+
+def account(eq: pd.Series, title: str = "") -> str:
+    """帳戶級摘要（分身 2115-cc-ac：帳戶題不是逐筆報酬，summarize 不適用）。
+    eq：每日權益，index＝日期字串。全部＋兩段各印 總報酬、最大回撤、月 t（月底權益算月報酬）、月數。"""
+    eq = eq.dropna().sort_index()
+    eq.index = eq.index.astype(str).str[:10]
+    lines = [title] if title else []
+    lines.append(f"{'段':<16}{'總報酬':>9}{'最大回撤':>9}{'月t':>7}{'月數':>5}")
+    segs = [("全部", eq.index.min(), eq.index.max())] + [(n, lo, hi) for n, lo, hi in HALVES]
+    for name, lo, hi in segs:
+        prev = eq[eq.index < lo]
+        x = eq[(eq.index >= lo) & (eq.index <= hi)]
+        if x.empty:
+            continue
+        base = prev.iloc[-1] if len(prev) else x.iloc[0]
+        tot = (x.iloc[-1] / base - 1) * 100
+        path = pd.concat([pd.Series([base]), x.reset_index(drop=True)])
+        dd = float((path / path.cummax() - 1).min() * 100)
+        me = pd.concat([pd.Series([base], index=["0000-00"]), x.groupby(x.index.str[:7]).last()])
+        mr = me.pct_change().dropna() * 100
+        k = len(mr)
+        t = mr.mean() / (mr.std(ddof=1) / math.sqrt(k)) if k > 1 and mr.std(ddof=1) > 0 else np.nan
+        lines.append(f"{name:<16}{tot:>+8.1f}%{dd:>+8.1f}%{t:>+7.2f}{k:>5}" + ("  樣本不足" if k < MIN_M else ""))
     return "\n".join(lines)
 
 
