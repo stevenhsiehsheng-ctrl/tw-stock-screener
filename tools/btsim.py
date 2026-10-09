@@ -22,6 +22,9 @@
   （超過漲跌停＝沒還原的股本變動、興櫃價、新上市前 5 日）
 - 帳戶：account()——slots 格、每筆開倉時權益 × frac、滿格或現金不夠就跳過；同一天多筆的順序隨機，
   種子＝(seed, 當天日期)（Cowork 2226／2356 定案：排序用隨機，比較兩案用同一組 20 個種子配對算比值）
+  park＝閒錢停車場（Cowork 1157）：daily＝每天把現金全停進 0050 含息／等權指數；weekly＝現金超過 1 格才在週末整筆停、
+  新單錢不夠先賣停車場；成本來回 %＋每筆最低手續費（元，帳戶起始 10 萬）
+- 帳戶題判準：judge()（Cowork 1158：200 種子、幾何比值 95% 下緣 >1、兩段下緣 >1、回撤不深於對照 1pp、最差季 ≥0.97）
 
 用法：
   from tools.btsim import load, signals, trades, account, paired
@@ -33,6 +36,8 @@
   eq = account(P, T, seed=0)              # 每日權益
   r = paired(P, T, T.entry < 100, seeds=20)   # 兩案配對：同種子 variant/base 的總報酬比值
   W = rolling(P, T, window=60, seeds=20)      # 60 日滾動窗：每窗 20 種子總報酬／減 0050 含息／減等權的中位數
+  J = judge(P, T, {"P2": {"park": {"kind": "0050", "mode": "weekly", "cost": 0.25, "min_fee": 20}}}, seeds=200)
+                                              # 帳戶題判準一次印完：比值＋區間、兩段、回撤、最差季、閒錢、停車場交易次數
 對照組另有 ex50＝扣費報酬 − 0050 含息（ew_index.csv 的 tr_0050：etf_long 還原價＋bench.csv 補缺日；
 進場日收盤 → 出場訊號日收盤，少出場日一個隔夜），Cowork 0726：帳戶題、k=60 體檢一律減 0050 含息
 """
@@ -272,18 +277,41 @@ def _prep(P: dict, T: pd.DataFrame, slip: bool = True) -> dict:
     for k, d in enumerate(T.date):
         by_entry.setdefault(di[d], []).append(k)
     sl = (lambda px: slip_pct(px).astype(float)) if slip else (lambda px: np.zeros(len(px)))
+    ew = P["ew"]
+    park = {k: (ew[c].reindex(dates).ffill().bfill().to_numpy(float) if c in ew else np.ones(len(dates)))
+            for k, c in (("0050", "tr_0050"), ("ew", "ew_close"))}
+    wk = pd.to_datetime(pd.Series(dates)).dt.isocalendar()
+    wk = (wk.year * 100 + wk.week).to_numpy()
     return {"dates": dates, "dint": [int(d.replace("-", "")) for d in dates], "CF": P["cf"].to_numpy(),
             "by_entry": by_entry, "xi": np.array([di[x] for x in T.exit_date]), "cens": T.censored.to_numpy(bool),
             "col": np.array([ci[c] for c in T.code]), "entry": T.entry.to_numpy(float), "exit_px": T.exit_px.to_numpy(float),
             "buy": (1 - BUY_COST / 100) / (1 + sl(T.entry.to_numpy(float)) / 100),
-            "sell": 1 - (SELL_COST + sl(T.exit_px.to_numpy(float))) / 100}
+            "sell": 1 - (SELL_COST + sl(T.exit_px.to_numpy(float))) / 100,
+            "park": park, "wend": np.append(wk[1:] != wk[:-1], True)}   # wend：那一週最後一個交易日（週五或假日前）
 
 
-def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str = "random") -> np.ndarray:
-    """從第 s 天（空手）跑到第 e 天，回傳每天收盤權益（起始 1.0）。只有 s～e 之間進場的單；e 那天還抱著的按收盤估。"""
+def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str = "random",
+         park: dict | None = None, stats: dict | None = None) -> np.ndarray:
+    """從第 s 天（空手）跑到第 e 天，回傳每天收盤權益（起始 1.0）。只有 s～e 之間進場的單；e 那天還抱著的按收盤估。
+    park＝閒錢停車場（Cowork 1157；None＝閒錢放著不動，舊口徑）：
+      {"kind": "0050"|"ew", "mode": "daily"|"weekly", "cost": 來回 %, "min_fee": 每筆最低 元, "nav0": 起始 元}
+      kind：0050＝tr_0050 含息、ew＝等權指數 ew_close；停車場一律收盤價進出，一天最多一筆（淨額）
+      daily（P1）：每天收盤把全部現金停進去，新單要錢從停車場出，只就淨變動買賣
+      weekly（P2）：新單現金不夠才賣停車場（賣差額）；每週最後一個交易日收盤，現金超過 1 格（frac×權益）
+                    才把超出的部分整筆買進停車場；其餘時間不動
+      成本：每筆 max(金額 × cost/2, min_fee/nav0)（權益 1.0＝nav0 元），從停車場扣
+    stats：給 dict 就回填 idle（平均 閒錢＋停車場 佔權益 %）、parked（停車場佔權益 %）、park_trades（停車場交易筆數）"""
     CF, col, xi, cens = R["CF"], R["col"], R["xi"], R["cens"]
     cash, held, eq = 1.0, {}, np.empty(e - s + 1)
+    pv, ntr, idle, pk = 0.0, 0, 0.0, 0.0
+    if park:
+        px = R["park"][park.get("kind", "0050")]
+        half = park.get("cost", 0.25) / 200
+        mfee = park.get("min_fee", 0) / park.get("nav0", 100_000)
+        daily = park.get("mode", "daily") == "daily"
     for t in range(s, e + 1):
+        if pv and t > s:
+            pv *= px[t] / px[t - 1]
         if held:
             for k in [k for k in held if xi[k] == t and not cens[k]]:
                 cash += held.pop(k) * R["exit_px"][k] * R["sell"][k]
@@ -291,25 +319,52 @@ def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str
         if cand:
             if order == "random":
                 cand = np.random.default_rng([seed, R["dint"][t]]).permutation(cand)
-            equity = cash + sum(sh * CF[t, col[k]] for k, sh in held.items())
+            equity = cash + pv + sum(sh * CF[t, col[k]] for k, sh in held.items())
             for k in cand:
                 if len(held) >= slots:
                     break
                 amt = frac * equity
-                if cash < amt:
+                if cash + pv < amt:          # 停車場的錢也算可用（不夠才跳過）
                     break
                 held[k] = amt * R["buy"][k] / R["entry"][k]
-                cash -= amt
-        eq[t - s] = cash + sum(sh * CF[t, col[k]] for k, sh in held.items())
+                cash -= amt                  # 現金可以暫時變負＝當天收盤要從停車場賣的差額
+        if park:
+            stock = sum(sh * CF[t, col[k]] for k, sh in held.items())
+            if daily:
+                target = pv + cash
+            elif cash < 0:
+                target = pv + cash
+            elif R["wend"][t] and cash > frac * (cash + pv + stock):
+                target = pv + cash - frac * (cash + pv + stock)
+            else:
+                target = pv
+            delta = target - pv
+            if abs(delta) > 1e-12:
+                fee = max(abs(delta) * half, mfee)
+                cash -= delta
+                pv = target - fee
+                if pv < 0:
+                    cash, pv = cash + pv, 0.0
+                ntr += 1
+            eq[t - s] = cash + pv + stock
+        else:
+            eq[t - s] = cash + sum(sh * CF[t, col[k]] for k, sh in held.items())
+        if stats is not None:
+            idle += (cash + pv) / eq[t - s]
+            pk += pv / eq[t - s]
+    if stats is not None:
+        n = e - s + 1
+        stats.update(idle=idle / n * 100, parked=pk / n * 100, park_trades=ntr, days=n)
     return eq
 
 
 def account(P: dict, T: pd.DataFrame, slots: int = 10, frac: float = 0.10, seed: int = 0,
-            slip: bool = True, order: str = "random") -> pd.Series:
+            slip: bool = True, order: str = "random", park: dict | None = None) -> pd.Series:
     """帳戶級：每日權益（起始 1.0）。T 是 trades() 的輸出（要排除的先濾掉，空格自然讓給下一筆）。
-    出場在出場日開盤先做、進場在當天收盤；同一天多筆順序隨機（種子＝(seed, 日期)），order='given' 照 T 的順序。"""
+    出場在出場日開盤先做、進場在當天收盤；同一天多筆順序隨機（種子＝(seed, 日期)），order='given' 照 T 的順序。
+    park：閒錢停車場（見 _run）。"""
     R = _prep(P, T, slip)
-    return pd.Series(_run(R, 0, len(P["dates"]) - 1, seed, slots, frac, order), index=P["dates"])
+    return pd.Series(_run(R, 0, len(P["dates"]) - 1, seed, slots, frac, order, park), index=P["dates"])
 
 
 def rolling(P: dict, T: pd.DataFrame, window: int = 60, seeds: int = 20, step: int = 1, slots: int = 10,
@@ -356,3 +411,101 @@ def describe_paired(r: pd.DataFrame) -> str:
             f"variant 總報酬 {q(r.variant)}、回撤中位 {r.mdd_variant.median():.1f}%\n"
             f"配對比值 中位 {r.ratio.median():.2f}、p10 {r.ratio.quantile(.1):.2f}、p90 {r.ratio.quantile(.9):.2f}、"
             f"variant 贏的種子 {(r.ratio > 1).sum()}/{len(r)}")
+
+
+# ------------------------------------------------------------------ 帳戶題判準（Cowork 1158 改版）
+_G: dict = {}
+
+
+def _one(args):
+    """一個種子、一個方案：全期權益（第一個訊號日才開帳，之前補 1.0）＋每個完整季從空手重開的季報酬。"""
+    seed, kw = args
+    R, n, qs, s0 = _G["R"], len(_G["R"]["dates"]), _G["qs"], _G["s0"]
+    st: dict = {}
+    eq = np.ones(n)
+    eq[s0:] = _run(R, s0, n - 1, seed, kw.get("slots", 10), kw.get("frac", 0.10), park=kw.get("park"), stats=st)
+    rq = [_run(R, a, b, seed, kw.get("slots", 10), kw.get("frac", 0.10), park=kw.get("park"))[-1] for a, b in qs]
+    return eq, np.array(rq), st
+
+
+def _runs(R: dict, kw: dict, seeds: int, qs: list, workers: int, s0: int = 0):
+    _G.update(R=R, qs=qs, s0=s0)
+    jobs = [(sd, kw) for sd in range(seeds)]
+    if workers > 1:
+        import multiprocessing as mp
+        with mp.get_context("fork").Pool(workers) as pool:
+            out = pool.map(_one, jobs)
+    else:
+        out = [_one(j) for j in jobs]
+    return np.array([o[0] for o in out]), np.array([o[1] for o in out]), [o[2] for o in out]
+
+
+def _gci(r: np.ndarray) -> tuple[float, float, float]:
+    """種子間幾何平均比值＋95% 區間（log 比值平均 ±1.96 標準誤；量的是同一段行情裡的排序亂度）。"""
+    lr = np.log(r)
+    se = lr.std(ddof=1) / np.sqrt(len(lr)) if len(lr) > 1 else 0.0
+    return float(np.exp(lr.mean())), float(np.exp(lr.mean() - 1.96 * se)), float(np.exp(lr.mean() + 1.96 * se))
+
+
+def judge(P: dict, T: pd.DataFrame, variants: dict, base: dict | None = None, seeds: int = 200,
+          T_variant: dict | None = None, slip: bool = True, workers: int = 4) -> pd.DataFrame:
+    """帳戶級配對判準（Cowork 1056／1155／1157／1158）：同一組種子，每個方案對 base 印
+    幾何比值＋95% 區間、兩段（2021–23／2024–）接續切的比值與下緣、回撤中位（方案／base）、
+    最差季（重開＝每季空手各跑；接續＝全期權益切季；取較差）、季 >1 個數（只印不判）、
+    0050 含息跌的季比值中位、平均閒錢%、停車場%、停車場每年交易次數。
+    variants＝{名稱: account 參數 dict（slots／frac／park）}；T_variant＝{名稱: 該方案自己的 T}（換單的題目用）。
+    判『過』＝下緣 >1、兩段下緣 >1、回撤不深於 base 1pp、最差季 ≥0.97（Cowork 1158 原文）。
+    全期兩案都從第一筆進場那天開帳（不是回測檔第一天）。"""
+    from .btstats import HALVES
+    dates = P["dates"]
+    n = len(dates)
+    d = pd.to_datetime(pd.Series(dates))
+    q = (d.dt.year.astype(str) + "Q" + d.dt.quarter.astype(str)).to_numpy()
+    starts = [i for i in range(1, n) if q[i] != q[i - 1]]
+    qs, qn = [], []
+    for a, b in zip(starts, starts[1:] + [None]):
+        if b is None:
+            break                                    # 最後一季沒走完不算
+        qs.append((a, b - 1)); qn.append(q[a])
+    keepq = [i for i, (a, _) in enumerate(qs) if dates[a] >= "2021-01-01"]
+    qs, qn = [qs[i] for i in keepq], [qn[i] for i in keepq]
+    tr = P["ew"].tr_0050.reindex(dates).ffill().to_numpy()
+    q50 = np.array([tr[b] / tr[a - 1] - 1 for a, b in qs])
+    halves = []
+    for name, lo, hi in HALVES:
+        idx = [i for i, x in enumerate(dates) if lo <= x <= hi]
+        if idx:
+            halves.append((name, max(idx[0] - 1, 0), idx[-1]))
+    base = base or {}
+    R0 = _prep(P, T, slip)
+    # 全期從第一個訊號日開帳：回測檔 2020-10-05 起、第一個訊號 12-29，停車場版要是第一天就買 0050，
+    # 這三個月白賺 12.9%（跟『閒錢上工』無關），所以兩案都從第一筆進場那天才開始
+    s0 = min([min(R0["by_entry"])] + [min(_prep(P, x, slip)["by_entry"]) for x in (T_variant or {}).values()])
+    yrs = (d.iloc[-1] - d.iloc[s0]).days / 365.25
+    EB, QB, _ = _runs(R0, base, seeds, qs, workers, s0)
+    rows = []
+    for name, kw in variants.items():
+        R = _prep(P, T_variant[name], slip) if T_variant and name in T_variant else R0
+        EV, QV, ST = _runs(R, kw, seeds, qs, workers, s0)
+        g, lo, hi = _gci(EV[:, -1] / EB[:, -1])
+        row = {"方案": name, "比值": g, "下緣": lo, "上緣": hi}
+        for hn, a, b in halves:
+            hg, hl, _ = _gci((EV[:, b] / EV[:, a]) / (EB[:, b] / EB[:, a]))
+            row[f"{hn[:4]}比值"], row[f"{hn[:4]}下緣"] = hg, hl
+        mv = np.median([_mdd(pd.Series(x)) for x in EV]); mb = np.median([_mdd(pd.Series(x)) for x in EB])
+        row["回撤"], row["base回撤"] = mv, mb
+        cont = np.array([_gci((EV[:, b] / EV[:, a - 1]) / (EB[:, b] / EB[:, a - 1]))[0] for a, b in qs])
+        rest = np.array([_gci(QV[:, i] / QB[:, i])[0] for i in range(len(qs))])
+        row["最差季_重開"], row["最差季_接續"] = rest.min(), cont.min()
+        row["最差季"] = min(rest.min(), cont.min())
+        row["最差季名"] = qn[int(np.argmin(rest))] if rest.min() <= cont.min() else qn[int(np.argmin(cont))]
+        row["季>1_重開"], row["季>1_接續"], row["季數"] = int((rest > 1).sum()), int((cont > 1).sum()), len(qs)
+        row["0050跌季中位"] = float(np.median(cont[q50 < 0])) if (q50 < 0).any() else np.nan
+        row["0050跌季數"] = int((q50 < 0).sum())
+        row["閒錢%"] = float(np.median([s["idle"] for s in ST]))
+        row["停車場%"] = float(np.median([s["parked"] for s in ST]))
+        row["停車場筆/年"] = float(np.median([s["park_trades"] for s in ST])) / yrs
+        row["過"] = bool(lo > 1 and all(row[f"{hn[:4]}下緣"] > 1 for hn, _, _ in halves)
+                        and mv >= mb - 1 and row["最差季"] >= 0.97)
+        rows.append(row)
+    return pd.DataFrame(rows)
