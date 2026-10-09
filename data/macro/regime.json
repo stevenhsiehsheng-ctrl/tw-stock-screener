@@ -1,85 +1,85 @@
 {
- "date": "2026-10-07",
- "close": 49806.37,
+ "date": "2026-10-08",
+ "close": 49313.44,
  "light": "green",
  "light_since": "2026-07-31",
  "r2": false,
- "dd52": -0.03,
+ "dd52": -1.02,
  "r1": false,
- "dev200": 26.55,
- "dev200_pct20y": 96.6,
- "dev200_pct_all": 97.2,
+ "dev200": 24.97,
+ "dev200_pct20y": 95.2,
+ "dev200_pct_all": 96.0,
  "dev200_since": "1998-04-30",
  "r3": false,
- "sox_date": "2026-10-07",
- "sox_dev200": 25.3,
+ "sox_date": "2026-10-08",
+ "sox_dev200": 20.73,
  "last_dates": {
-  "0050.TW": "2026-10-07",
-  "CL=F": "2026-10-07",
-  "DX-Y.NYB": "2026-10-07",
-  "HG=F": "2026-10-07",
-  "TWD=X": "2026-10-07",
-  "^GSPC": "2026-10-07",
-  "^IRX": "2026-10-07",
-  "^SOX": "2026-10-07",
-  "^TNX": "2026-10-07",
-  "^TWII": "2026-10-07",
-  "^VIX": "2026-10-07"
+  "0050.TW": "2026-10-08",
+  "CL=F": "2026-10-08",
+  "DX-Y.NYB": "2026-10-08",
+  "HG=F": "2026-10-08",
+  "TWD=X": "2026-10-08",
+  "^GSPC": "2026-10-08",
+  "^IRX": "2026-10-08",
+  "^SOX": "2026-10-08",
+  "^TNX": "2026-10-08",
+  "^TWII": "2026-10-08",
+  "^VIX": "2026-10-08"
  },
  "sources": {
   "^TWII": {
-   "source": "yahoo",
+   "source": "carried",
    "yahoo_last": "2026-10-07",
-   "carried_days": 0
+   "carried_days": 1
   },
   "0050.TW": {
    "source": "carried",
-   "yahoo_last": "2026-10-06",
+   "yahoo_last": "2026-10-07",
    "carried_days": 1
   },
   "^SOX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   },
   "^GSPC": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   },
   "^VIX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   },
   "^TNX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   },
   "^IRX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   },
   "DX-Y.NYB": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   },
   "TWD=X": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   },
   "HG=F": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   },
   "CL=F": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-07",
+   "yahoo_last": "2026-10-08",
    "carried_days": 0
   }
  },
