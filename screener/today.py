@@ -27,6 +27,21 @@ def _csv(p: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def ledger_mix(lg: dict) -> dict | None:
+    """虛擬帳戶組成（本尊 1345-cc-ledger0050）：role=core＝題材、role=etf 或 0050＝0050、其他＝突破格；現金＝cash（元）。"""
+    eq = lg.get("equity")
+    pos = lg.get("positions") or []
+    if not eq or not pos:
+        return None
+    grp = {"brk": [], "core": [], "etf": []}
+    for x in pos:
+        k = "core" if x.get("role") == "core" else "etf" if x.get("role") == "etf" or x.get("code") == "0050" else "brk"
+        grp[k].append(float(x.get("mv") or 0))
+    pct = lambda v: round(v / eq * 100, 1)
+    return {"brk_n": len(grp["brk"]), "brk_pct": pct(sum(grp["brk"])), "core_n": len(grp["core"]),
+            "core_pct": pct(sum(grp["core"])), "etf_pct": pct(sum(grp["etf"])), "cash_pct": pct(float(lg.get("cash") or 0))}
+
+
 def _sys_stats(pos: pd.DataFrame) -> dict | None:
     """系統訊號合計（Cowork 0427、分身 0415-cc-ac）：主數字＝全部訊號（持有中按最新收盤估、已出場用實際出場），
     扣 0.38%；並列同期 0050 含息（訊號日收盤 → 出場訊號日收盤／最新收盤，近似）與超額；照訊號日收盤是否鎖漲停（close_lu）拆兩組。"""
@@ -136,6 +151,7 @@ def build() -> dict:
                                                     "pending", "exits_tomorrow", "core_ret_cum", "bench_base_date")}
             out["ledger"]["n_pos"] = len(lg.get("positions") or [])
             out["ledger"]["names"] = {x.get("code"): x.get("name") for x in lg.get("positions") or []}
+            out["ledger"]["mix"] = ledger_mix(lg)
         except Exception as e:  # noqa: BLE001
             log.warning("帳本讀不到：%s", e)
     watch = {x["code"] for x in hold}
@@ -188,7 +204,7 @@ function regime(){const r=T.regime,w=T.ew;
 function overnight(){const s=T.sox,t=T.tsm;if(!s&&!t)return;add('🌙',`昨夜費半 <b class="num">${P(s&&s.chg)}</b>${t?`・台積電 ADR <b class="num">${P(t.chg)}</b>${t.tw2330?`（換算台積電約 <b class="num">${t.tw2330}</b>）`:''}`:''} <a href="us.html">美股隔夜 →</a>`,(s||t).date)}
 function ledgerLine(kind){const G=T.ledger;if(!G)return false;const N=G.names||{};
   if(kind==='pre'){const Q=G.pending||[];add('🧾',Q.length?`虛擬帳戶今天要執行 <b>${Q.length}</b> 筆：${Q.slice(0,4).map(q=>`${q.side==='buy'?'買':'賣'} <a href="${S(q.code)}">${E(N[q.code]||q.code)}</a>`).join('、')}`:'虛擬帳戶今天沒有要執行的單',G.date);return true}
-  add('🧾',`虛擬帳戶今天 <b class="num">${P(G.ret_today)}</b>（0050 含息 ${P(G.bench_tr_today)}）・累計 <b class="num">${P(G.ret_cum)}</b>${G.core_ret_cum!=null?`（核心選股 ${P(G.core_ret_cum)}）`:''} vs 0050 ${P(G.bench_tr_cum)}${G.bench_base_date?`（從 ${E(String(G.bench_base_date).slice(5))} 收盤起算）`:''}・持倉 ${G.n_pos} 檔`+((G.exits_tomorrow||[]).length?`・明天要出場 ${G.exits_tomorrow.map(c=>`<a href="${S(c)}">${E(N[c]||c)}</a>`).join('、')}`:''),G.date);return true}
+  add('🧾',`虛擬帳戶今天 <b class="num">${P(G.ret_today)}</b>（0050 含息 ${P(G.bench_tr_today)}）・累計 <b class="num">${P(G.ret_cum)}</b>${G.core_ret_cum!=null?`（核心選股 ${P(G.core_ret_cum)}）`:''} vs 0050 ${P(G.bench_tr_cum)}${G.bench_base_date?`（從 ${E(String(G.bench_base_date).slice(5))} 收盤起算）`:''}・持倉 ${G.n_pos} 檔`+(G.mix?`<br><span style="font-size:13px;opacity:.8">組成：突破 ${G.mix.brk_n}/10 格 ${G.mix.brk_pct}%｜題材 ${G.mix.core_n} 檔 ${G.mix.core_pct}%｜0050 ${G.mix.etf_pct}%｜現金 ${G.mix.cash_pct}%</span>`:'')+((G.exits_tomorrow||[]).length?`・明天要出場 ${G.exits_tomorrow.map(c=>`<a href="${S(c)}">${E(N[c]||c)}</a>`).join('、')}`:''),G.date);return true}
 function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉：<b>0</b> 檔',ts,stale);return}
   const r=H.filter(x=>x.ret!=null),avg=r.length?r.reduce((a,x)=>a+x.ret,0)/r.length:null,worst=r.slice().sort((a,b)=>a.ret-b.ret)[0];
   const C=T.closed,Y=T.sys;
@@ -202,7 +218,8 @@ function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉�
     C&&C.n?`已出場 ${C.n} 筆 ${P(C.avg)}（早出場先天偏負：回測 1～3 天出場平均 −2.8%）`:'',
     Y&&(Y.n_lu||Y.n_nolu)?`收盤鎖漲停 ${Y.n_lu} 筆 ${P(Y.lu_avg)}（排隊多半排不到）、沒鎖 ${Y.n_nolu} 筆 ${P(Y.nolu_avg)}（回測超額 −0.3%）`:''].filter(Boolean);
   add('💼',head+band+`<br><span style="font-size:13px;opacity:.8">${sub.join('｜')}。持有中按收盤估、扣 0.38%。</span>`,ts,stale)}
-function exitsLine(when){const X=T.exits||[];if(!X.length)return;add('🚪',`${when}開盤要賣 <b>${X.length}</b> 檔：${X.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${X.length>4?' 等':''}`,T.tw_date)}
+function exitsLine(when){const X=T.exits||[];if(!X.length)return;const U=[];X.forEach(x=>{const u=U.find(y=>y.code===x.code);u?u.n++:U.push({code:x.code,name:x.name,n:1})});
+  add('🚪',`${when}開盤要賣 <b>${X.length}</b> 筆：${U.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>${x.n>1?'×'+x.n:''}`).join('、')}${U.length>4?' 等':''}`,T.tw_date)}
 function eventsLine(){const V=T.events||[];if(!V.length)return;add('📌',V.slice(0,4).map(v=>`${v.date?E(v.date.slice(5))+' ':''}<a href="${S(v.code)}">${E(v.name)}</a> ${E(v.kind)}${v.note?'（'+E(v.note)+'）':''}`).join('、')+(V.length>4?` 等 ${V.length} 件`:'')+'（只列持倉與長期 Top 20）',T.tw_date)}
 function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 訊號（<b>只記錄</b>：鎖漲停的排不到、沒鎖的歷史超額為負）<b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
 function draw(title){el.innerHTML=`<h2>📍 今天重點<span>${title}</span></h2>`+(rows.length?rows.slice(0,6).join(''):'<div class="row"><span class="ic">✅</span><span class="tx">今天沒事</span></div>')+'<div id="wlrow"></div>'+TOOLS;el.hidden=false;watch()}
