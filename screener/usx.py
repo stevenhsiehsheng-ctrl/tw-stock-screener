@@ -138,13 +138,28 @@ def fetch_history(syms: list[str], period: str = "13mo") -> pd.DataFrame:
     if not frames:
         raise RuntimeError("美股日 K 全部抓不到")
     h = pd.concat(frames, ignore_index=True)
-    # 美股還沒收完（美東 16:30 前）就切掉當天那根半根 K；再以 SPY 最後一天為準
+    # 美股還沒收完（美東 16:30 前）就切掉當天那根半根 K
     from zoneinfo import ZoneInfo
     now = dt.datetime.now(ZoneInfo("America/New_York"))
     if now.hour * 60 + now.minute < 16 * 60 + 30:
         h = h[h.date < now.date().isoformat()]
-    last = h.loc[h.code == "SPY", "date"].max()
-    return h[h.date <= last] if isinstance(last, str) else h
+    return cut_last(h)
+
+
+def cut_last(h: pd.DataFrame, min_cov: float = 0.9) -> pd.DataFrame:
+    """最後一天要『大部分檔都到了』才算數：檔數 ≥ 前 20 天中位數的 90%，不夠就往前切。
+    以前只看 SPY 的最後一天——SPY 晚到、別檔先到也整批被砍（Cowork 0858）；
+    反過來 SPY 到了、別檔大半沒到，也會留下一個大半空的最後一天。"""
+    n = h.groupby("date").code.nunique().sort_index()
+    if len(n) < 2:
+        return h
+    ref = n.rolling(20, min_periods=1).median().shift(1)
+    ok = n[(n >= ref * min_cov) | ref.isna()]
+    last = ok.index.max()
+    if last != n.index.max():
+        log.warning("最後 %d 天到的檔數不夠（%s），切到 %s", int((n.index > last).sum()),
+                    "、".join(f"{d} {c}/{int(ref[d])}" for d, c in n[n.index > last].items()), last)
+    return h[h.date <= last]
 
 
 FUND_COLS = ["code", "updated", "mcap", "pe", "fpe", "pb", "yield", "rev_g", "eps_g", "gross_m", "op_m", "roe",
