@@ -32,6 +32,9 @@
   print(summarize(T[~T.corp_jump & ~T.censored], ret="ex"))
   eq = account(P, T, seed=0)              # 每日權益
   r = paired(P, T, T.entry < 100, seeds=20)   # 兩案配對：同種子 variant/base 的總報酬比值
+  W = rolling(P, T, window=60, seeds=20)      # 60 日滾動窗：每窗 20 種子總報酬／減 0050 含息／減等權的中位數
+對照組另有 ex50＝扣費報酬 − 0050 含息（ew_index.csv 的 tr_0050：etf_long 還原價＋bench.csv 補缺日；
+進場日收盤 → 出場訊號日收盤，少出場日一個隔夜），Cowork 0726：帳戶題、k=60 體檢一律減 0050 含息
 """
 from __future__ import annotations
 
@@ -221,6 +224,7 @@ def trades(P: dict, sig: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, 
     ewon = P["ew_on"].reindex(dates).to_numpy()
     ab = P["ew"].above.reindex(dates).to_numpy() if len(P["ew"]) else np.full(len(dates), np.nan)
     ab50 = P["ew"].above_0050.reindex(dates).to_numpy() if len(P["ew"]) else np.full(len(dates), np.nan)
+    tr50 = P["ew"].tr_0050.reindex(dates).ffill().to_numpy() if len(P["ew"]) and "tr_0050" in P["ew"] else np.full(len(dates), np.nan)
     out = []
     n = len(dates)
     for d, code in zip(sig.date, sig.code):
@@ -241,7 +245,9 @@ def trades(P: dict, sig: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, 
             last = max((k for k in range(i, n) if TR[k, j]), default=i)
             exit_px, exit_i = C[last, j], last
             bench = ewc[last] / ewc[i] - 1 if ewc[i] == ewc[i] else np.nan
+            b50 = tr50[last] / tr50[i] - 1
         else:
+            b50 = tr50[xo - 1] / tr50[i] - 1
             exit_px, exit_i = O[xo, j], xo
             bench = (ewc[xo - 1] / ewc[i]) * (1 + (ewon[xo] if ewon[xo] == ewon[xo] else 0) / 100) - 1 \
                 if ewc[i] == ewc[i] and ewc[xo - 1] == ewc[xo - 1] else np.nan
@@ -251,49 +257,81 @@ def trades(P: dict, sig: pd.DataFrame, shrink: float = 0.5, max_hold: int = 20, 
         lo_i = max(0, i - 60)
         out.append({"date": d, "code": code, "entry": entry, "exit_date": dates[exit_i], "exit_px": exit_px,
                     "days": exit_i - i, "gross": gross, "net": net, "bench": bench * 100, "ex": net - bench * 100,
+                    "bench50": b50 * 100, "ex50": net - b50 * 100,
                     "lu": bool(LU[i, j]), "censored": censored, "corp_jump": bool(big[lo_i:exit_i + 1, j].any()),
                     "above": ab[i], "above_0050": ab50[i]})
     return pd.DataFrame(out)
 
 
-def account(P: dict, T: pd.DataFrame, slots: int = 10, frac: float = 0.10, seed: int = 0,
-            slip: bool = True, order: str = "random") -> pd.Series:
-    """帳戶級：每日權益（起始 1.0）。T 是 trades() 的輸出（要排除的先濾掉，空格自然讓給下一筆）。
-    出場在出場日開盤先做、進場在當天收盤；同一天多筆順序隨機（種子＝(seed, 日期)），order='given' 照 T 的順序。"""
+def _prep(P: dict, T: pd.DataFrame, slip: bool = True) -> dict:
     dates = P["dates"]
     di = {d: i for i, d in enumerate(dates)}
-    cols = list(P["close"].columns)
-    ci = {c: i for i, c in enumerate(cols)}
-    CF = P["cf"].to_numpy()
+    ci = {c: i for i, c in enumerate(P["close"].columns)}
     T = T.reset_index(drop=True)
     by_entry: dict[int, list[int]] = {}
     for k, d in enumerate(T.date):
         by_entry.setdefault(di[d], []).append(k)
-    xi = [di[x] for x in T.exit_date]
-    cash, held, eq = 1.0, {}, np.empty(len(dates))   # held: trade k → shares
-    for t in range(len(dates)):
-        for k in [k for k in held if xi[k] == t and not T.censored[k]]:
-            px = T.exit_px[k]
-            s = float(slip_pct(px)) if slip else 0.0
-            cash += held.pop(k) * px * (1 - (SELL_COST + s) / 100)
-        cand = by_entry.get(t, [])
+    sl = (lambda px: slip_pct(px).astype(float)) if slip else (lambda px: np.zeros(len(px)))
+    return {"dates": dates, "dint": [int(d.replace("-", "")) for d in dates], "CF": P["cf"].to_numpy(),
+            "by_entry": by_entry, "xi": np.array([di[x] for x in T.exit_date]), "cens": T.censored.to_numpy(bool),
+            "col": np.array([ci[c] for c in T.code]), "entry": T.entry.to_numpy(float), "exit_px": T.exit_px.to_numpy(float),
+            "buy": (1 - BUY_COST / 100) / (1 + sl(T.entry.to_numpy(float)) / 100),
+            "sell": 1 - (SELL_COST + sl(T.exit_px.to_numpy(float))) / 100}
+
+
+def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str = "random") -> np.ndarray:
+    """從第 s 天（空手）跑到第 e 天，回傳每天收盤權益（起始 1.0）。只有 s～e 之間進場的單；e 那天還抱著的按收盤估。"""
+    CF, col, xi, cens = R["CF"], R["col"], R["xi"], R["cens"]
+    cash, held, eq = 1.0, {}, np.empty(e - s + 1)
+    for t in range(s, e + 1):
+        if held:
+            for k in [k for k in held if xi[k] == t and not cens[k]]:
+                cash += held.pop(k) * R["exit_px"][k] * R["sell"][k]
+        cand = R["by_entry"].get(t)
         if cand:
             if order == "random":
-                rng = np.random.default_rng([seed, int(dates[t].replace("-", ""))])
-                cand = list(rng.permutation(cand))
-            equity = cash + sum(sh * CF[t, ci[T.code[k]]] for k, sh in held.items())
+                cand = np.random.default_rng([seed, R["dint"][t]]).permutation(cand)
+            equity = cash + sum(sh * CF[t, col[k]] for k, sh in held.items())
             for k in cand:
                 if len(held) >= slots:
                     break
                 amt = frac * equity
                 if cash < amt:
                     break
-                px = T.entry[k]
-                s = float(slip_pct(px)) if slip else 0.0
-                held[k] = amt * (1 - BUY_COST / 100) / (px * (1 + s / 100))
+                held[k] = amt * R["buy"][k] / R["entry"][k]
                 cash -= amt
-        eq[t] = cash + sum(sh * CF[t, ci[T.code[k]]] for k, sh in held.items())
-    return pd.Series(eq, index=dates)
+        eq[t - s] = cash + sum(sh * CF[t, col[k]] for k, sh in held.items())
+    return eq
+
+
+def account(P: dict, T: pd.DataFrame, slots: int = 10, frac: float = 0.10, seed: int = 0,
+            slip: bool = True, order: str = "random") -> pd.Series:
+    """帳戶級：每日權益（起始 1.0）。T 是 trades() 的輸出（要排除的先濾掉，空格自然讓給下一筆）。
+    出場在出場日開盤先做、進場在當天收盤；同一天多筆順序隨機（種子＝(seed, 日期)），order='given' 照 T 的順序。"""
+    R = _prep(P, T, slip)
+    return pd.Series(_run(R, 0, len(P["dates"]) - 1, seed, slots, frac, order), index=P["dates"])
+
+
+def rolling(P: dict, T: pd.DataFrame, window: int = 60, seeds: int = 20, step: int = 1, slots: int = 10,
+            frac: float = 0.10, slip: bool = True) -> pd.DataFrame:
+    """每個 window 交易日滾動窗（第 s 天空手開帳，到第 s+window-1 天收盤；還抱著的按收盤估）跑 seeds 個種子：
+    印每窗『總報酬』『減 0050 含息』『減等權 ew_close』的種子中位數（Cowork 0726：k=60 體檢的基準分布）。
+    基準期間＝第 s 天收盤 → 第 e 天收盤（帳戶最早在第 s 天收盤才買得到）。"""
+    R = _prep(P, T, slip)
+    n = len(P["dates"])
+    tr = P["ew"].tr_0050.reindex(P["dates"]).ffill().to_numpy() if len(P["ew"]) else np.full(n, np.nan)   # 缺日（例 2021-04-06）沿用前一日
+    ew = P["ew"].ew_close.reindex(P["dates"]).to_numpy() if len(P["ew"]) else np.full(n, np.nan)
+    first = min(R["by_entry"]) if R["by_entry"] else 0
+    rows = []
+    for s0 in range(first, n - window + 1, step):
+        e0 = s0 + window - 1
+        tot = np.array([_run(R, s0, e0, sd, slots, frac)[-1] - 1 for sd in range(seeds)]) * 100
+        b50 = (tr[e0] / tr[s0] - 1) * 100
+        bew = (ew[e0] / ew[s0] - 1) * 100
+        rows.append({"start": P["dates"][s0], "end": P["dates"][e0], "total_med": float(np.median(tot)),
+                     "bench50": b50, "ex50_med": float(np.median(tot - b50)), "ex50_worst": float((tot - b50).min()),
+                     "exew_med": float(np.median(tot - bew))})
+    return pd.DataFrame(rows)
 
 
 def _mdd(eq: pd.Series) -> float:
