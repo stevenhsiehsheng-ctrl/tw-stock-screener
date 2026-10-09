@@ -112,6 +112,20 @@ def build() -> dict:
             out["closed"] = {"n": int(len(r)), "avg": round(float(r.mean()), 2), "med": round(float(r.median()), 2),
                              "win": int(round(float((r > 0).mean()) * 100)) if len(r) >= 30 else None}
         out["sys"] = _sys_stats(pos)
+        try:   # 雜訊帶（tools/ledger_band.py → sys_band.json）：k＝首筆訊號到最新交易日的交易日數
+            if out["sys"] and len(h):
+                bd = json.loads((EX / "sys_band.json").read_text("utf-8"))["band"]
+                days = sorted(d for d in h.date.unique() if out["sys"]["since"] <= d <= out["tw_date"])
+                k = len(days)
+                ks = sorted(int(x) for x in bd)
+                kk = min(max(k, ks[0]), ks[-1])
+                lo_k = max(x for x in ks if x <= kk)
+                hi_k = min(x for x in ks if x >= kk)
+                w = 0 if hi_k == lo_k else (kk - lo_k) / (hi_k - lo_k)
+                lerp = lambda f: round(bd[str(lo_k)][f] * (1 - w) + bd[str(hi_k)][f] * w, 1)
+                out["sys"].update(k=k, band_lo=lerp("p5"), band_hi=lerp("p95"))
+        except Exception as e:  # noqa: BLE001
+            log.warning("雜訊帶讀不到：%s", e)
     out.update({"hold": hold, "exits": exits, "today_sig": today_sig})
     # Cowork 虛擬帳戶（協作板 ledger_daily → 本尊 16:25 commit 成 data/ledger/YYYY-MM-DD.json，Cowork 0027 格式）
     lf = sorted((DATA / "ledger").glob("20??-??-??.json")) if (DATA / "ledger").exists() else []
@@ -180,10 +194,14 @@ function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉�
   const C=T.closed,Y=T.sys;
   const head=Y&&Y.n?`系統訊號（非虛擬帳戶，${E(String(Y.since).slice(5))} 起）合計 <b class="num">${Y.n}</b> 筆：平均 <b class="num">${P(Y.avg)}</b>、中位 ${P(Y.med)}${Y.win!=null?`、賺錢 ${Y.win}%`:''}；同期 0050 含息 ${P(Y.bench)}、超額 <b class="num">${P(Y.ex)}</b>`
     :`系統訊號持倉（非虛擬帳戶）<b class="num">${H.length}</b> 檔・浮動平均 <b class="num">${P(avg)}</b>`;
+  const inBand=Y&&Y.ex!=null&&Y.ex>=Y.band_lo&&Y.ex<=Y.band_hi;
+  const band=Y&&Y.k&&Y.band_lo!=null&&Y.ex!=null?`<br><span style="font-size:13px">第 ${Y.k} 個交易日：歷史同天數的超額 5～95% 帶 <b class="num">${P(Y.band_lo)}～${P(Y.band_hi)}</b>，`+
+    (inBand?'<b>在帶內＝雜訊，不下結論</b>。':`<b>超出帶外</b>，但${Y.k<60?'未滿 60 個交易日一律不下結論':'要先用最新資料重驗'}。`)+
+    (Y.k<60?'滿 60 個交易日（帶寬約 ±1.5pp）才第一次能看。':'')+'</span>':'';
   const sub=[`持有中 ${H.length} 檔${worst?`（最差 <a href="${S(worst.code)}">${E(worst.name)}</a> ${P(worst.ret)}）`:''}`,
     C&&C.n?`已出場 ${C.n} 筆 ${P(C.avg)}（早出場先天偏負：回測 1～3 天出場平均 −2.8%）`:'',
     Y&&(Y.n_lu||Y.n_nolu)?`收盤鎖漲停 ${Y.n_lu} 筆 ${P(Y.lu_avg)}（排隊多半排不到）、沒鎖 ${Y.n_nolu} 筆 ${P(Y.nolu_avg)}（回測超額 −0.3%）`:''].filter(Boolean);
-  add('💼',head+`<br><span style="font-size:13px;opacity:.8">${sub.join('｜')}。持有中按收盤估、扣 0.38%。</span>`,ts,stale)}
+  add('💼',head+band+`<br><span style="font-size:13px;opacity:.8">${sub.join('｜')}。持有中按收盤估、扣 0.38%。</span>`,ts,stale)}
 function exitsLine(when){const X=T.exits||[];if(!X.length)return;add('🚪',`${when}開盤要賣 <b>${X.length}</b> 檔：${X.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${X.length>4?' 等':''}`,T.tw_date)}
 function eventsLine(){const V=T.events||[];if(!V.length)return;add('📌',V.slice(0,4).map(v=>`${v.date?E(v.date.slice(5))+' ':''}<a href="${S(v.code)}">${E(v.name)}</a> ${E(v.kind)}${v.note?'（'+E(v.note)+'）':''}`).join('、')+(V.length>4?` 等 ${V.length} 件`:'')+'（只列持倉與長期 Top 20）',T.tw_date)}
 function sigLine(list,ts,stale){if(!list||!list.length)return;add('🎯',`13:12 訊號（<b>只記錄</b>：鎖漲停的排不到、沒鎖的歷史超額為負）<b>${list.length}</b> 檔：${list.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>`).join('、')}${list.length>4?' 等':''} <a href="live.html">盤中 →</a>`,ts,stale)}
