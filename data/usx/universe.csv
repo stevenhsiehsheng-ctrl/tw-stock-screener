@@ -126,7 +126,6 @@ CSGP,CoStar Group,,Real Estate,Real Estate Services,SP500
 CSX,CSX Corporation,,Industrials,Rail Transportation,SP500
 CTAS,Cintas,,Industrials,Diversified Support Services,SP500
 CTSH,Cognizant,,Information Technology,IT Consulting & Other Services,SP500
-CTVA,Corteva,,Materials,Fertilizers & Agricultural Chemicals,SP500
 CVNA,Carvana,,Consumer Discretionary,Automotive Retail,SP500
 CVS,CVS Health,,Health Care,Health Care Services,SP500
 CVX,Chevron Corporation,雪佛龍,Energy,Integrated Oil & Gas,SP500
@@ -397,7 +396,6 @@ PPG,PPG Industries,,Materials,Specialty Chemicals,SP500
 PPL,PPL Corporation,,Utilities,Electric Utilities,SP500
 PRU,Prudential Financial,,Financials,Life & Health Insurance,SP500
 PSA,Public Storage,,Real Estate,Self-Storage REITs,SP500
-PSKY,Paramount Skydance Corporation,,Communication Services,Movies & Entertainment,SP500
 PSX,Phillips 66,,Energy,Oil & Gas Refining & Marketing,SP500
 PTC,PTC Inc.,,Information Technology,Application Software,SP500
 PWR,Quanta Services,,Industrials,Construction & Engineering,SP500
@@ -430,6 +428,7 @@ SHOP,Shopify,Shopify,,,ADR
 SHW,Sherwin-Williams,,Materials,Specialty Chemicals,SP500
 SHY,1-3 年美債 ETF,1-3 年美債 ETF,ETF,,ETF
 SJM,J.M. Smucker Company (The),,Consumer Staples,Packaged Foods & Meats,SP500
+SKYD,Skydance Corporation,,Communication Services,Movies & Entertainment,SP500
 SLB,Schlumberger,,Energy,Oil & Gas Equipment & Services,SP500
 SLV,白銀 ETF,白銀 ETF,ETF,,ETF
 SMCI,Supermicro,美超微,Information Technology,"Technology Hardware, Storage & Peripherals",SP500
@@ -484,6 +483,7 @@ TSM,台積電 ADR,台積電 ADR,,,ADR
 TSN,Tyson Foods,,Consumer Staples,Packaged Foods & Meats,SP500
 TT,Trane Technologies,,Industrials,Building Products,SP500
 TTWO,Take-Two Interactive,,Communication Services,Interactive Home Entertainment,SP500
+TWLO,Twilio,,Information Technology,Systems Software,SP500
 TXN,Texas Instruments,德州儀器,Information Technology,Semiconductors,SP500
 TXT,Textron,,Industrials,Aerospace & Defense,SP500
 TYL,Tyler Technologies,,Information Technology,Application Software,SP500
@@ -516,11 +516,11 @@ VST,Vistra Corp.,,Utilities,Electric Utilities,SP500
 VTI,美國全市場 ETF,美國全市場 ETF,ETF,,ETF
 VTR,Ventas,,Real Estate,Health Care REITs,SP500
 VTRS,Viatris,,Health Care,Pharmaceuticals,SP500
+VYLR,Vylor,,Consumer Staples,Agricultural Products & Services,SP500
 VYM,高股息 ETF（Vanguard）,高股息 ETF（Vanguard）,ETF,,ETF
 VZ,Verizon,Verizon,Communication Services,Integrated Telecommunication Services,SP500
 WAB,Wabtec,,Industrials,Construction Machinery & Heavy Transportation Equipment,SP500
 WAT,Waters Corporation,,Health Care,Life Sciences Tools & Services,SP500
-WBD,Warner Bros. Discovery,,Communication Services,Broadcasting,SP500
 WDAY,"Workday, Inc.",,Information Technology,Application Software,SP500
 WDC,Western Digital,,Information Technology,"Technology Hardware, Storage & Peripherals",SP500
 WEC,WEC Energy Group,,Utilities,Electric Utilities,SP500
