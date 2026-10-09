@@ -292,11 +292,12 @@ def _prep(P: dict, T: pd.DataFrame, slip: bool = True) -> dict:
 
 def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str = "random",
          park: dict | None = None, stats: dict | None = None, fill: str = "slot", min_buy: float = 2500,
-         nav0: float = 100_000) -> np.ndarray:
+         nav0: float = 100_000, min_fee: float = 0) -> np.ndarray:
     """從第 s 天（空手）跑到第 e 天，回傳每天收盤權益（起始 1.0）。只有 s～e 之間進場的單；e 那天還抱著的按收盤估。
     fill＝新單金額（Cowork 0955）：slot（B，預設）＝權益 × frac，現金不夠就跳過；
       rest（A）＝權益 × frac，現金不夠就有多少買多少；equal（C）＝現金 ÷ 空格數（不看 frac）；
       A、C 低於 min_buy 元（權益 1.0＝nav0 元）就跳過
+    min_fee＝突破股每筆最低手續費（元，0＝不設；零股常見 1 元、整股 20 元）：買、賣各自手續費（0.04%）不到就補到 min_fee
     park＝閒錢停車場（Cowork 1157；None＝閒錢放著不動，舊口徑）：
       {"kind": "0050"|"ew", "mode": "daily"|"weekly", "cost": 來回 %, "min_fee": 每筆最低 元, "nav0": 起始 元}
       kind：0050＝tr_0050 含息、ew＝等權指數 ew_close；停車場一律收盤價進出，一天最多一筆（淨額）
@@ -304,10 +305,13 @@ def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str
       weekly（P2）：新單現金不夠才賣停車場（賣差額）；每週最後一個交易日收盤，現金超過 1 格（frac×權益）
                     才把超出的部分整筆買進停車場；其餘時間不動
       成本：每筆 max(金額 × cost/2, min_fee/nav0)（權益 1.0＝nav0 元），從停車場扣
-    stats：給 dict 就回填 idle（平均 閒錢＋停車場 佔權益 %）、parked（停車場佔權益 %）、park_trades（停車場交易筆數）"""
+    stats：給 dict 就回填 idle（平均 閒錢＋停車場 佔權益 %）、parked（停車場佔權益 %）、park_trades（停車場交易筆數）、
+      held_med（每天持有檔數中位）、taken（實際買進的 T 列號）、amt（各筆買進金額，元）"""
     CF, col, xi, cens = R["CF"], R["col"], R["xi"], R["cens"]
     cash, held, eq = 1.0, {}, np.empty(e - s + 1)
     pv, ntr, idle, pk = 0.0, 0, 0.0, 0.0
+    mf = min_fee / nav0
+    nh, taken, amts = [], [], []
     if park:
         px = R["park"][park.get("kind", "0050")]
         half = park.get("cost", 0.25) / 200
@@ -318,7 +322,8 @@ def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str
             pv *= px[t] / px[t - 1]
         if held:
             for k in [k for k in held if xi[k] == t and not cens[k]]:
-                cash += held.pop(k) * R["exit_px"][k] * R["sell"][k]
+                gross = held.pop(k) * R["exit_px"][k]
+                cash += gross * R["sell"][k] - (max(0.0, mf - gross * BUY_COST / 100) if mf else 0.0)
         cand = R["by_entry"].get(t)
         if cand:
             if order == "random":
@@ -335,8 +340,11 @@ def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str
                     amt = min(frac * equity, cash + pv) if fill == "rest" else (cash + pv) / (slots - len(held))
                     if amt < min_buy / nav0:
                         break
-                held[k] = amt * R["buy"][k] / R["entry"][k]
-                cash -= amt                  # 現金可以暫時變負＝當天收盤要從停車場賣的差額
+                extra = max(0.0, mf - amt * BUY_COST / 100) if mf else 0.0
+                held[k] = (amt - extra) * R["buy"][k] / R["entry"][k]
+                cash -= amt
+                if stats is not None:
+                    taken.append(k); amts.append(amt * nav0)                  # 現金可以暫時變負＝當天收盤要從停車場賣的差額
         if park:
             stock = sum(sh * CF[t, col[k]] for k, sh in held.items())
             if daily:
@@ -361,9 +369,11 @@ def _run(R: dict, s: int, e: int, seed: int, slots: int, frac: float, order: str
         if stats is not None:
             idle += (cash + pv) / eq[t - s]
             pk += pv / eq[t - s]
+            nh.append(len(held))
     if stats is not None:
         n = e - s + 1
-        stats.update(idle=idle / n * 100, parked=pk / n * 100, park_trades=ntr, days=n)
+        stats.update(idle=idle / n * 100, parked=pk / n * 100, park_trades=ntr, days=n,
+                     held_med=float(np.median(nh)), taken=taken, amt=amts)
     return eq
 
 
@@ -432,7 +442,8 @@ def _one(args):
     R, n, qs, s0 = _G["R"], len(_G["R"]["dates"]), _G["qs"], _G["s0"]
     st: dict = {}
     eq = np.ones(n)
-    a_ = dict(park=kw.get("park"), fill=kw.get("fill", "slot"), min_buy=kw.get("min_buy", 2500))
+    a_ = dict(park=kw.get("park"), fill=kw.get("fill", "slot"), min_buy=kw.get("min_buy", 2500),
+              nav0=kw.get("nav0", 100_000), min_fee=kw.get("min_fee", 0))
     eq[s0:] = _run(R, s0, n - 1, seed, kw.get("slots", 10), kw.get("frac", 0.10), stats=st, **a_)
     rq = [_run(R, a, b, seed, kw.get("slots", 10), kw.get("frac", 0.10), **a_)[-1] for a, b in qs]
     return eq, np.array(rq), st
