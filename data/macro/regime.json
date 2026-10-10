@@ -11,20 +11,20 @@
  "dev200_pct_all": 96.0,
  "dev200_since": "1998-04-30",
  "r3": false,
- "sox_date": "2026-10-08",
- "sox_dev200": 20.73,
+ "sox_date": "2026-10-09",
+ "sox_dev200": 19.93,
  "last_dates": {
   "0050.TW": "2026-10-08",
-  "CL=F": "2026-10-08",
-  "DX-Y.NYB": "2026-10-08",
-  "HG=F": "2026-10-08",
-  "TWD=X": "2026-10-08",
-  "^GSPC": "2026-10-08",
-  "^IRX": "2026-10-08",
-  "^SOX": "2026-10-08",
-  "^TNX": "2026-10-08",
+  "CL=F": "2026-10-09",
+  "DX-Y.NYB": "2026-10-09",
+  "HG=F": "2026-10-09",
+  "TWD=X": "2026-10-09",
+  "^GSPC": "2026-10-09",
+  "^IRX": "2026-10-09",
+  "^SOX": "2026-10-09",
+  "^TNX": "2026-10-09",
   "^TWII": "2026-10-08",
-  "^VIX": "2026-10-08"
+  "^VIX": "2026-10-09"
  },
  "sources": {
   "^TWII": {
@@ -33,53 +33,53 @@
    "carried_days": 0
   },
   "0050.TW": {
-   "source": "carried",
-   "yahoo_last": "2026-10-07",
-   "carried_days": 1
+   "source": "yahoo",
+   "yahoo_last": "2026-10-08",
+   "carried_days": 0
   },
   "^SOX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   },
   "^GSPC": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   },
   "^VIX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   },
   "^TNX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   },
   "^IRX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   },
   "DX-Y.NYB": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   },
   "TWD=X": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   },
   "HG=F": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   },
   "CL=F": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-08",
+   "yahoo_last": "2026-10-09",
    "carried_days": 0
   }
  },
