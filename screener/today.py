@@ -28,18 +28,22 @@ def _csv(p: Path) -> pd.DataFrame:
 
 
 def ledger_mix(lg: dict) -> dict | None:
-    """虛擬帳戶組成（本尊 1345-cc-ledger0050）：role=core＝題材、role=etf 或 0050＝0050、其他＝突破格；現金＝cash（元）。"""
+    """虛擬帳戶組成（本尊 1345-cc-ledger0050；Cowork 10/10 週檢討：桶子＝題材 core／revdrift／衛星／突破，0050＝底倉）。
+    按 positions 的 role 分桶，回傳 [{name, n, pct}]（有部位的桶才列，題材、0050 底倉固定列）＋現金 %。"""
     eq = lg.get("equity")
     pos = lg.get("positions") or []
     if not eq or not pos:
         return None
-    grp = {"brk": [], "core": [], "etf": []}
+    names = {"core": "題材", "etf": "0050 底倉", "revdrift": "revdrift", "satellite": "衛星", "breakout": "突破"}
+    grp: dict[str, list[float]] = {}
     for x in pos:
-        k = "core" if x.get("role") == "core" else "etf" if x.get("role") == "etf" or x.get("code") == "0050" else "brk"
-        grp[k].append(float(x.get("mv") or 0))
+        r = "etf" if x.get("role") == "etf" or x.get("code") == "0050" else x.get("role") or "other"
+        grp.setdefault(r, []).append(float(x.get("mv") or 0))
     pct = lambda v: round(v / eq * 100, 1)
-    return {"brk_n": len(grp["brk"]), "brk_pct": pct(sum(grp["brk"])), "core_n": len(grp["core"]),
-            "core_pct": pct(sum(grp["core"])), "etf_pct": pct(sum(grp["etf"])), "cash_pct": pct(float(lg.get("cash") or 0))}
+    order = ["core", "revdrift", "satellite", "breakout", "etf"] + sorted(k for k in grp if k not in names)
+    parts = [{"name": names.get(k, k), "n": len(grp.get(k, [])), "pct": pct(sum(grp.get(k, [])))}
+             for k in order if k in grp or k in ("core", "etf")]
+    return {"parts": parts, "cash_pct": pct(float(lg.get("cash") or 0))}
 
 
 def _sys_stats(pos: pd.DataFrame) -> dict | None:
@@ -204,7 +208,7 @@ function regime(){const r=T.regime,w=T.ew;
 function overnight(){const s=T.sox,t=T.tsm;if(!s&&!t)return;add('🌙',`昨夜費半 <b class="num">${P(s&&s.chg)}</b>${t?`・台積電 ADR <b class="num">${P(t.chg)}</b>${t.tw2330?`（換算台積電約 <b class="num">${t.tw2330}</b>）`:''}`:''} <a href="us.html">美股隔夜 →</a>`,(s||t).date)}
 function ledgerLine(kind){const G=T.ledger;if(!G)return false;const N=G.names||{};
   if(kind==='pre'){const Q=G.pending||[];add('🧾',Q.length?`虛擬帳戶今天要執行 <b>${Q.length}</b> 筆：${Q.slice(0,4).map(q=>`${q.side==='buy'?'買':'賣'} <a href="${S(q.code)}">${E(N[q.code]||q.code)}</a>`).join('、')}`:'虛擬帳戶今天沒有要執行的單',G.date);return true}
-  add('🧾',`虛擬帳戶今天 <b class="num">${P(G.ret_today)}</b>（0050 含息 ${P(G.bench_tr_today)}）・累計 <b class="num">${P(G.ret_cum)}</b>${G.core_ret_cum!=null?`（核心選股 ${P(G.core_ret_cum)}）`:''} vs 0050 ${P(G.bench_tr_cum)}${G.bench_base_date?`（從 ${E(String(G.bench_base_date).slice(5))} 收盤起算）`:''}・持倉 ${G.n_pos} 檔`+(G.mix?`<br><span style="font-size:13px;opacity:.8">組成：突破 ${G.mix.brk_n}/10 格 ${G.mix.brk_pct}%｜題材 ${G.mix.core_n} 檔 ${G.mix.core_pct}%｜0050 底倉 ${G.mix.etf_pct}%｜現金 ${G.mix.cash_pct}%。累計含 0050 底倉，只當參考；有沒有 edge 要看突破、題材各自對 0050 的超額（拆桶計算上線前先不列）</span>`:'')+((G.exits_tomorrow||[]).length?`・明天要出場 ${G.exits_tomorrow.map(c=>`<a href="${S(c)}">${E(N[c]||c)}</a>`).join('、')}`:''),G.date);return true}
+  add('🧾',`虛擬帳戶今天 <b class="num">${P(G.ret_today)}</b>（0050 含息 ${P(G.bench_tr_today)}）・累計 <b class="num">${P(G.ret_cum)}</b>${G.core_ret_cum!=null?`（核心選股 ${P(G.core_ret_cum)}）`:''} vs 0050 ${P(G.bench_tr_cum)}${G.bench_base_date?`（從 ${E(String(G.bench_base_date).slice(5,10))} 收盤起算）`:''}・持倉 ${G.n_pos} 檔`+(G.mix&&G.mix.parts?`<br><span style="font-size:13px;opacity:.8">組成：${G.mix.parts.map(x=>`${E(x.name)}${x.name==='0050 底倉'?'':` ${x.n} 檔`} ${x.pct}%`).join('｜')}｜現金 ${G.mix.cash_pct}%。累計含 0050 底倉，只當參考；有沒有 edge 要看各桶自己對 0050 的超額（拆桶計算上線前先不列）</span>`:'')+((G.exits_tomorrow||[]).length?`・明天要出場 ${G.exits_tomorrow.map(c=>`<a href="${S(c)}">${E(N[c]||c)}</a>`).join('、')}`:''),G.date);return true}
 function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉：<b>0</b> 檔',ts,stale);return}
   const r=H.filter(x=>x.ret!=null),avg=r.length?r.reduce((a,x)=>a+x.ret,0)/r.length:null,worst=r.slice().sort((a,b)=>a.ret-b.ret)[0];
   const C=T.closed,Y=T.sys;
