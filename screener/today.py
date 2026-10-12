@@ -82,6 +82,15 @@ def _sys_stats(pos: pd.DataFrame) -> dict | None:
            "lu_avg": f(p.ret[lu == 1].mean()), "nolu_avg": f(p.ret[lu == 0].mean()),
            "since": str(p.signal_date.min())}
     out["win"] = int(round(float((p.ret > 0).mean()) * 100)) if len(p) >= 30 else None
+    # 主數字改看「買得到的」＝收盤沒鎖漲停那群（Cowork 2159 判準、本尊 2250 回測：鎖死跳過版 5 年年化 −11.5% vs 0050 +30.3%）
+    q = p[lu == 0]
+    if len(q):
+        out.update(nolu_med=f(q.ret.median()), nolu_bench=f(q.bench.mean()), nolu_ex=f((q.ret - q.bench).mean()),
+                   nolu_win=int(round(float((q.ret > 0).mean()) * 100)) if len(q) >= 30 else None)
+    try:
+        out["bt5"] = json.loads((EX / "lockless_5y.json").read_text("utf-8"))
+    except Exception:  # noqa: BLE001
+        pass
     return out
 
 
@@ -223,15 +232,17 @@ function ledgerLine(kind){const G=T.ledger;if(!G)return false;const N=G.names||{
 function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉：<b>0</b> 檔',ts,stale);return}
   const r=H.filter(x=>x.ret!=null),avg=r.length?r.reduce((a,x)=>a+x.ret,0)/r.length:null,worst=r.slice().sort((a,b)=>a.ret-b.ret)[0];
   const C=T.closed,Y=T.sys;
-  const head=Y&&Y.n?`系統訊號（非虛擬帳戶，${E(String(Y.since).slice(5))} 起）合計 <b class="num">${Y.n}</b> 筆：平均 <b class="num">${P(Y.avg)}</b>、中位 ${P(Y.med)}${Y.win!=null?`、賺錢 ${Y.win}%`:''}；同期 0050 含息 ${P(Y.bench)}、超額 <b class="num">${P(Y.ex)}</b>`
+  const B5=Y&&Y.bt5&&Y.bt5.B?`5 年回測這群買滿 10 格：年化 <b class="num">${Y.bt5.B.ann.toFixed(1)}%</b>，0050 含息 ${Y.bt5.ann_0050.toFixed(1)}%，${Y.bt5.B.lose_years}/${Y.bt5.B.years} 年輸 0050 → 虛擬帳戶不買`:'';
+  const head=Y&&Y.n_nolu?`系統訊號（非虛擬帳戶，${E(String(Y.since).slice(5))} 起）<b>買得到的</b>（收盤沒鎖漲停）<b class="num">${Y.n_nolu}</b> 筆：平均 <b class="num">${P(Y.nolu_avg)}</b>、中位 ${P(Y.nolu_med)}${Y.nolu_win!=null?`、賺錢 ${Y.nolu_win}%`:''}；同期 0050 含息 ${P(Y.nolu_bench)}、超額 <b class="num">${P(Y.nolu_ex)}</b>${B5?`<br><span style="font-size:13px">${B5}</span>`:''}`
+    :Y&&Y.n?`系統訊號（非虛擬帳戶，${E(String(Y.since).slice(5))} 起）合計 <b class="num">${Y.n}</b> 筆：平均 <b class="num">${P(Y.avg)}</b>、中位 ${P(Y.med)}${Y.win!=null?`、賺錢 ${Y.win}%`:''}；同期 0050 含息 ${P(Y.bench)}、超額 <b class="num">${P(Y.ex)}</b>`
     :`系統訊號持倉（非虛擬帳戶）<b class="num">${H.length}</b> 檔・浮動平均 <b class="num">${P(avg)}</b>`;
   const inBand=Y&&Y.ex!=null&&Y.ex>=Y.band_lo&&Y.ex<=Y.band_hi;
-  const band=Y&&Y.k&&Y.band_lo!=null&&Y.ex!=null?`<br><span style="font-size:13px">第 ${Y.k} 個交易日：歷史同天數的超額 5～95% 帶 <b class="num">${P(Y.band_lo)}～${P(Y.band_hi)}</b>，`+
+  const band=Y&&Y.k&&Y.band_lo!=null&&Y.ex!=null?`<br><span style="font-size:13px">全部訊號（含鎖漲停）第 ${Y.k} 個交易日超額 ${P(Y.ex)}：歷史同天數的 5～95% 帶 <b class="num">${P(Y.band_lo)}～${P(Y.band_hi)}</b>，`+
     (inBand?'<b>在帶內＝雜訊，不下結論</b>。':`<b>超出帶外</b>，但${Y.k<60?'未滿 60 個交易日一律不下結論':'要先用最新資料重驗'}。`)+
     (Y.k<60?'滿 60 個交易日（帶寬約 ±1.5pp）才第一次能看。':'')+'</span>':'';
   const sub=[`持有中 ${H.length} 檔${worst?`（最差 <a href="${S(worst.code)}">${E(worst.name)}</a> ${P(worst.ret)}）`:''}`,
     C&&C.n?`已出場 ${C.n} 筆 ${P(C.avg)}（早出場先天偏負：回測 1～3 天出場平均 −2.8%）`:'',
-    Y&&(Y.n_lu||Y.n_nolu)?`收盤鎖漲停 ${Y.n_lu} 筆 ${P(Y.lu_avg)}（排隊多半排不到）、沒鎖 ${Y.n_nolu} 筆 ${P(Y.nolu_avg)}（回測超額 −0.3%）`:''].filter(Boolean);
+    Y&&(Y.n_lu||Y.n_nolu)?`含鎖漲停全部 ${Y.n} 筆 ${P(Y.avg)}（其中鎖漲停 ${Y.n_lu} 筆 ${P(Y.lu_avg)}，排隊多半排不到${Y.bt5&&Y.bt5.A?`；回測照收盤買到年化 ${Y.bt5.A.ann.toFixed(1)}%，實際吃不到`:''}）`:''].filter(Boolean);
   add('💼',head+band+`<br><span style="font-size:13px;opacity:.8">${sub.join('｜')}。持有中按收盤估、扣 0.38%。</span>`,ts,stale)}
 function exitsLine(when){const X=T.exits||[];if(!X.length)return;const U=[];X.forEach(x=>{const u=U.find(y=>y.code===x.code);u?u.n++:U.push({code:x.code,name:x.name,n:1})});
   add('🚪',`${when}開盤要賣 <b>${X.length}</b> 筆：${U.slice(0,4).map(x=>`<a href="${S(x.code)}">${E(x.name)}</a>${x.n>1?'×'+x.n:''}`).join('、')}${U.length>4?' 等':''}`,T.tw_date)}
