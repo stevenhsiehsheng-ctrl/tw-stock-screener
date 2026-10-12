@@ -55,9 +55,10 @@ jobs:
       - name: 月營收長歷史
         if: ${{ inputs.rev_months != '' && inputs.rev_months != null }}
         run: python -m screener.enrich --rev-months "${{ inputs.rev_months }}" --date "$(TZ=Asia/Taipei date +%F)"
+      # 15:20 每日資料抓盤後零股時，櫃買常還沒公布（10/7、10/8、10/12 上櫃都是 0 列）；
+      # 18:05 這班每天順手補近 5 個交易日裡缺一邊市場的日子（兩邊都有的日子會跳過，平常幾乎不花時間）
       - name: 盤後零股回補
-        if: ${{ inputs.oddlot_days != '' && inputs.oddlot_days != null }}
-        run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days }}" --date "$(TZ=Asia/Taipei date +%F)"
+        run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days || '5' }}" --date "$(TZ=Asia/Taipei date +%F)" || echo "盤後零股回補失敗（不擋後面存檔）"
       - name: 除權息長歷史
         if: ${{ inputs.exdiv_years != '' && inputs.exdiv_years != null }}
         run: python -c "import logging; logging.basicConfig(level=logging.INFO); from screener import exdiv; print(exdiv.backfill_long(float('${{ inputs.exdiv_years }}')))"
