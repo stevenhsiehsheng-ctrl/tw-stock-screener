@@ -11,6 +11,8 @@ on:
       - screener/weekly.py
       - screener/gifts.py
       - screener/revdrift.py
+      - screener/momo.py
+      - data/extras/momo_5y.json
       - screener/us.py
       - screener/macro.py
       - screener/longterm.py
