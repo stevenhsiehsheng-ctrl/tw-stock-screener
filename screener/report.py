@@ -609,7 +609,7 @@ def rebuild(site_dir: Path, data_path: Path) -> str:
 def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    from . import chipspage, etfpage, exdivpage, gifts, longterm, macro, revdrift, screenpage, sitenav, stockpage, us, usx, weekly
+    from . import chipspage, etfpage, exdivpage, gifts, longterm, macro, momo, revdrift, screenpage, sitenav, stockpage, us, usx, weekly
     weeks = weekly.write(out_dir)
     try:
         has_us = us.write(out_dir)
@@ -621,6 +621,10 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
     except Exception as e:  # 研究頁壞掉不能拖垮每日報表
         logging.warning("營收漂移成績頁產生失敗：%s", e)
         has_rev = False
+    try:
+        momo.write(out_dir)
+    except Exception as e:  # 研究頁壞掉不能拖垮每日報表
+        logging.warning("強勢續攻頁產生失敗：%s", e)
     try:
         has_macro = macro.write(out_dir)
     except Exception as e:  # 大環境頁壞掉不能拖垮每日報表
