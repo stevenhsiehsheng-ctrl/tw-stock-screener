@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import html
+import json
 import logging
 from pathlib import Path
 
@@ -66,8 +67,24 @@ def coverage(rev: pd.DataFrame) -> pd.DataFrame:
     return r.assign(mk=r.code.map(mk)).groupby(["ym", "mk"]).size().unstack(fill_value=0)
 
 
+def _pick6(b: list[str], px: pd.Series, odd: pd.DataFrame | None, prev_days: list[str], e: str) -> tuple[list[str], int | None]:
+    """抽 6 檔：買得起（股價 ≤2,000）而且零股量夠（批次日前 5 日零股均量×20% ≥ 2,000 元的股數），
+    default_rng(批次日) 從池子不放回抽。px＝批次日前一天收盤；prev_days＝批次日前 5 個交易日。"""
+    pool = [c for c in b if pd.notna(px.get(c)) and px[c] <= PICK_MAXPX]
+    n_pool = None
+    if odd is not None:
+        prev5 = [d for d in prev_days if d in odd.index]
+        if len(prev5) == 5:
+            avg_sh = odd.loc[prev5].reindex(columns=pool).fillna(0).mean()
+            need = np.ceil(PICK_CASH / px.reindex(pool))
+            pool = [c for c in pool if avg_sh.get(c, 0) * ODD_SHARE >= need.get(c, np.inf)]
+            n_pool = len(pool)
+    rng6 = np.random.default_rng(int(e.replace("-", "")))
+    return (list(rng6.choice(sorted(pool), size=min(PICK_N, len(pool)), replace=False)) if pool else []), n_pool
+
+
 def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n: int = N_PLACEBO,
-            cov_min: dict | None = COV_MIN) -> pd.DataFrame:
+            cov_min: dict | None = COV_MIN, fetch_cal: bool = True) -> pd.DataFrame:
     """cov_min=None 不做覆蓋檢查（研究用的 5 年營收，舊年份公司本來就比較少）。"""
     hist = hist if hist is not None else pd.read_csv(HIST, dtype={"code": str})
     rev = rev if rev is not None else pd.read_csv(REV, dtype={"code": str})
@@ -113,19 +130,7 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
             win = [m for m in cov.index if m <= ym][-12:]
             nt, np_ = int(cov.loc[win].get("TWSE", pd.Series([0])).min()), int(cov.loc[win].get("TPEX", pd.Series([0])).min())
             cov_ok = len(win) == 12 and nt >= cov_min["TWSE"] and np_ >= cov_min["TPEX"]
-        # 抽 6 檔：買得起（股價 ≤2,000）而且零股量夠（前 5 日零股均量×20% ≥ 2,000 元的股數）
-        px = close.iloc[i - 1] if i > 0 else close.iloc[i]
-        pool = [c for c in b if pd.notna(px.get(c)) and px[c] <= PICK_MAXPX]
-        n_pool = None
-        if odd is not None:
-            prev5 = [d for d in days[max(0, i - 5):i] if d in odd.index]
-            if len(prev5) == 5:
-                avg_sh = odd.loc[prev5].reindex(columns=pool).fillna(0).mean()
-                need = np.ceil(PICK_CASH / px.reindex(pool))
-                pool = [c for c in pool if avg_sh.get(c, 0) * ODD_SHARE >= need.get(c, np.inf)]
-                n_pool = len(pool)
-        rng6 = np.random.default_rng(int(e.replace("-", "")))
-        pick6 = list(rng6.choice(sorted(pool), size=min(PICK_N, len(pool)), replace=False)) if pool else []
+        pick6, n_pool = _pick6(b, close.iloc[i - 1] if i > 0 else close.iloc[i], odd, days[max(0, i - 5):i], e)
         if not cov_ok:
             pick, pick6 = [], []
         # 配對安慰劑：同日同流動性五分位
@@ -155,6 +160,15 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
     df = pd.DataFrame(rows)
     if df.empty:
         return df
+    # 預定出場日：已滿就是 exit_date；未滿的用交易日曆往後推到第 20 個交易日（Cowork 1010 ③：exit_date 未滿時容易看錯）
+    df["exit_plan"], df["exit_approx"] = df.exit_date, False
+    if (~df.done).any():
+        from . import twcal
+        fut, approx = twcal.future_days(days[-1], HOLD + 5, fetch=fetch_cal)
+        ext = days + fut
+        for k in df.index[~df.done]:
+            j = ext.index(df.at[k, "batch_date"]) + HOLD
+            df.at[k, "exit_plan"], df.at[k, "exit_approx"] = ext[j], approx
     # 連輸批數、累計 6 批平均（只算已滿 20 日的）
     streak, run = [], 0
     for d, beat in zip(df.done, df.beat):
@@ -167,6 +181,46 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
     return df
 
 
+NEXT = ROOT / "data" / "extras" / "revdrift_next.json"
+
+
+def preview(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, fetch_cal: bool = True) -> dict | None:
+    """最新營收月份的批次日還沒到時，先用到今天為止的資料把籃子和 6 檔算出來（跟 compute 同一支抽籤）。
+    exact＝批次日就是下一個交易日：前一天收盤、前 5 日零股都齊了，名單應該就是明天正式那份
+    （批次日當天停牌、沒有開盤價的會被正式版排除）；不是的話只是試算，零股量和股價還會變。"""
+    hist = hist if hist is not None else pd.read_csv(HIST, dtype={"code": str})
+    rev = rev if rev is not None else pd.read_csv(REV, dtype={"code": str})
+    hist = hist[hist.code.str.fullmatch(r"[1-9]\d{3}")]
+    close = hist.pivot(index="date", columns="code", values="close").sort_index()
+    days = list(close.index)
+    bk = baskets(rev)
+    if not bk:
+        return None
+    ym = max(bk)
+    if _batch_day(ym, days) is not None or not bk[ym]:
+        return None   # 這批已經有批次日資料了，正式版在 revdrift_batches.csv
+    from . import twcal
+    fut, approx = twcal.future_days(days[-1], 30, fetch=fetch_cal)
+    i = _batch_day(ym, days + fut)
+    if i is None:
+        return None
+    e = (days + fut)[i]
+    px = close.iloc[-1]
+    b = [c for c in bk[ym] if c in close.columns and pd.notna(px.get(c))]
+    cov = coverage(rev)
+    win = [m for m in cov.index if m <= ym][-12:]
+    nt, np_ = int(cov.loc[win].get("TWSE", pd.Series([0])).min()), int(cov.loc[win].get("TPEX", pd.Series([0])).min())
+    cov_ok = len(win) == 12 and nt >= COV_MIN["TWSE"] and np_ >= COV_MIN["TPEX"]
+    try:
+        odd = pd.read_csv(ODD, dtype={"code": str}, usecols=["date", "code", "shares"])
+        odd = odd.pivot_table(index="date", columns="code", values="shares", aggfunc="sum").sort_index()
+    except Exception:  # noqa: BLE001
+        odd = None
+    pick6, n_pool = _pick6(b, px, odd, days[-5:], e)
+    return {"rev_month": ym, "batch_date": e, "asof": days[-1], "exact": i == len(days), "cal_approx": approx,
+            "n": len(b), "n_pool": n_pool, "pick6": pick6 if cov_ok else [], "cov_ok": cov_ok, "n_twse": nt, "n_tpex": np_}
+
+
 def write(site_dir: Path) -> bool:
     try:
         df = compute()
@@ -177,17 +231,38 @@ def write(site_dir: Path) -> bool:
         return False
     OUT.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT, index=False)
+    try:
+        nxt = preview()
+    except Exception as e:  # noqa: BLE001
+        log.warning("revdrift 下一批預告失敗：%s", e)
+        nxt = None
+    if nxt:
+        NEXT.write_text(json.dumps(nxt, ensure_ascii=False, indent=1) + "\n", "utf-8")
+    elif NEXT.exists():
+        NEXT.unlink()
     from .weekly import _page
     f = lambda v: "" if pd.isna(v) else f"{v:+.2f}%"
     links = lambda s: " ".join(f"<a href='stock.html?code={html.escape(c)}'>{html.escape(c)}</a>" for c in str(s).split() if c != "nan")
+    def exit_cell(r):
+        if r.done:
+            return r.exit_date
+        return f"預定 {r.exit_plan}{'（約）' if r.exit_approx else ''}<div class='meta'>資料到 {r.exit_date}，未滿</div>"
+
     trs = "".join(
-        f"<tr><td>{r.rev_month}</td><td>{r.batch_date}</td><td>{r.exit_date}{'' if r.done else '（未滿）'}</td><td>{r.n}</td>"
+        f"<tr><td>{r.rev_month}</td><td>{r.batch_date}</td><td>{exit_cell(r)}</td><td>{r.n}</td>"
         f"<td>{f(r.avg)}</td><td>{f(r.median)}</td><td>{f(r.placebo_avg_median)}</td>"
         f"<td>{'' if r.beat is None or not r.done else ('贏' if r.beat else '輸')}</td><td>{r.lose_streak}</td><td>{f(r.avg6)}</td>"
         f"<td>{'' if pd.isna(r.overlap) else f'{r.overlap:.0f}%'}<div class='meta'>{'' if pd.isna(r.avg_carry) else '續 ' + f(r.avg_carry)}{'' if pd.isna(r.avg_new) else '／新 ' + f(r.avg_new)}</div></td>"
         f"<td>{(links(r.pick6) + (f' <span class=meta>（池 {int(r.n_pool)} 檔）</span>' if pd.notna(r.n_pool) else '')) if r.cov_ok else '⚠️ 營收資料有缺，這批不抽'}</td><td>{f(r.pick6_avg)}</td><td>{'⚠️ 下架' if r.delist and r.done else ''}</td></tr>"
         for r in df.iloc[::-1].itertuples())
-    body = ("<h1>月營收漂移（revdrift）每批成績</h1>"
+    nx = ""
+    if nxt:
+        label = "明天開盤前名單" if nxt["exact"] else f"試算（資料到 {nxt['asof']}，批次日前一晚才準）"
+        picks = links(" ".join(nxt["pick6"])) if nxt["cov_ok"] else "⚠️ 營收資料有缺，這批不抽"
+        nx = (f"<div class='card'><b>下一批 {nxt['rev_month']}：批次日 {nxt['batch_date']}{'（約）' if nxt['cal_approx'] else ''}・{label}</b><br>"
+              f"籃子 {nxt['n']} 檔、池子 {nxt['n_pool'] if nxt['n_pool'] is not None else '—'} 檔，抽 6 檔：{picks}"
+              "<div class='meta'>跟正式版同一支程式、同一個亂數種子；批次日當天停牌的會被正式版排除，晚公告的營收補進來籃子也會變，以批次日收盤後的表為準。</div></div>")
+    body = (f"<h1>月營收漂移（revdrift）每批成績</h1>{nx}"
             "<p>籃子＝年增 ≥30% 且營收創 12 個月新高；11 日後第一個交易日（10 日期限遇假日順延時再往後）開盤進、第 20 個交易日收盤出；"
             "超額＝減同期全市場等權、扣 0.38%。安慰劑＝每檔換成同日同流動性五分位的隨機股票，籃子平均 300 次取中位。"
             "下架：連 3 批輸安慰劑，或最近 6 批平均 ≤0。抽 6 檔＝從籃內『股價 ≤2,000 且前 5 日盤後零股均量×20% 買得到 2,000 元』的池子，"
