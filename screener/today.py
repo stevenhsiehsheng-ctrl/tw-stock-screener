@@ -92,6 +92,13 @@ def build() -> dict:
         out["regime"] = {k: r.get(k) for k in ("date", "light", "light_since", "r2", "r3", "dd52", "stale_core")}
     except Exception:  # noqa: BLE001
         pass
+    try:   # 系統自我體檢（screener/health.py，盤中監控 08:40／13:30 跑）
+        hl = json.loads((DATA / "health" / "latest.json").read_text("utf-8"))
+        out["health"] = {"date": hl.get("date"), "day": hl.get("trading_day"), "at": str(hl.get("checked_at", ""))[11:16],
+                         "slot": hl.get("slot"), "bad": hl.get("bad") or [], "fails": len(hl.get("failed_runs") or []),
+                         "fixed": hl.get("dispatched") or hl.get("dispatched_am") or []}
+    except Exception:  # noqa: BLE001
+        pass
     try:   # 盤勢主判：全市場等權指數 vs 200 日線（screener/ewindex.py）
         out["ew"] = json.loads((DATA / "extras" / "ew_state.json").read_text("utf-8"))
     except Exception:  # noqa: BLE001
@@ -202,7 +209,11 @@ const E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 const P=v=>v==null?'—':(v>0?'+':'')+Number(v).toFixed(2)+'%',S=c=>`stock.html?code=${encodeURIComponent(c)}`;
 const L={green:'🟢 綠燈',yellow:'🟡 黃燈',red:'🔴 紅燈'};
 const rows=[];const add=(ic,html,ts,stale)=>rows.push(`<div class="row${stale?' stale':''}"><span class="ic">${ic}</span><span class="tx">${html}</span><span class="ts">${E(ts||'')}</span></div>`);
-function regime(){const r=T.regime,w=T.ew;
+function health(){const h=T.health;if(!h)return;const F={daily:'每日資料',extras:'傍晚補抓',us:'美股隔夜'},fx=(h.fixed||[]).map(f=>F[f]||f).join('、'),bad=h.bad||[];
+  const ok=!bad.length&&!h.fails,when=`${E(String(h.date||'').slice(5))} ${h.slot==='pm'?'收工後':'早上'} ${E(h.at||'')}`;
+  add('🩺',ok?`系統體檢 ✅ 前一個交易日（${E(String(h.day||'').slice(5))}）的資料都到了${fx?`（早上自動補跑過${E(fx)}）`:''}`
+    :`系統體檢 ⚠️ ${bad.length?`還缺：${bad.map(E).join('、')}`:''}${h.fails?`${bad.length?'・':''}有 ${h.fails} 個工作流程失敗`:''}${fx?`（已自動補跑${E(fx)}）`:''}・Claude Code 每天 16:25 會處理`,when,false)}
+function regime(){health();const r=T.regime,w=T.ew;
   if(r)add('🚦',`大盤燈號 <b>${L[r.light]||E(r.light)}</b>（${E(r.light_since||'')} 起）${r.stale_core&&r.stale_core.length?'・<b>資料落後</b>':''}${w&&w.dev!=null?`・距 200 日線：等權 <b class="num">${P(w.dev)}</b>${w.dev_0050!=null?`｜0050 <b class="num">${P(w.dev_0050)}</b>`:''}`:''} <a href="macro.html">大環境 →</a>`,r.date);
   if(w&&!w.above)add('🌧',`<b>盤勢線下</b>：全市場等權指數收在 200 日線下 <b class="num">${P(w.dev)}</b>（${E(String(w.since).slice(5))} 起 ${w.streak} 天）。線下沒有可靠的超額（月t 為負）、樣本不足，只提醒、部位不自動砍 <a href="macro.html#ew">看圖 →</a>`,w.judged_on)}
 function overnight(){const s=T.sox,t=T.tsm;if(!s&&!t)return;add('🌙',`昨夜費半 <b class="num">${P(s&&s.chg)}</b>${t?`・台積電 ADR <b class="num">${P(t.chg)}</b>${t.tw2330?`（換算台積電約 <b class="num">${t.tw2330}</b>）`:''}`:''} <a href="us.html">美股隔夜 →</a>`,(s||t).date)}
