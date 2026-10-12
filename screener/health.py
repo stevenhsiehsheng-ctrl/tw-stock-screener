@@ -1,0 +1,193 @@
+"""系統自我體檢：檢查「上一個交易日」的資料有沒有齊，缺了就自己派工補跑，補不好才寄信。
+
+目的：平常不用 Claude 每天盯。Dennis 收到信再叫 Claude Code 來修。
+
+- 早上（盤中監控 08:40 啟動時，--slot am）：檢查＋自動補跑（美股隔夜、傍晚補抓、每日資料）。
+  只有「補跑救不了的」（工作流程失敗）才寄信；補跑的結果留給下午複查。
+- 下午（盤中監控 13:30 收工時，--slot pm）：只檢查不補跑，還有缺就寄信。
+- 結果寫 data/health/latest.json；同一天同一班已經做過就跳過（GitHub 備援班會排隊在後面重跑）。
+
+交易日：證交所 FMTQIK（每日成交量值）列出的日子；抓不到就退回用 history 的最後一天。
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import logging
+import subprocess
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parent.parent
+DATA = ROOT / "data"
+OUT = DATA / "health" / "latest.json"
+TPE = ZoneInfo("Asia/Taipei")
+log = logging.getLogger(__name__)
+
+# 紐約證交所休市日（費半沒資料的日子；跟 macro.US_HOLIDAYS 不同，那份是債市）
+NYSE_HOLIDAYS = {"2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25", "2026-06-19",
+                 "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+                 "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18",
+                 "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24"}
+WATCH = {"台股每日篩選", "盤中連續監控", "美股隔夜", "傍晚補抓消息面", "更新網頁版面"}   # 各 .yml 的 name:
+
+
+def twse_days(today: dt.date) -> list[str] | None:
+    """證交所這個月＋上個月的交易日（YYYY-MM-DD）；抓不到回 None。"""
+    import requests
+
+    out = []
+    first = today.replace(day=1)
+    for m in [(first - dt.timedelta(days=1)).replace(day=1), first]:
+        try:
+            r = requests.get("https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK",
+                             params={"date": m.strftime("%Y%m%d"), "response": "json"},
+                             headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+            for row in r.json().get("data") or []:
+                y, mo, d = str(row[0]).strip().split("/")
+                out.append(f"{int(y) + 1911:04d}-{int(mo):02d}-{int(d):02d}")
+        except Exception as e:  # noqa: BLE001
+            log.warning("證交所交易日抓不到（%s）：%s", m, e)
+            return None
+    return sorted(set(out))
+
+
+def last_us_day(today: dt.date) -> str:
+    """台北 today 早上應該已經有的最後一個美股交易日（today 前一天往回找平日、扣休市）。"""
+    d = today - dt.timedelta(days=1)
+    while d.weekday() >= 5 or d.isoformat() in NYSE_HOLIDAYS:
+        d -= dt.timedelta(days=1)
+    return d.isoformat()
+
+
+def _max_date(path: Path, col="date", where=None) -> str:
+    try:
+        df = pd.read_csv(path, usecols=[col] + ([where[0]] if where else []), dtype=str)
+        if where:
+            df = df[df[where[0]] == where[1]]
+        return str(df[col].max()) if len(df) else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _json(path: Path, key: str) -> str:
+    try:
+        return str(json.loads(path.read_text("utf-8")).get(key) or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def checks(D: str, us_day: str) -> list[dict]:
+    """每一項：name、ok、有什麼、要什麼、補跑用哪個工作流程（fix）。"""
+    ex = DATA / "extras"
+    items = [
+        ("每日資料（收盤價）", _max_date(DATA / "history.csv.gz"), D, "daily"),
+        ("等權指數", _max_date(ex / "ew_index.csv"), D, "daily"),
+        ("13:12 鎖漲停家數", _max_date(DATA / "lock_count.csv"), D, None),
+        ("三大法人", _max_date(ex / "inst_hist.csv.gz"), D, "extras"),
+        ("盤後零股（上市）", _max_date(ex / "oddlot_hist.csv.gz", where=("market", "TWSE")), D, "extras"),
+        ("盤後零股（上櫃）", _max_date(ex / "oddlot_hist.csv.gz", where=("market", "TPEX")), D, "extras"),
+        ("融資融券", _max_date(ex / "margin_hist.csv.gz"), D, "extras"),
+        ("當沖", _max_date(ex / "daytrade_hist.csv.gz"), D, "extras"),
+        ("美股隔夜（費半）", _json(DATA / "us" / "meta.json", "sox_date"), us_day, "us"),
+        ("風險燈（大環境）", _json(DATA / "macro" / "regime.json", "date"), D, "us"),
+    ]
+    return [{"name": n, "have": h or "—", "want": w, "ok": bool(h) and h >= w, "fix": f} for n, h, w, f in items]
+
+
+def failed_runs(hours=20) -> list[dict]:
+    """最近 hours 小時內失敗的工作流程（GitHub 本來也會寄信給觸發的人，這裡集中列一次）。"""
+    try:
+        r = subprocess.run(["gh", "run", "list", "-L", "60", "--json",
+                            "workflowName,conclusion,createdAt,url"],
+                           capture_output=True, text=True, timeout=60, check=True)
+        runs = json.loads(r.stdout)
+    except Exception as e:  # noqa: BLE001
+        log.warning("讀不到工作流程紀錄：%s", e)
+        return []
+    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)
+    out = []
+    for x in runs:
+        t = pd.Timestamp(x["createdAt"]).to_pydatetime()
+        if x.get("workflowName") in WATCH and x.get("conclusion") == "failure" and t >= since:
+            out.append({"name": x.get("workflowName"), "at": t.astimezone(TPE).strftime("%m-%d %H:%M"),
+                        "url": x.get("url")})
+    return out
+
+
+FIX_NAME = {"daily": "每日資料", "extras": "傍晚補抓", "us": "美股隔夜"}
+
+
+def dispatch(fix: str, D: str) -> bool:
+    cmd = {"daily": ["daily.yml", "-f", f"date={D}", "-f", "test=false"],
+           "extras": ["extras_evening.yml", "-f", f"date={D}", "-f", "oddlot_days=5"],
+           "us": ["us.yml"]}[fix]
+    try:
+        subprocess.run(["gh", "workflow", "run", cmd[0], "--ref", "main", *cmd[1:]],
+                       capture_output=True, text=True, timeout=60, check=True)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("派工 %s 失敗：%s", cmd[0], getattr(e, "stderr", e))
+        return False
+
+
+def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None) -> dict:
+    now = now or dt.datetime.now(TPE)
+    today = now.date()
+    prev = json.loads(OUT.read_text("utf-8")) if OUT.exists() else {}
+    if prev.get("date") == today.isoformat() and slot in (prev.get("slots") or []):
+        log.info("今天 %s 班已經體檢過，跳過", slot)
+        return prev
+    days = twse_days(today)
+    hist = _max_date(DATA / "history.csv.gz")
+    D = max([d for d in days if d < today.isoformat()], default=hist) if days else hist
+    us_day = last_us_day(today)
+    items = checks(D, us_day)
+    bad = [i for i in items if not i["ok"]]
+    fails = failed_runs(20 if slot == "am" else 5)   # 下午只看早上體檢之後的，早上報過的不重報
+    sent = [f for f in sorted({i["fix"] for i in bad if i["fix"]}) if dispatch(f, D)] if heal else []
+    done = (prev.get("slots") or []) if prev.get("date") == today.isoformat() else []
+    res = {"date": today.isoformat(), "slots": sorted({*done, slot}),
+           "checked_at": now.strftime("%Y-%m-%dT%H:%M:%S%z"), "slot": slot, "trading_day": D,
+           "calendar": "twse" if days else "history", "us_day": us_day, "items": items,
+           "bad": [i["name"] for i in bad], "failed_runs": fails, "dispatched": sent,
+           "dispatched_am": (prev.get("dispatched") or []) if done == ["am"] else []}
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", "utf-8")
+    log.info("體檢 %s：交易日 %s，缺 %s，失敗 %d 個，補跑 %s", slot, D, res["bad"] or "無", len(fails), sent or "無")
+
+    # 早上補跑救得到的先不吵；救不到的（沒有補跑方法、派工失敗、工作流程失敗）才寄。下午還缺就寄。
+    unfixed = [i for i in bad if i["fix"] not in sent]
+    if notify and (unfixed or fails):
+        from . import notify as nt
+
+        lines = [f"## 系統體檢（{'早上' if slot == 'am' else '收盤後'}）：上一個交易日 {D}", ""]
+        if unfixed:
+            lines += ["**資料沒到：**", ""] + [f"- {i['name']}：最新 {i['have']}，應該要有 {i['want']}" for i in unfixed] + [""]
+        if fails:
+            lines += ["**失敗的工作流程：**", ""] + [f"- [{f['name']}]({f['url']})（{f['at']}）" for f in fails] + [""]
+        if sent:
+            lines += [f"已自動補跑：{'、'.join(FIX_NAME[f] for f in sent)}（結果收盤後再查一次）。", ""]
+        if res["dispatched_am"]:
+            lines += [f"早上已自動補跑過：{'、'.join(FIX_NAME[f] for f in res['dispatched_am'])}，還是沒補到。", ""]
+        lines += ["自動補跑救不回來的才會寄這封信。Claude Code 每個交易日 16:25 會看這份體檢（data/health/latest.json）自己處理，"
+                  "你不用做什麼；急的話直接在 Claude Code 對話叫它。"]
+        nt.send(f"⚠️ 台股系統體檢 {D}：{len(unfixed) + len(fails)} 項要看", "\n".join(lines))
+    return res
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    ap = argparse.ArgumentParser(description="系統自我體檢")
+    ap.add_argument("--slot", choices=["am", "pm"], required=True)
+    ap.add_argument("--heal", action="store_true", help="缺資料就派工補跑")
+    ap.add_argument("--notify", action="store_true", help="有救不回來的就寄信")
+    a = ap.parse_args()
+    run(a.slot, a.heal, a.notify)
+
+
+if __name__ == "__main__":
+    main()

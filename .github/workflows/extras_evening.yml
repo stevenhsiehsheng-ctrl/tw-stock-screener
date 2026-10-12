@@ -8,6 +8,9 @@ on:
     - cron: "5 10 * * 1-5"   # 10:05 UTC = 台北 18:05
   workflow_dispatch:
     inputs:
+      date:
+        description: "資料日期 YYYY-MM-DD（留空＝今天；系統體檢隔天早上補跑時會帶前一個交易日）"
+        default: ""
       dispo_years:
         description: "另外把處置公告往回補幾年（研究用，留空＝不補）"
         default: ""
@@ -48,7 +51,9 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: 重抓
-        run: python -m screener.enrich --refresh --date "$(TZ=Asia/Taipei date +%F)"
+        env:
+          D: ${{ inputs.date }}
+        run: python -m screener.enrich --refresh --date "${D:-$(TZ=Asia/Taipei date +%F)}"
       - name: 處置長歷史
         if: ${{ inputs.dispo_years != '' && inputs.dispo_years != null }}
         run: python -m screener.enrich --dispo-years "${{ inputs.dispo_years }}" --date "$(TZ=Asia/Taipei date +%F)"
@@ -58,7 +63,9 @@ jobs:
       # 15:20 每日資料抓盤後零股時，櫃買常還沒公布（10/7、10/8、10/12 上櫃都是 0 列）；
       # 18:05 這班每天順手補近 5 個交易日裡缺一邊市場的日子（兩邊都有的日子會跳過，平常幾乎不花時間）
       - name: 盤後零股回補
-        run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days || '5' }}" --date "$(TZ=Asia/Taipei date +%F)" || echo "盤後零股回補失敗（不擋後面存檔）"
+        env:
+          D: ${{ inputs.date }}
+        run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days || '5' }}" --date "${D:-$(TZ=Asia/Taipei date +%F)}" || echo "盤後零股回補失敗（不擋後面存檔）"
       - name: 除權息長歷史
         if: ${{ inputs.exdiv_years != '' && inputs.exdiv_years != null }}
         run: python -c "import logging; logging.basicConfig(level=logging.INFO); from screener import exdiv; print(exdiv.backfill_long(float('${{ inputs.exdiv_years }}')))"
