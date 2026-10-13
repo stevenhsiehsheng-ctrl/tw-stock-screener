@@ -98,6 +98,20 @@ def _json(path: Path, key: str) -> str:
         return ""
 
 
+def _ledger_last() -> str:
+    """data/ledger/ 最新一份虛擬帳戶帳本的日期（Claude Code 16:25 存檔）。"""
+    try:
+        if REF:
+            r = subprocess.run(["git", "ls-tree", "--name-only", f"{REF}:data/ledger"], cwd=ROOT,
+                               capture_output=True, text=True, timeout=60, check=True)
+            names = r.stdout.split()
+        else:
+            names = [f.name for f in (DATA / "ledger").glob("*.json")]
+        return max((n[:10] for n in names if len(n) == 15 and n.endswith(".json")), default="")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def checks(D: str, us_day: str) -> list[dict]:
     """每一項：name、ok、有什麼、要什麼、補跑用哪個工作流程（fix）。"""
     ex = DATA / "extras"
@@ -112,6 +126,8 @@ def checks(D: str, us_day: str) -> list[dict]:
         ("當沖", _max_date(ex / "daytrade_hist.csv.gz"), D, "extras"),
         ("美股隔夜（費半）", _json(DATA / "us" / "meta.json", "sox_date"), us_day, "us"),
         ("風險燈（大環境）", _json(DATA / "macro" / "regime.json", "date"), D, "us"),
+        # Cowork 15:47 結算 → Claude Code 16:25 存檔；沒有就是那兩個排程有一個沒跑成，要人看
+        ("虛擬帳戶帳本", _ledger_last(), D, None),
     ]
     return [{"name": n, "have": h or "—", "want": w, "ok": bool(h) and h >= w, "fix": f} for n, h, w, f in items]
 

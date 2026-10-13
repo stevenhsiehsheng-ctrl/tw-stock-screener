@@ -69,6 +69,11 @@ def test_health_checks_reads_files(tmp_path, monkeypatch):
     assert items["盤後零股（上市）"]["ok"] and items["盤後零股（上櫃）"]["ok"]
     assert not items["美股隔夜（費半）"]["ok"] and items["美股隔夜（費半）"]["fix"] == "us"
     assert not items["三大法人"]["ok"] and items["三大法人"]["have"] == "—"       # 檔案不存在
+    assert not items["虛擬帳戶帳本"]["ok"] and items["虛擬帳戶帳本"]["fix"] is None
+    (tmp_path / "ledger").mkdir()
+    (tmp_path / "ledger" / "2026-10-12.json").write_text("{}", "utf-8")
+    items = {i["name"]: i for i in health.checks("2026-10-12", "2026-10-12")}
+    assert items["虛擬帳戶帳本"]["ok"]
 
 
 # ---------------------------------------------------------------- 虛擬帳戶拆桶
