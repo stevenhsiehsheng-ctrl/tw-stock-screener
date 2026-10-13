@@ -2482,3 +2482,35 @@ def test_live_stock_row_and_sell_open(tmp_path, monkeypatch):
                                  {"code": "1102", "status": "closed", "exit_signal_date": "2026-10-10", "exit_open": 20.5},
                                  {"code": "1103", "status": "open"}]).reindex(columns=positions.COLS))
     assert live.sell_open_codes() == {"1101"}
+
+
+def test_today_build_band_and_sig_day(tmp_path, monkeypatch):
+    """首頁今天重點：13:31 收工後 history 還是昨天 → 13:12 訊號那行用 positions 最新訊號日；
+    雜訊帶 k＝首筆訊號到最新交易日的天數，介於兩個 k 之間線性內插、超出範圍夾到最近的；
+    待賣（出場訊號已出、還沒開盤價）另列；缺的檔案不讓整頁失敗。"""
+    import json as _json
+
+    from screener import today
+
+    d, ex = tmp_path / "data", tmp_path / "data" / "extras"
+    ex.mkdir(parents=True)
+    monkeypatch.setattr(today, "DATA", d)
+    monkeypatch.setattr(today, "EX", ex)
+    days = [x.strftime("%Y-%m-%d") for x in pd.bdate_range("2026-09-01", periods=30)]   # 9/01～10/12
+    pd.DataFrame({"date": days, "code": "1101", "close": 33.0}).to_csv(d / "history.csv.gz", index=False)
+    pd.DataFrame({"date": days, "code": "0050", "tr": 100.0}).to_csv(ex / "bench.csv", index=False)
+    pos = [{"code": "1101", "name": "台泥", "signal_date": days[0], "status": "open", "entry_price": 30, "days_held": 29,
+            "est_return_pct": 10.0, "close_lu": 0},
+           {"code": "1102", "name": "亞泥", "signal_date": days[3], "status": "closed", "entry_price": 40,
+            "exit_signal_date": days[-1], "exit_reason": "量縮", "est_return_pct": 2.0, "close_lu": 0},
+           {"code": "1103", "name": "嘉泥", "signal_date": "2026-10-13", "status": "open", "entry_price": 20, "close_lu": 1}]
+    from screener import positions
+    pd.DataFrame(pos).reindex(columns=positions.COLS).to_csv(d / "positions.csv", index=False)
+    (ex / "sys_band.json").write_text(_json.dumps({"band": {"20": {"p5": -4.0, "p95": 4.0}, "40": {"p5": -2.0, "p95": 6.0}}}), "utf-8")
+    out = today.build()
+    assert out["tw_date"] == days[-1] and out["sig_day"] == "2026-10-13" and [x["code"] for x in out["today_sig"]] == ["1103"]
+    assert [x["code"] for x in out["exits"]] == ["1102"] and out["exits"][0]["exit_reason"] == "量縮"
+    k = out["sys"]["k"]
+    assert k == 30 and (out["sys"]["band_lo"], out["sys"]["band_hi"]) == (-3.0, 5.0)  # 20 和 40 中間
+    (ex / "sys_band.json").write_text(_json.dumps({"band": {"5": {"p5": -9.0, "p95": 9.0}, "10": {"p5": -7.0, "p95": 7.0}}}), "utf-8")
+    assert (today.build()["sys"]["band_lo"], today.build()["sys"]["band_hi"]) == (-7.0, 7.0)  # 超過最大 k → 夾到 10
