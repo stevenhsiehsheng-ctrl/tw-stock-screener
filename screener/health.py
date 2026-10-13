@@ -8,11 +8,15 @@
 - 結果寫 data/health/latest.json；同一天同一班已經做過就跳過（GitHub 備援班會排隊在後面重跑）。
 
 交易日：證交所 FMTQIK（每日成交量值）列出的日子；抓不到就退回用 history 的最後一天。
+
+--latest：讀 origin/main 最新那版的資料檔（先 git fetch）。盤中監控整天用 08:40 的 checkout，
+不加的話 13:30 複查看到的是早上的舊檔，早上補跑進來的美股、風險燈會被當成還沒到（10/13 誤報）。
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import io
 import json
 import logging
 import subprocess
@@ -33,6 +37,19 @@ NYSE_HOLIDAYS = {"2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-0
                  "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18",
                  "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24"}
 WATCH = {"台股每日篩選", "盤中連續監控", "美股隔夜", "傍晚補抓消息面", "更新網頁版面"}   # 各 .yml 的 name:
+REF: str | None = None   # 有設（例 "origin/main"）就讀 git 上那一版，見 --latest
+
+
+def _src(path: Path) -> io.BytesIO:
+    """資料檔內容：REF 有設就讀 git 上那一版，讀不到（檔案還沒進 main 等）退回工作目錄。"""
+    if REF:
+        try:
+            r = subprocess.run(["git", "show", f"{REF}:{path.relative_to(ROOT).as_posix()}"], cwd=ROOT,
+                               capture_output=True, timeout=120, check=True)
+            return io.BytesIO(r.stdout)
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s 讀不到 %s，改讀工作目錄：%s", REF, path.name, e)
+    return io.BytesIO(path.read_bytes())
 
 
 def twse_days(today: dt.date) -> list[str] | None:
@@ -65,7 +82,8 @@ def last_us_day(today: dt.date) -> str:
 
 def _max_date(path: Path, col="date", where=None) -> str:
     try:
-        df = pd.read_csv(path, usecols=[col] + ([where[0]] if where else []), dtype=str)
+        df = pd.read_csv(_src(path), usecols=[col] + ([where[0]] if where else []), dtype=str,
+                         compression="gzip" if path.suffix == ".gz" else None)
         if where:
             df = df[df[where[0]] == where[1]]
         return str(df[col].max()) if len(df) else ""
@@ -75,7 +93,7 @@ def _max_date(path: Path, col="date", where=None) -> str:
 
 def _json(path: Path, key: str) -> str:
     try:
-        return str(json.loads(path.read_text("utf-8")).get(key) or "")
+        return str(json.loads(_src(path).read().decode("utf-8")).get(key) or "")
     except Exception:  # noqa: BLE001
         return ""
 
@@ -121,10 +139,24 @@ def failed_runs(hours=20) -> list[dict]:
 FIX_NAME = {"daily": "每日資料", "extras": "傍晚補抓", "us": "美股隔夜"}
 
 
+def _busy(wf: str) -> bool:
+    """這個工作流程現在有排隊或在跑的（例如 GitHub 排程剛好也在跑美股隔夜）就不再派一次。"""
+    try:
+        r = subprocess.run(["gh", "run", "list", "--workflow", wf, "-L", "5", "--json", "status"],
+                           capture_output=True, text=True, timeout=60, check=True)
+        return any(x.get("status") in ("queued", "in_progress", "waiting", "requested", "pending")
+                   for x in json.loads(r.stdout))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def dispatch(fix: str, D: str) -> bool:
     cmd = {"daily": ["daily.yml", "-f", f"date={D}", "-f", "test=false"],
            "extras": ["extras_evening.yml", "-f", f"date={D}", "-f", "oddlot_days=5"],
            "us": ["us.yml"]}[fix]
+    if _busy(cmd[0]):
+        log.info("%s 已經在排隊／跑了，不重派", cmd[0])
+        return True
     try:
         subprocess.run(["gh", "workflow", "run", cmd[0], "--ref", "main", *cmd[1:]],
                        capture_output=True, text=True, timeout=60, check=True)
@@ -134,13 +166,20 @@ def dispatch(fix: str, D: str) -> bool:
         return False
 
 
-def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None) -> dict:
+def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, latest: bool = False) -> dict:
+    global REF
     now = now or dt.datetime.now(TPE)
     today = now.date()
     prev = json.loads(OUT.read_text("utf-8")) if OUT.exists() else {}
     if prev.get("date") == today.isoformat() and slot in (prev.get("slots") or []):
         log.info("今天 %s 班已經體檢過，跳過", slot)
         return prev
+    if latest:
+        try:
+            subprocess.run(["git", "fetch", "-q", "origin", "main"], cwd=ROOT, capture_output=True, timeout=120, check=True)
+            REF = "origin/main"
+        except Exception as e:  # noqa: BLE001
+            log.warning("git fetch 失敗，讀工作目錄的檔：%s", e)
     days = twse_days(today)
     hist = _max_date(DATA / "history.csv.gz")
     D = max([d for d in days if d < today.isoformat()], default=hist) if days else hist
@@ -151,7 +190,7 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None) -> 
     sent = [f for f in sorted({i["fix"] for i in bad if i["fix"]}) if dispatch(f, D)] if heal else []
     done = (prev.get("slots") or []) if prev.get("date") == today.isoformat() else []
     res = {"date": today.isoformat(), "slots": sorted({*done, slot}),
-           "checked_at": now.strftime("%Y-%m-%dT%H:%M:%S%z"), "slot": slot, "trading_day": D,
+           "checked_at": now.strftime("%Y-%m-%dT%H:%M:%S%z"), "slot": slot, "trading_day": D, "source": REF or "checkout",
            "calendar": "twse" if days else "history", "us_day": us_day, "items": items,
            "bad": [i["name"] for i in bad], "failed_runs": fails, "dispatched": sent,
            "dispatched_am": (prev.get("dispatched") or []) if done == ["am"] else []}
@@ -185,8 +224,9 @@ def main():
     ap.add_argument("--slot", choices=["am", "pm"], required=True)
     ap.add_argument("--heal", action="store_true", help="缺資料就派工補跑")
     ap.add_argument("--notify", action="store_true", help="有救不回來的就寄信")
+    ap.add_argument("--latest", action="store_true", help="讀 origin/main 最新的資料檔（先 git fetch）")
     a = ap.parse_args()
-    run(a.slot, a.heal, a.notify)
+    run(a.slot, a.heal, a.notify, latest=a.latest)
 
 
 if __name__ == "__main__":
