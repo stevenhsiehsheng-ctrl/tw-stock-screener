@@ -1003,6 +1003,24 @@ def test_intraday_official_signal(tmp_path, monkeypatch):
     assert len(pd.read_csv(tmp_path / "data" / "positions.csv")) == 1
 
 
+def test_revdrift_pick6():
+    """revdrift 抽 6 檔（虛擬帳戶 revdrift 桶照這個買）：股價 >2,000 不抽；零股量不夠（前 5 日均量×20% 買不到 2,000 元）不抽；
+    同一批次日一定抽出同一組（Cowork 自己算要對得上）。"""
+    from screener import revdrift
+    b = [f"{1000 + i}" for i in range(10)]
+    px = pd.Series({c: 50.0 for c in b} | {"1000": 2500.0})                 # 1000 太貴
+    days = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-12"]
+    odd = pd.DataFrame(1000, index=days, columns=b)                          # 均量 1000 股 ×20%＝200 股 ≥ 40 股
+    odd["1001"] = 100                                                        # 20 股 < 40 股（2,000 元 ÷ 50）
+    p1, n1 = revdrift._pick6(b, px, odd, days, "2026-10-13")
+    p2, _ = revdrift._pick6(list(reversed(b)), px, odd, days, "2026-10-13")
+    assert n1 == 8 and len(p1) == 6 and not {"1000", "1001"} & set(p1)
+    assert p1 == p2                                                          # 跟傳進來的順序無關
+    p3, n3 = revdrift._pick6(b, px, None, days, "2026-10-13")                 # 沒零股資料：只看股價
+    assert n3 is None and "1000" not in p3 and len(p3) == 6
+    assert revdrift._pick6(b, px, odd, days[1:], "2026-10-13")[1] is None    # 不滿 5 天零股資料：不用零股門檻
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
