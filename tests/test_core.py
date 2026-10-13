@@ -814,6 +814,32 @@ def test_live_scan_hits(monkeypatch):
     assert out.peers["1111"] == 2   # 同產業另外兩檔（4444、5555）也是預估爆量＋漲 3% 以上；3333 量不夠不算
 
 
+def test_workflows_gh_token():
+    """用到 gh（或體檢會呼叫 gh）的步驟要有 GH_TOKEN，會派工的 workflow 要有 actions: write。
+    少了的話 gh 直接失敗，那幾步又多半 continue-on-error，傍晚補抓／早上補跑就默默不叫。"""
+    import glob
+    import re
+
+    import yaml
+    uses = re.compile(r"(^|[\s;&|(`$])gh\s+(api|run|workflow|issue|pr|release)\b|screener\.health")
+    dispatch = re.compile(r"gh\s+workflow\s+run|screener\.health")
+    seen = 0
+    for f in sorted(glob.glob(".github/workflows/*.yml")):
+        d = yaml.safe_load(open(f, encoding="utf-8"))
+        for jn, j in d["jobs"].items():
+            perms = j.get("permissions") or d.get("permissions") or {}
+            for st in j.get("steps") or []:
+                run = st.get("run") or ""
+                if not uses.search(run):
+                    continue
+                seen += 1
+                env = {**(d.get("env") or {}), **(j.get("env") or {}), **(st.get("env") or {})}
+                assert "GH_TOKEN" in env, (f, jn, st.get("name"))
+                if dispatch.search(run):
+                    assert isinstance(perms, dict) and perms.get("actions") == "write", (f, jn, st.get("name"))
+    assert seen >= 8
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
