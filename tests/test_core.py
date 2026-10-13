@@ -489,6 +489,10 @@ def test_workflows_valid():
                     assert r.returncode == 0, (f, jn, st.get("name"), r.stderr)
         if f.endswith(("/live.yml", "/daily.yml")):
             assert "test" in declared, f"{f} 少了 test 輸入，cron-job.org 叫會被拒"
+        # 有排程、會推資料的要自己叫網站重畫（GITHUB_TOKEN 推的 commit 不會觸發 pages.yml，#296／#297 的坑）
+        # 例外：intraday.yml（盤中進場提醒，排程都晚到 13:28 以後、一跑就略過，不推網站要用的資料）
+        if isinstance(on, dict) and "schedule" in on and "git push" in txt and not f.endswith("/intraday.yml"):
+            assert "pages.yml" in txt or "deploy-pages" in txt, f"{f} 推完資料沒叫網站重畫"
 
 
 # ---------------------------------------------------------------- 回測檔：檔尾盤中抓的半天資料要丟掉
