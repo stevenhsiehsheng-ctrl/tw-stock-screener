@@ -41,7 +41,7 @@
 
 ## 改程式的規則
 
-- 分支 → PR → **「程式檢查」**（`ci.yml`：語法錯誤、每支 `screener/` 模組能 import、`tests/` 單元測試）綠了才合併。本機：`python -m pytest -q tests`。
+- 分支 → PR → **「程式檢查」**（`ci.yml`：語法錯誤、每支 `screener/` 模組能 import、`tests/` 單元測試、整站重畫一次沒有「產生失敗」）綠了才合併。本機：`python -m pytest -q tests`、`python -m screener.rebuild`（跑完記得 `git checkout -- data site` 還原）。
 - `live.yml`、`screener/live.py`、`intraday.py`、`live_page.html`、`positions.py` 影響盤中，**13:30 收盤後**才合併。
 - 改過的網頁用 playwright 實際打開看（手機寬 400px、有沒有 JS 錯誤）。
 - 數字類的改動（回測、統計）先寫好要比什麼再跑，全部列出，不挑好看的。
