@@ -174,9 +174,27 @@ def _corp_adjust(o, h, lo, c, v):
     return n
 
 
+def drop_partial_tail(df: pd.DataFrame, ratio: float = 0.85) -> tuple[pd.DataFrame, list[str]]:
+    """回測檔最後幾天如果全市場總量明顯低於平常（< 前 20 天中位數 × ratio），是盤中抓的半天資料，丟掉。
+    10/14 查到：backtest.csv.gz 最後一天 2026-10-06 的總量只有官方的 73%（前幾天都 98%），收盤價也是盤中價
+    （台積電 2580 vs 官方 2585），回測碰到最後一天就用到盤中價。只丟檔尾連續的半天，中間的不動。"""
+    tot = df.groupby("date").volume.sum().sort_index()
+    med = tot.rolling(20, min_periods=5).median().shift(1)
+    cut = []
+    for d in reversed(tot.index[-3:]):
+        if pd.notna(med[d]) and tot[d] < ratio * med[d]:
+            cut.append(d)
+        else:
+            break
+    return (df[~df.date.isin(cut)] if cut else df), sorted(cut)
+
+
 def load(path: str | None = None) -> dict:
     df = pd.read_csv(bt_path(path), dtype={"code": str})
     df = df[df.code.str.fullmatch(r"\d{4}") & ~df.code.str.startswith("00")]
+    df, cut = drop_partial_tail(df)
+    if cut:
+        print(f"回測檔最後 {len(cut)} 天（{'、'.join(cut)}）全市場成交量明顯低於平常，像盤中抓的半天資料，先丟掉")
     piv = lambda col: df.pivot(index="date", columns="code", values=col).sort_index()
     c = piv("close")
     o, h, lo, v = (piv(x).reindex_like(c) for x in ("open", "high", "low", "volume"))

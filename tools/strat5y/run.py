@@ -74,6 +74,10 @@ def us_members(bt_path: str, index: pd.Index, columns: pd.Index, mode: str) -> p
 def main(bt_path: str, market: str = "tw", members: str = "", cost_override: float | None = None, out: str = "",
          split: str = "") -> None:
     bt = pd.read_csv(bt_path, dtype={"code": str})
+    from tools.btsim import drop_partial_tail   # 檔尾盤中抓的半天資料先丟掉（btsim.load 同一套）
+    bt, cut = drop_partial_tail(bt)
+    if cut:
+        print(f"回測檔最後 {len(cut)} 天（{'、'.join(cut)}）成交量明顯低於平常，像盤中抓的，先丟掉")
     full = yaml.safe_load((ROOT / "config.yaml").read_text("utf-8"))
     if market == "us":
         cfg, cost, dst = full["us_screener"], float(full["us_screener"].get("cost_pct", 0.3)), ROOT / "data" / "usx" / "strat_5y.json"
