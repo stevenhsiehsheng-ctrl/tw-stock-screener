@@ -134,3 +134,15 @@ def test_live_odd_rows():
     assert r[0]["odd_bid1"] == 2490 and r[0]["odd_bid1_sh"] == 764 and r[0]["odd_bid5_sh"] == 764 + 974 + 1690 + 378 + 457
     assert r[0]["odd_ask5_sh"] == 268 + 305 + 467 + 634 + 412 and r[0]["odd_vol_sh"] == 34420
     assert r[1]["odd_ask1"] is None and r[1]["odd_ask5_sh"] == 0 and r[1]["odd_bid1_sh"] == 12000 and r[1]["odd_price"] == 88.5   # 鎖漲停：沒人賣
+
+
+# ---------------------------------------------------------------- 每日信的聯一光型段落
+def test_momo_today_md(tmp_path, monkeypatch):
+    from screener import momo
+    f = tmp_path / "momo_recent.csv"
+    pd.DataFrame({"rule": ["base", "cont", "cont"], "date": ["2026-10-13", "2026-10-13", "2026-10-12"],
+                  "code": ["1312", "3406", "6834"], "sig_close": [17.65, 1175, 145]}).to_csv(f, index=False)
+    monkeypatch.setattr(momo, "RECENT", f)
+    md = momo.today_md("2026-10-13", {"3406": "玉晶光", "1312": "國喬"})
+    assert md.index("強勢續攻：3406 玉晶光") < md.index("低檔爆量突破：1312 國喬") and "6834" not in md
+    assert momo.today_md("2026-10-14") == ""
