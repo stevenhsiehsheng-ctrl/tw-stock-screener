@@ -916,6 +916,25 @@ def test_corpact_adjust(tmp_path, monkeypatch):
     assert h.close["3333", "2026-09-08"] == 50 and h.volume["3333", "2026-09-08"] == 2000 and h.close["3333", "2026-09-11"] == 50
 
 
+def test_surge_frame_definition():
+    """「爆量突破 60 日新高」的定義（網站 K 線買點、lottery 地基、回測共用）：量 ≥ 前 5 日均量 3 倍、漲 ≥3%、紅K、收 > 前 60 日最高。
+    每檔只差一個條件，只有符合全部的那檔當天算。"""
+    from screener import tech
+    from screener.rules import Panel
+    days = [str(dt.date(2026, 1, 1) + dt.timedelta(days=i)) for i in range(66)]
+    last = {"OK": (101, 104, 4000), "VOL": (101, 104, 2900), "CHG": (101, 102, 4000),   # (開, 收, 量)；前一天收 100
+            "BLK": (105, 104, 4000), "LOW": (101, 104, 4000)}
+    rows = []
+    for code, (o, c, v) in last.items():
+        for i, d in enumerate(days[:-1]):
+            hi = 106 if code == "LOW" and i == 30 else 101           # LOW：60 天內有一天最高 106，收 104 沒過
+            rows.append({"date": d, "code": code, "open": 100, "high": hi, "low": 99, "close": 100, "volume": 1000})
+        rows.append({"date": days[-1], "code": code, "open": o, "high": max(o, c), "low": min(o, c), "close": c, "volume": v})
+    s = tech.surge_frame(Panel(pd.DataFrame(rows)))
+    assert s.loc[days[-1]].to_dict() == {"BLK": False, "CHG": False, "LOW": False, "OK": True, "VOL": False}
+    assert not s.loc[days[:-1]].any().any()
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
