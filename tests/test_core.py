@@ -401,6 +401,30 @@ def test_today_sys_stats(tmp_path, monkeypatch):
     assert st["win"] is None                                              # 不滿 30 筆不算勝率
 
 
+def test_lottery_placebo_liquidity_match():
+    """研究判準用的配對安慰劑：同進出場日、只從同一個流動性五分位抽；報酬減同期全市場等權再扣成本。
+    做法：流動性最高那 1/5 的股票都漲 10%、其他都 0；交易是最高組的 → 安慰劑每次都抽到 +10%。"""
+    import numpy as np
+
+    from screener import lottery
+    dates = [str(dt.date(2026, 1, 1) + dt.timedelta(days=i)) for i in range(70)]
+    codes = [f"{1000 + i}" for i in range(50)]
+    close = pd.DataFrame(100.0, index=dates, columns=codes)
+    vol = pd.DataFrame({c: [1000.0 * (i + 1)] * len(dates) for i, c in enumerate(codes)}, index=dates)   # 1049 成交值最大
+    top = codes[-10:]                                                                                 # 最高 1/5
+    close.loc[dates[-1], top] = 110.0
+    q = lottery.liquidity_quintile(close, vol)
+    assert set(q.loc[dates[-2]][q.loc[dates[-2]] == 5].index) == set(top)
+    trades = pd.DataFrame({"entry": [dates[-2]] * 3, "exit": [dates[-1]] * 3, "code": [top[0], top[3], codes[0]]})
+    pl = lottery.placebo(close, trades, n=50, volume=vol, match="liquidity", cost=0.38)
+    ew = 10 * 10 / 50                                                                                 # 全市場等權 +2%
+    hi, lo = (10 - ew) - 0.38, (0 - ew) - 0.38
+    assert abs(pl["median"].iloc[0] - hi) < 1e-9                                                       # 三筆裡兩筆高組 → 中位＝高組
+    assert set(np.round(pl["median"], 9)) == {round(hi, 9)}
+    pl2 = lottery.placebo(close, trades.iloc[[2]], n=20, volume=vol, match="liquidity", cost=0.38)
+    assert set(np.round(pl2["median"], 9)) == {round(lo, 9)}                                          # 低流動性那筆只抽到 0%
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify
