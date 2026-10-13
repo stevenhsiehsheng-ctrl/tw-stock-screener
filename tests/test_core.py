@@ -284,6 +284,7 @@ def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     monkeypatch.setattr(health, "REF", None)
     monkeypatch.setattr(health, "twse_days", lambda t: ["2026-10-08", "2026-10-12", "2026-10-13"])
     monkeypatch.setattr(health, "failed_runs", lambda hours=20: [])
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)   # 不在 Actions 裡 → 不看 cron-job.org
     sent, mails = [], []
     monkeypatch.setattr(health, "dispatch", lambda f, D: sent.append((f, D)) or True)
     monkeypatch.setattr(notify, "send", lambda s, b: mails.append(s))
@@ -321,3 +322,42 @@ def test_health_wait_dispatched(tmp_path, monkeypatch):
     # 不是今天的體檢、沒派工 → 不等
     t[0] = dt.datetime(2026, 10, 15, 8, 41, tzinfo=ZoneInfo("Asia/Taipei"))
     assert health.wait_dispatched("08:55", now=clock, sleep=nap) == [] and t[0].time() == dt.time(8, 41)
+
+
+def test_health_cron_check(tmp_path, monkeypatch):
+    """cron-job.org 沒準時叫：盤中監控由 schedule 啟動、上一個交易日 15:20 沒有 workflow_dispatch 的每日資料；連兩天才寄信。"""
+    import datetime as dt
+    import subprocess
+    from zoneinfo import ZoneInfo
+    from screener import notify
+
+    runs = [{"event": "workflow_dispatch", "createdAt": "2026-10-13T07:20:31Z"},   # 台北 15:20 → 有叫
+            {"event": "schedule", "createdAt": "2026-10-13T09:58:00Z"},
+            {"event": "workflow_dispatch", "createdAt": "2026-10-12T00:41:00Z"}]   # 早上補跑的，不算
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps(runs), ""))
+    now = dt.datetime(2026, 10, 14, 8, 41, tzinfo=ZoneInfo("Asia/Taipei"))
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    assert health.cron_check("2026-10-13", now) is None                     # 不在 Actions 裡不判斷
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    assert health.cron_check("2026-10-13", now) == []
+    assert health.cron_check("2026-10-12", now) == ["每日資料 10-12 15:20 那班沒叫到"]
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
+    late = now.replace(hour=10, minute=30)
+    assert health.cron_check("2026-10-13", late) == ["盤中監控今天由 GitHub 備援排程 10:30 啟動（08:40 沒叫到）"]
+
+    # 寄信：第一次沒叫到不寄、連兩天才寄
+    monkeypatch.setattr(health, "DATA", tmp_path)
+    monkeypatch.setattr(health, "OUT", tmp_path / "health" / "latest.json")
+    monkeypatch.setattr(health, "REF", None)
+    monkeypatch.setattr(health, "checks", lambda D, u: [])
+    monkeypatch.setattr(health, "failed_runs", lambda hours=20: [])
+    mails = []
+    monkeypatch.setattr(notify, "send", lambda s, b: mails.append((s, b)))
+    monkeypatch.setattr(health, "cron_check", lambda D, n: ["每日資料 X 15:20 那班沒叫到"])
+    monkeypatch.setattr(health, "twse_days", lambda t: ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"])
+    health.run("am", heal=False, notify=True, now=now)
+    assert mails == []
+    r = health.run("pm", heal=False, notify=True, now=now.replace(hour=13, minute=31))
+    assert r["cron"] == ["每日資料 X 15:20 那班沒叫到"] and mails == []      # 下午沿用早上的結果、不寄
+    health.run("am", heal=False, notify=True, now=now + dt.timedelta(days=1))
+    assert len(mails) == 1 and "token" in mails[0][1] and "1 項" in mails[0][0]
