@@ -188,31 +188,35 @@ def repo_mb() -> float | None:
         return None
 
 
+def _dispatched(wf: str, day: str, lo: dt.time, hi: dt.time) -> bool | None:
+    """台北 day 的 lo～hi 之間有沒有 workflow_dispatch 叫的 wf（cron-job.org 叫的都是 workflow_dispatch）；讀不到執行紀錄回 None。"""
+    try:
+        r = subprocess.run(["gh", "run", "list", "--workflow", wf, "-L", "60", "--json", "event,createdAt"],
+                           capture_output=True, text=True, timeout=60, check=True)
+        runs = json.loads(r.stdout)
+    except Exception as e:  # noqa: BLE001
+        log.warning("讀不到 %s 的執行紀錄：%s", wf, e)
+        return None
+    return any(x.get("event") == "workflow_dispatch"
+               and (t := pd.Timestamp(x["createdAt"]).tz_convert(TPE)).date().isoformat() == day and lo <= t.time() <= hi
+               for x in runs)
+
+
 def cron_check(D: str, now: dt.datetime) -> list[str] | None:
     """cron-job.org 有沒有準時叫（08:40 盤中監控、15:20 每日資料）。它用 Dennis 的 GitHub token，token 過期就默默不叫了，
-    只剩常晚好幾小時的 GitHub 排程（每日資料拖到晚上，Cowork 15:47 結算就沒資料）。只在早上體檢（Actions 裡）看：
-    ① 這班盤中監控是不是 workflow_dispatch 叫的（cron-job.org 08:40 叫的那班會先跑完一整天，GitHub 備援班輪到時
-       早上體檢已經做過、直接跳過；所以早上體檢由 schedule 那班做 = 08:40 沒叫到）
+    只剩常晚好幾小時的 GitHub 排程（盤中監控 14～17 點才跑、每日資料拖到半夜，Cowork 15:47 結算就沒資料）。只在 Actions 裡看：
+    ① 今天 08:30～09:10 有沒有 workflow_dispatch 的盤中監控
     ② 上一個交易日 15:10～15:45 有沒有 workflow_dispatch 的每日資料
+    早上體檢跟著 08:40 那班跑；08:40 沒叫到時早上體檢根本不會跑（GitHub 備援班都過 11 點），
+    所以收工後體檢在今天沒有早上體檢時也要看（10/14 發現原本只在早上看，token 真的過期反而永遠不會寄信）。
     回傳沒叫到的說明（空的＝都有叫）；不在 Actions 裡回傳 None（不判斷）。"""
     ev = os.environ.get("GITHUB_EVENT_NAME")
     if not ev:
         return None
     out = []
-    if ev == "schedule":
-        out.append(f"盤中監控今天由 GitHub 備援排程 {now:%H:%M} 啟動（08:40 沒叫到）")
-    try:
-        r = subprocess.run(["gh", "run", "list", "--workflow", "daily.yml", "-L", "60", "--json", "event,createdAt"],
-                           capture_output=True, text=True, timeout=60, check=True)
-        runs = json.loads(r.stdout)
-    except Exception as e:  # noqa: BLE001
-        log.warning("讀不到每日資料的執行紀錄：%s", e)
-        return out
-    lo, hi = dt.time(15, 10), dt.time(15, 45)
-    hit = any(x.get("event") == "workflow_dispatch"
-              and (t := pd.Timestamp(x["createdAt"]).tz_convert(TPE)).date().isoformat() == D and lo <= t.time() <= hi
-              for x in runs)
-    if not hit:
+    if _dispatched("live.yml", now.date().isoformat(), dt.time(8, 30), dt.time(9, 10)) is False:
+        out.append("盤中監控今天 08:40 沒叫到" + (f"（由 GitHub 備援排程 {now:%H:%M} 啟動）" if ev == "schedule" else ""))
+    if _dispatched("daily.yml", D, dt.time(15, 10), dt.time(15, 45)) is False:
         out.append(f"每日資料 {D[5:]} 15:20 那班沒叫到")
     return out
 
@@ -304,7 +308,7 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
            "calendar": "twse" if days else "history", "us_day": us_day, "items": items,
            "bad": [i["name"] for i in bad], "failed_runs": fails, "dispatched": sent,
            "dispatched_am": (prev.get("dispatched") or []) if done == ["am"] else [],
-           "cron": cron_check(D, now) if slot == "am" else prev.get("cron") if done else None,
+           "cron": cron_check(D, now) if slot == "am" or "am" not in done else prev.get("cron"),   # 早上沒體檢（08:40 沒叫到）下午自己看
            "repo_mb": repo_mb() if slot == "am" else prev.get("repo_mb") if done else None}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", "utf-8")
@@ -319,8 +323,8 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
 
     # 早上補跑救得到的先不吵；救不到的（沒有補跑方法、派工失敗、工作流程失敗）才寄。下午還缺就寄。
     unfixed = [i for i in bad if i["fix"] not in sent]
-    # cron-job.org：偶爾漏一次不吵，連兩次（今天＋上一次體檢）都沒叫到才寄（多半是 token 過期）
-    cron_bad = slot == "am" and bool(res["cron"]) and prev.get("date") != res["date"] and bool(prev.get("cron"))
+    # cron-job.org：偶爾漏一次不吵，連兩天（今天第一次體檢＋上一次體檢）都沒叫到才寄（多半是 token 過期）
+    cron_bad = bool(res["cron"]) and prev.get("date") != res["date"] and bool(prev.get("cron"))
     if notify and (unfixed or fails or cron_bad):
         from . import notify as nt
 
