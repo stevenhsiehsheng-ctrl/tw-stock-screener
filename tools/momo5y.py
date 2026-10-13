@@ -63,6 +63,10 @@ def first_only(e: pd.DataFrame) -> list[tuple[int, str]]:
 
 def main(path: str) -> dict:
     bt = pd.read_csv(path, dtype={"code": str})
+    from tools.btsim import drop_partial_tail   # 檔尾盤中抓的半天資料先丟掉（btsim.load 同一套）
+    bt, cut = drop_partial_tail(bt)
+    if cut:
+        print(f"回測檔最後 {len(cut)} 天（{'、'.join(cut)}）成交量明顯低於平常，像盤中抓的，先丟掉")
     P = momo.panels(bt)
     o, c, v = P["open"], P["close"], P["volume"]
     dates = list(c.index)

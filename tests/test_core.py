@@ -486,3 +486,19 @@ def test_workflows_valid():
                     assert r.returncode == 0, (f, jn, st.get("name"), r.stderr)
         if f.endswith(("/live.yml", "/daily.yml")):
             assert "test" in declared, f"{f} 少了 test 輸入，cron-job.org 叫會被拒"
+
+
+# ---------------------------------------------------------------- 回測檔：檔尾盤中抓的半天資料要丟掉
+def test_btsim_drop_partial_tail():
+    from tools.btsim import drop_partial_tail
+    days = pd.bdate_range("2026-08-03", periods=25).strftime("%Y-%m-%d")
+    vol = {d: 1_000_000 for d in days}
+    vol[days[10]] = 600_000            # 中間某天量少（颱風假前）不動
+    vol[days[-1]] = 730_000            # 最後一天只有 73%：盤中抓的
+    df = pd.DataFrame([(d, c, vol[d]) for d in days for c in ("1111", "2222")], columns=["date", "code", "volume"])
+    out, cut = drop_partial_tail(df)
+    assert cut == [days[-1]] and out.date.max() == days[-2] and days[10] in set(out.date)
+    vol[days[-1]] = 990_000            # 正常的最後一天不丟
+    df = pd.DataFrame([(d, c, vol[d]) for d in days for c in ("1111", "2222")], columns=["date", "code", "volume"])
+    out, cut = drop_partial_tail(df)
+    assert cut == [] and len(out) == len(df)
