@@ -9,6 +9,7 @@ import datetime as dt
 import html
 import json
 import threading
+import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -51,7 +52,14 @@ class Mock:
     captcha: bool = False
     captcha_code: str = "4821"
     captcha_wrong_first: bool = False
+    wrong_times: int = 0             # 前幾次輸入的驗證碼是錯的
+    inline_captcha_error: bool = False   # 驗證碼錯誤時寫在頁面上（不是跳 alert）
+    rebind_captcha: bool = False     # 驗證碼錯誤後重新顯示的表單，驗證碼欄位還留著上次打的值
     autotype: str = ""               # 模擬真人輸入驗證碼：""／"full"（打滿）／"enter"（打完按 Enter）
+    maintenance_gets: int = 0        # 前幾次打開查詢頁時回「系統維護中」（HTTP 503）
+    submit_delay: float = 0          # 送出報名後伺服器過幾秒才回應
+    prefilled: bool = False          # 報名頁的身分證／生日已經帶好、唯讀，按鈕是「同意並送出」
+    confirm_text: str = "確定要報名嗎？"
     popup: bool = True
     onward: bool = True
     notice_page: bool = False
@@ -69,6 +77,9 @@ class Mock:
     _captcha_fails: int = 0
 
     def __post_init__(self) -> None:
+        if self.captcha_wrong_first and not self.wrong_times:
+            self.wrong_times = 1
+        self._gets = 0
         d = self.today
         self.sessions = [
             Sess("S1", d + dt.timedelta(days=5), "31 免講習（重考、補考、輕型換重型）", 12),
@@ -154,7 +165,7 @@ class Mock:
         return ("<table class='list'><thead><tr><th>考試日期 (星期) Date of Test</th><th>場次組別說明 Desc.</th>"
                 f"<th>可報名人數</th><th>功能</th></tr></thead><tbody>{''.join(out)}</tbody></table>")
 
-    def signup_form(self, sid: str, alert: str = "") -> str:
+    def signup_form(self, sid: str, alert: str = "", inline: str = "", captcha_value: str = "") -> str:
         s = next(x for x in self.sessions if x.sid == sid)
         if self.birth_split:
             yo = "".join(f"<option value='{y}'>{y}</option>" for y in range(60, 101))
@@ -165,29 +176,35 @@ class Mock:
         else:
             birth = "<input name='birthdayStr' maxlength='7' placeholder='例：0780702'>"
         cap = (f"<tr><th>驗證碼</th><td><img src='/m3-emv-trn/captcha.jpg' alt=''> <a href='#'>換一張</a> "
-               "<input name='validateStr' id='validateStr' maxlength='4' autocomplete='off'></td></tr>") if self.captcha else ""
+               f"<input name='validateStr' id='validateStr' maxlength='4' autocomplete='off' value='{html.escape(captcha_value)}'>"
+               "</td></tr>") if self.captcha else ""
         extra = ("<tr><th>考照原因 <span>*</span></th><td><select name='reason'><option value=''>請選擇</option>"
                  "<option value='1'>初考</option><option value='2'>重考</option></select></td></tr>") if self.extra_required else ""
         body = (f"<h2>填寫報考人資料</h2><table class='info'><tr><th>考試日期</th><td>{roc(s.date)}</td></tr>"
                 f"<tr><th>場次組別</th><td>{html.escape(s.group)}</td></tr><tr><th>考試地點</th><td>板橋監理站</td></tr></table>"
                 f"<p>{NOTICE} 報名成功後如欲取消，請於考照當日07:00前上網取消。</p>"
+                f"{'<p class=err>' + html.escape(inline) + '</p>' if inline else ''}"
                 f"<form id='f' method='post' action='{P}/submit'><input type='hidden' name='secId' value='{sid}'><table>"
-                "<tr><th>身分證統一編號 ID No.<span>*</span></th><td><input name='idNo' maxlength='10'></td></tr>"
-                f"<tr><th>出生日期 Date of Birth<span>*</span></th><td>{birth}</td></tr>"
+                + ("<tr><th>身分證統一編號 ID No.</th><td><input name='idNo' readonly value='" + self.expected.get("idNo", "") + "'></td></tr>"
+                   "<tr><th>出生日期 Date of Birth</th><td><input name='birthdayStr' readonly value='" + self.expected.get("birth", "") + "'></td></tr>"
+                   if self.prefilled else
+                   "<tr><th>身分證統一編號 ID No.<span>*</span></th><td><input name='idNo' maxlength='10'></td></tr>"
+                   f"<tr><th>出生日期 Date of Birth<span>*</span></th><td>{birth}</td></tr>") +
                 "<tr><th>姓名</th><td><input name='name'></td><th>聯絡電話</th><td><input name='tel'></td></tr>"
                 f"<tr><th>電子郵件 E-mail</th><td><input name='email'></td></tr>{extra}{cap}</table>"
                 "<label><input type='checkbox' name='agree' value='Y'> 我已詳閱並同意上述注意事項</label><br>"
-                "<button type='button' onclick='doSubmit()'>確認送出</button> <button type='button' onclick='history.back()'>回上一頁</button>"
+                f"<button type='button' onclick='doSubmit()'>{'同意並送出' if self.prefilled else '確認送出'}</button> "
+                "<button type='button' onclick='history.back()'>回上一頁</button>"
                 "</form>")
         js = ("function doSubmit(){var f=document.getElementById('f');"
               "if(!f.idNo.value){alert('請輸入身分證統一編號');return;}"
               "if(!f.agree.checked){alert('請勾選同意注意事項');return;}"
-              "if(confirm('確定要報名嗎？')){f.submit();}}")
+              "if(confirm(" + json.dumps(self.confirm_text) + ")){f.submit();}}")
         if alert:
             js += f"alert({json.dumps(alert)});"
         if self.captcha and self.autotype:
-            code = "0000" if self.captcha_wrong_first and self._captcha_fails == 0 else self.captcha_code
-            js += ("setTimeout(function(){var el=document.getElementById('validateStr');var c=" + json.dumps(code) + ";var i=0;"
+            code = "0000" if self._captcha_fails < self.wrong_times else self.captcha_code
+            js += ("setTimeout(function(){var el=document.getElementById('validateStr');el.value='';var c=" + json.dumps(code) + ";var i=0;"
                    "var t=setInterval(function(){el.value+=c[i++];el.dispatchEvent(new Event('input',{bubbles:true}));"
                    "if(i>=c.length){clearInterval(t);" +
                    ("el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));" if self.autotype == "enter" else "") +
@@ -217,11 +234,17 @@ class Mock:
 
     def submit(self, v: dict) -> str:
         sid = v.get("secId", "")
+        if self.submit_delay:
+            time.sleep(self.submit_delay)
         if self.captcha:
             wrong = v.get("validateStr") != self.captcha_code
             if wrong:
                 self._captcha_fails += 1
-                return self.signup_form(sid, "驗證碼輸入錯誤，請重新輸入")
+                msg = "驗證碼輸入錯誤，請重新輸入"
+                keep = v.get("validateStr", "") if self.rebind_captcha else ""
+                if self.inline_captcha_error:
+                    return self.signup_form(sid, inline=msg, captcha_value=keep)
+                return self.signup_form(sid, alert=msg, captcha_value=keep)
         err = self.check(v)
         if err:
             return self.page("報名失敗", f"<h2>報名失敗</h2><p>{html.escape(err)}</p>")
@@ -256,6 +279,9 @@ def make_handler(m: Mock):
             u = urlsplit(self.path)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             if u.path == f"{P}/locations":
+                m._gets += 1
+                if m._gets <= m.maintenance_gets:
+                    return self._send(m.page("系統維護", "<h1>系統維護中，請稍後再試</h1>"), code=503)
                 return self._send(m.locations())
             if u.path == f"{P}/stations":
                 return self._send(json.dumps(STATIONS.get(q.get("office", ""), []), ensure_ascii=False), "application/json")

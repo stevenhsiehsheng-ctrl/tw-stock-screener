@@ -136,8 +136,31 @@ def _check_regex(s: str, what: str) -> None:
         raise ConfigError(f"{what} 不是正確的規則：{e}") from None
 
 
+def _num(d: dict, key: str, what: str, cast=float, minimum: float | None = None) -> None:
+    """把設定值轉成數字；寫成「3分鐘」之類的字會在一開始就告訴你，而不是等到搶位時才當掉。"""
+    v = d.get(key)
+    if v is None or v == "":
+        return
+    if isinstance(v, bool):
+        raise ConfigError(f"{what} 要填數字（現在是 {v!r}）")
+    try:
+        d[key] = cast(v) if cast is float else cast(float(v))
+    except (TypeError, ValueError):
+        raise ConfigError(f"{what} 要填數字（秒數或次數），例如 180（現在是 {v!r}）") from None
+    if minimum is not None and d[key] < minimum:
+        raise ConfigError(f"{what} 不能小於 {minimum:g}")
+
+
+_PLACEHOLDER_EMAILS = {"you@gmail.com", "you@example.com"}
+
+
 def validate(cfg: dict, require_applicant: bool = True) -> dict:
     """require_applicant=False：偵察模式用，不檢查（也用不到）applicant 的個人資料。"""
+    for key in ("target", "applicant", "captcha", "poll", "notify", "browser", "site", "selectors"):
+        if not isinstance(cfg.get(key), dict):
+            raise ConfigError(f"{key} 的格式不對（底下的設定要往右縮排）")
+    if not isinstance(cfg["notify"].get("email"), dict):
+        raise ConfigError("notify.email 的格式不對（底下的設定要往右縮排）")
     if cfg["mode"] not in MODES:
         raise ConfigError(f"mode 只能是 {' 或 '.join(MODES)}（現在是 {cfg['mode']!r}）")
     t = cfg["target"]
@@ -150,7 +173,9 @@ def validate(cfg: dict, require_applicant: bool = True) -> dict:
     if t["date_from"] and t["date_to"] and t["date_from"] > t["date_to"]:
         raise ConfigError("target.date_from 比 date_to 還晚")
     wd = t.get("weekdays") or [1, 2, 3, 4, 5, 6, 7]
-    if not all(isinstance(x, int) and 1 <= x <= 7 for x in wd):
+    if isinstance(wd, int) and not isinstance(wd, bool):
+        wd = [wd]
+    if not isinstance(wd, list) or not all(isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= 7 for x in wd):
         raise ConfigError("target.weekdays 只能填 1～7（1＝星期一，7＝星期日）")
     t["weekdays"] = sorted(set(wd))
     _check_regex(t.get("group_include"), "target.group_include")
@@ -164,8 +189,16 @@ def validate(cfg: dict, require_applicant: bool = True) -> dict:
             schedule.parse_window(w)
         except ValueError as e:
             raise ConfigError(f"poll.windows 的 {w!r} 寫錯了：{e}") from None
-    if float(cfg["poll"]["base_s"]) < 30:
-        raise ConfigError("poll.base_s 不要小於 30 秒，太頻繁可能被網站封鎖")
+    _num(cfg["poll"], "base_s", "poll.base_s")
+    if not cfg["poll"].get("base_s") or cfg["poll"]["base_s"] < 30:
+        raise ConfigError("poll.base_s 要填 30 以上的秒數，太頻繁可能被網站封鎖")
+    _num(cfg["poll"], "jitter_s", "poll.jitter_s", minimum=0)
+    _num(cfg["poll"], "max_pages", "poll.max_pages", int, minimum=1)
+    _num(cfg["captcha"], "timeout_s", "captcha.timeout_s", minimum=1)
+    _num(cfg["captcha"], "max_retries", "captcha.max_retries", int, minimum=0)
+    _num(cfg["captcha"], "length", "captcha.length", int, minimum=1)
+    _num(cfg, "human_timeout_s", "human_timeout_s", minimum=1)
+    _num(cfg["notify"]["email"], "smtp_port", "notify.email.smtp_port", int, minimum=1)
 
     e = cfg["notify"]["email"]
     if e.get("enabled"):
@@ -174,6 +207,9 @@ def validate(cfg: dict, require_applicant: bool = True) -> dict:
         e["mail_to"] = e.get("mail_to") or os.environ.get("MAIL_TO", "") or e["smtp_user"]
         if not (e["smtp_user"] and e["smtp_password"]):
             raise ConfigError("notify.email 開了，但 smtp_user／smtp_password（Gmail 應用程式密碼）沒有填")
+        for k in ("smtp_user", "mail_to"):
+            if str(e[k]).strip().lower() in _PLACEHOLDER_EMAILS:
+                raise ConfigError(f"notify.email.{k} 還是範例地址 {e[k]}，請改成你自己的 Gmail（mail_to 可以留空＝寄給自己）")
     return cfg
 
 
@@ -212,7 +248,10 @@ def load_config(path: Path | str | None = None, require_applicant: bool = True) 
         raise ConfigError(f"config.yaml 格式有誤（縮排要用空格、冒號後面要空一格）：{e}") from None
     if not isinstance(raw, dict):
         raise ConfigError("config.yaml 內容格式不對")
-    return validate(_merge(DEFAULTS, raw), require_applicant)
+    try:
+        return validate(_merge(DEFAULTS, raw), require_applicant)
+    except (TypeError, ValueError, AttributeError) as e:
+        raise ConfigError(f"config.yaml 有設定的格式不對：{e}") from None
 
 
 def date_range(cfg: dict, today: dt.date) -> tuple[dt.date, dt.date]:

@@ -47,14 +47,16 @@
 - `target`：照類、監理所、監理站、可以考的日期範圍與星期
 - `group_include` / `group_exclude`：場次組別。**第一次考照的人要選「初考／需講習」的組別**，不要選「免講習／重考」組。各站寫法不同，程式執行時會把看到的組別都印出來，照著調整即可。
 - `applicant`：身分證字號、生日（用西元寫，例如 `2005-07-02`）、姓名、手機、Email
-- `notify.email`：要 Email 通知就把 `enabled` 改成 `true`，並填 Gmail 的**應用程式密碼**（16 碼，不是登入密碼；申請網址 <https://myaccount.google.com/apppasswords>，Google 帳號要先開兩步驟驗證）
+- `notify.email`：要 Email 通知就把 `enabled` 改成 `true`，`smtp_user` 填**你自己的 Gmail 完整地址**，`smtp_password` 填 Gmail 的**應用程式密碼**（16 碼，不是登入密碼；申請網址 <https://myaccount.google.com/apppasswords>，Google 帳號要先開兩步驟驗證）。`mail_to` 留空就是寄給自己。
 
-寫好後可以檢查：
+寫好後一定要檢查一下：
 
-```bash
-python -m mvdis_booking check        # 檢查設定檔
-python -m mvdis_booking notify-test  # 測試聲音、桌面通知、Email
-```
+- Windows：雙擊 **`check_windows.bat`**（檢查設定檔），再雙擊 **`notify_test_windows.bat`**（測試聲音、桌面通知、Email）
+- Mac：在終端機 `cd` 到解壓縮後的資料夾（裡面有 `mvdis_booking` 那一層），執行
+  ```bash
+  python3 -m mvdis_booking check
+  python3 -m mvdis_booking notify-test
+  ```
 
 `config.yaml` 有你的個人資料，已經設定成不會被上傳到 GitHub，請不要傳給別人。
 
@@ -68,6 +70,7 @@ python -m mvdis_booking notify-test  # 測試聲音、桌面通知、Email
 執行中：
 
 - 黑色視窗會顯示每次查詢的結果；**不要關掉程式開的瀏覽器視窗**。
+- 不要在黑色視窗裡面用滑鼠點選文字。萬一視窗標題出現「選取」，程式會暫停，按一下 `Esc` 就會繼續。
 - 平常大約每 90 秒查一次。每天 08:00 釋出新名額，前後每 20 秒查一次；半夜放慢到 10 分鐘一次。查太快可能被網站封鎖，不建議調快。
 - 想停止就在黑色視窗按 `Ctrl + C`。
 - 預約成功後，程式會在 `mvdis_booking/state.json` 記下來，之後不會再重複報名。要再約一次的話，先刪掉這個檔案。
@@ -79,6 +82,8 @@ python -m mvdis_booking notify-test  # 測試聲音、桌面通知、Email
 | 報名頁有驗證碼 | 響鈴、通知，等你輸入（預設最多等 3 分鐘）。打完就自動送出；沒等到就繼續盯，下次有空位再叫你 |
 | 報名頁有程式認不得的必填欄位 | 能填的先填好，通知你接手。之後可以在 `applicant.extra` 指定，例如 `考照原因: 初考` |
 | 網站要求登入會員 | 通知你在那個瀏覽器登入；登入後自動繼續（程式不會記你的密碼） |
+| 網站維護、連不上、分頁當掉 | 自動放慢速度一直重試；連續失敗很多次會通知你，但不會停 |
+| 網站不接受查詢條件（例如監理站名稱、日期格式） | 停下來通知你，請照訊息修改 `config.yaml` |
 | 查不到危險感知紀錄、已經有預約、被停權 | 停下來通知你 |
 | 送出後看不出成功或失敗 | 停下來通知你，請到上面的查詢網址確認 |
 

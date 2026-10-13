@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import smtplib
+import ssl
 import subprocess
 import sys
 import threading
@@ -117,11 +118,26 @@ class Notifier:
             msg["From"] = e["smtp_user"]
             msg["To"] = e.get("mail_to") or e["smtp_user"]
             msg.set_content(body)
-            with smtplib.SMTP_SSL(e.get("smtp_host") or "smtp.gmail.com", int(e.get("smtp_port") or 465), timeout=30) as s:
+            with smtplib.SMTP_SSL(e.get("smtp_host") or "smtp.gmail.com", int(e.get("smtp_port") or 465),
+                                  timeout=30, context=_tls_context()) as s:
                 s.login(e["smtp_user"], e["smtp_password"])
                 s.send_message(msg)
             self.log.info(f"已寄出 Email：{subject}")
+        except ssl.SSLCertVerificationError as ex:
+            self.log.info("Email 寄送失敗：無法驗證 Gmail 的安全憑證。可能是網路被攔截（公共 Wi-Fi），"
+                          "或 Mac 的 Python 還沒執行「Install Certificates.command」。")
+            if raise_errors:
+                raise RuntimeError("無法驗證 Gmail 的安全憑證（請換個網路，或在 Mac 上執行 Python 資料夾裡的 Install Certificates.command）") from ex
         except Exception as ex:
             self.log.info(f"Email 寄送失敗：{ex!r}")
             if raise_errors:
                 raise
+
+
+def _tls_context() -> ssl.SSLContext:
+    """一定要驗證 Gmail 的憑證，避免應用程式密碼在被攔截的網路上外洩。"""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()

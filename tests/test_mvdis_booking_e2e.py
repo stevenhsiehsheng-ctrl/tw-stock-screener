@@ -246,3 +246,76 @@ def test_recon_report(pw, env):
     assert "'id_no'" not in text or "判讀" in text
     assert mock.submissions == []
     assert "F131104093" not in text     # 偵察報告不含個人資料
+
+
+# ---------------------------------------------------------------- 審查發現的情境
+def test_maintenance_pages_do_not_stop_the_loop(pw, env):
+    mock = Mock(maintenance_gets=4, expected=EXPECTED)
+    with MockServer(mock) as srv:
+        cfg = make_cfg(srv.url, env, mode="book")
+        b, n = start(pw, cfg, env)
+        try:
+            code = runner._loop(cfg, b, n, b.log)
+        finally:
+            b.close()
+    assert code == 0, n.alerts
+    assert len(mock.submissions) == 1
+    assert not any("停止" in t for t, _ in n.alerts)
+
+
+def test_slow_submit_response_is_not_treated_as_busy(pw, env):
+    mock = Mock(submit_delay=25, expected=EXPECTED)
+    mock.sessions[3].seats = 2          # S4 也有空位：送出變慢時不可以改去報 S4
+    with MockServer(mock) as srv:
+        cfg = make_cfg(srv.url, env, mode="book")
+        b, n = start(pw, cfg, env)
+        try:
+            code = runner._loop(cfg, b, n, b.log)
+        finally:
+            b.close()
+    assert code == 0, n.alerts
+    assert [x["secId"] for x in mock.submissions] == ["S3"]
+
+
+def test_dry_run_never_presses_agree_and_submit(pw, env):
+    mock = Mock(prefilled=True, expected=EXPECTED)
+    mock.sessions[3].seats = 2
+    with MockServer(mock) as srv:
+        cfg = make_cfg(srv.url, env)
+        b, n = start(pw, cfg, env)
+        try:
+            _, _, matched = query(b, cfg, TODAY + dt.timedelta(days=3))
+            out = b.try_book(matched[0])
+        finally:
+            b.close()
+    assert out.kind == "dry_run_ready", out
+    assert mock.submissions == []
+
+
+def test_conditional_success_wording_in_confirm_is_not_success(pw, env):
+    mock = Mock(hazard_fail=True, confirm_text="確定要報名嗎？報名成功者請準時到考", expected=EXPECTED)
+    with MockServer(mock) as srv:
+        cfg = make_cfg(srv.url, env, mode="book")
+        b, n = start(pw, cfg, env)
+        try:
+            _, _, matched = query(b, cfg, TODAY + dt.timedelta(days=3))
+            out = b.try_book(matched[0])
+        finally:
+            b.close()
+    assert out.kind == "hazard", out
+
+
+@pytest.mark.parametrize("inline,rebind", [(True, False), (False, True)])
+def test_captcha_wrong_twice_then_right(pw, env, inline, rebind):
+    mock = Mock(captcha=True, autotype="full", wrong_times=2, inline_captcha_error=inline,
+                rebind_captcha=rebind, expected=EXPECTED)
+    with MockServer(mock) as srv:
+        cfg = make_cfg(srv.url, env, mode="book")
+        b, n = start(pw, cfg, env)
+        try:
+            _, _, matched = query(b, cfg, TODAY + dt.timedelta(days=3))
+            out = b.try_book(matched[0])
+        finally:
+            b.close()
+    assert out.kind == "success", (out, n.alerts)
+    assert mock._captcha_fails == 2 and len(mock.submissions) == 1

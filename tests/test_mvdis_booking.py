@@ -43,6 +43,10 @@ def test_roc_dates():
     assert R.guess_input_format("text", "例:1151020", 7) == "roc7"
     assert R.guess_input_format("text", "115/10/20", None) == "roc_slash"
     assert R.guess_input_format("date", "", None) == "iso"
+    assert R.guess_input_format("text", "YYY/MM/DD", None) == "roc_slash"
+    assert R.guess_input_format("text", "例：115-10-20", None) == "roc_dash"
+    assert R.guess_input_format("text", "民國年月日", None) == "roc7"
+    assert R.format_date(dt.date(2026, 10, 20), "roc_dash") == "115-10-20"
 
 
 # ---------------------------------------------------------------- 設定檔
@@ -69,6 +73,15 @@ def test_config_validation():
     with pytest.raises(C.ConfigError, match="windows"):
         cfg_of(poll={"windows": ["8點"]})
     assert cfg_of(applicant={"mobile": 912345678})["applicant"]["mobile"] == "0912345678"
+    with pytest.raises(C.ConfigError, match="數字"):
+        cfg_of(captcha={"timeout_s": "3分鐘"})
+    with pytest.raises(C.ConfigError, match="30"):
+        cfg_of(poll={"base_s": None})
+    assert cfg_of(target={"weekdays": 6})["target"]["weekdays"] == [6]
+    with pytest.raises(C.ConfigError, match="範例地址"):
+        cfg_of(notify={"email": {"enabled": True, "smtp_user": "you@gmail.com", "smtp_password": "x", "mail_to": ""}})
+    e = cfg_of(notify={"email": {"enabled": True, "smtp_user": "me@gmail.com", "smtp_password": "x", "mail_to": ""}})
+    assert e["notify"]["email"]["mail_to"] == "me@gmail.com"
 
 
 def test_recon_config_does_not_need_applicant(tmp_path):
@@ -162,6 +175,11 @@ def test_classify_field():
     assert M.classify_field(fld(0, type="checkbox", label="我已詳閱並同意上述注意事項")) == "agree"
     assert M.classify_field(fld(0, type="checkbox", label="不同意")) is None
     assert M.classify_field(fld(0, row_label="考照原因")) is None
+    # 上一列的提示文字不可以當成這一格的名稱
+    assert M.classify_field(fld(0, row_label="戶籍地址*", before_text="（請填寫手機號碼，以便接收簡訊）")) is None
+    assert M.classify_field(fld(0, row_label="緊急聯絡人", col_header="身分證統一編號")) is None
+    assert M.classify_field(fld(0, type="radio", label="同意")) == "agree"
+    assert M.classify_field(fld(0, type="radio", label="不同意")) is None
 
 
 # ---------------------------------------------------------------- 場次表
@@ -258,13 +276,21 @@ def test_plan_fill_unknown_fields():
     assert any("身分證" in p for p in M.plan_fill([fld(0, row_label="姓名")], cfg_of()).problems)
 
 
+def test_plan_fill_agree_radio():
+    radios = [fld(10, type="radio", name="ok", row_label="注意事項", label="同意"),
+              fld(11, type="radio", name="ok", row_label="注意事項", label="不同意", checked=True)]
+    plan = M.plan_fill(_form(*radios), cfg_of())
+    assert (radios[0], "check", True) in plan.actions and not plan.problems
+
+
 def test_plan_fill_agree_off():
     plan = M.plan_fill(_form(), cfg_of(auto_agree=False))
     assert 8 not in _values(plan)
 
 
 # ---------------------------------------------------------------- 結果判斷
-NOTICE = "未完成危險感知者不得報名。如報名失敗請洽各區監理所。未到考者將停權15日，同一人不可重複報名。報名成功後如欲取消，請於07:00前取消。"
+NOTICE = ("請點選【前往危險感知平台】完成危險感知測驗並登錄測驗紀錄後，方能預約考照。未完成危險感知者不得報名。"
+          "報名失敗請洽各區監理所。未到考者將停權15日，同一人不可重複報名。報名成功後如欲取消，請於07:00前取消。")
 
 
 def test_classify_result():
@@ -280,6 +306,11 @@ def test_classify_result():
     assert M.classify_page_change(NOTICE) is None
     assert M.classify_page_change("報名成功\n" + NOTICE) == "success"
     assert M.classify_page_change("報名失敗\n" + NOTICE) == "hazard"
+    assert M.classify_page_change("報名成功！\n未到考者將停權15日，報名失敗請洽監理所") == "success"
+    for t in ("如報名成功，系統將寄發通知信", "報名成功者請準時到考", "若預約成功，請準時報到",
+              "報名成功與否請至查詢頁確認", "是否報名成功請查詢", "按確定後即報名完成"):
+        assert M.classify_result(t) is None, t
+    assert M.classify_result("請先點選「同意」才能繼續") == "failed"
     assert M.classify_result("提醒您：請先完成危險感知體驗並登錄紀錄，未到考者將暫停預約15日") is None
 
 
@@ -295,6 +326,14 @@ def test_session_date_check():
     assert M.session_date_check("考試日期：10月24日", d) == "ok"
     assert M.session_date_check("考試日期：115/10/27", d) == "mismatch"
     assert M.session_date_check("例：0780702", d) == "unknown"
+
+
+def test_query_reject_and_agree_exclude():
+    assert M.QUERY_REJECT_RX.search("請選擇考試地點")
+    assert M.QUERY_REJECT_RX.search("日期格式錯誤")
+    assert not M.QUERY_REJECT_RX.search(NOTICE)
+    assert M.pick_clickable([{"cid": "1", "text": "同意並送出"}], M.AGREE_BUTTONS, M.AGREE_EXCLUDE) is None
+    assert M.pick_clickable([{"cid": "1", "text": "我已閱讀並同意"}], M.AGREE_BUTTONS, M.AGREE_EXCLUDE)
 
 
 def test_pick_clickable():

@@ -17,7 +17,7 @@ from . import pagejs as J
 from .browser import Booker
 from .config import date_range
 from .notify import Notifier
-from .runner import wait_exit
+from .runner import start_browser, wait_exit
 from .util import Log, new_run_dir, now_tw
 
 DUMMY_APPLICANT = {"id_no": "A123456789", "birth": dt.date(2000, 1, 2), "birth_format": "auto",
@@ -76,7 +76,8 @@ def recon(cfg: dict) -> int:
     log.info(f"偵察模式：結果會存在 {run_dir}")
     with sync_playwright() as pw:
         b = Booker(cfg, n, log, run_dir)
-        b.start(pw)
+        if not start_browser(b, pw):
+            return 2
         b.ctx.on("request", lambda r: (lambda s: s and requests.append(s))(_request_line(r)))
         try:
             _recon(cfg, b, rep, log)

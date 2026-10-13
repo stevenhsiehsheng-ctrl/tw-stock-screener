@@ -71,7 +71,9 @@ SCAN_FIELDS = r"""
       const idx = cell.cellIndex;
       if (table && table.rows.length > 1 && idx >= 0) {
         const first = table.rows[0];
-        if (first !== cell.parentElement && first.cells[idx] && !first.cells[idx].querySelector('input, select, textarea')) {
+        // 只有第一列是真正的表頭（全部 <th>、沒有欄位）時，才把它當成這一欄的名稱
+        const isHeader = Array.from(first.cells).every(c => c.tagName === 'TH') && !first.querySelector('input, select, textarea');
+        if (first !== cell.parentElement && isHeader && first.cells[idx]) {
           col = clean(first.cells[idx].innerText);
         }
       }
@@ -223,6 +225,21 @@ CAPTCHA_STATE = r"""
 sel => {
   const el = document.querySelector(sel);
   if (!el) return null;
-  return { len: (el.value || '').trim().length, enter: !!window.__mvdisEnter };
+  const v = (el.value || '').trim();
+  return { len: v.length, val: v, enter: !!window.__mvdisEnter };
+}
+"""
+
+# 把符合規則的文字藏起來（舊的「驗證碼錯誤」訊息），參數是 Python 的正規表示式字串
+HIDE_TEXT = r"""
+src => {
+  let rx;
+  try { rx = new RegExp(src, 'i'); } catch (e) { return 0; }
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let n, hidden = 0;
+  const hit = [];
+  while ((n = walker.nextNode())) { if (rx.test(n.textContent)) hit.push(n); }
+  hit.forEach(t => { t.textContent = ''; hidden++; });
+  return hidden;
 }
 """

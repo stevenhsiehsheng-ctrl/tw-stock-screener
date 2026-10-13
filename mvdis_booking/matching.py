@@ -53,9 +53,15 @@ def has_option(options: list, wanted: str) -> bool:
 
 # ---------------------------------------------------------------- 欄位辨識
 def field_texts(f: dict) -> list[str]:
-    """欄位的說明文字，越可靠的排越前面。"""
-    return [f.get("label") or "", f.get("row_label") or "", f.get("placeholder") or "",
-            f.get("before_text") or "", f.get("col_header") or ""]
+    """欄位的說明文字，越可靠的排越前面。
+
+    欄位有自己的標籤（label 或同一列的表頭）時，就不看「前面的文字」和「欄標題」，
+    免得上一列的提示文字（例如「請填手機號碼」）被誤當成這一格的名稱。
+    """
+    strong = [f.get("label") or "", f.get("row_label") or "", f.get("placeholder") or ""]
+    if f.get("label") or f.get("row_label"):
+        return strong + ["", ""]
+    return strong + [f.get("before_text") or "", f.get("col_header") or ""]
 
 
 def _rx(p: str) -> re.Pattern:
@@ -101,12 +107,14 @@ REQUIRED_MARK_RX = re.compile(r"[*＊]|必填")
 
 
 def classify_field(f: dict) -> str | None:
-    if f.get("type") in ("checkbox", "radio"):
-        if f.get("type") == "checkbox":
-            txt = " ".join(field_texts(f)[:4])
-            if AGREE_RX.search(txt) and not DISAGREE_RX.search(f.get("label") or ""):
-                return "agree"
+    if f.get("type") == "checkbox":
+        txt = " ".join(field_texts(f)[:4])
+        if AGREE_RX.search(txt) and not DISAGREE_RX.search(f.get("label") or ""):
+            return "agree"
         return None
+    if f.get("type") == "radio":
+        own = f.get("label") or ""
+        return "agree" if AGREE_RX.search(own) and not DISAGREE_RX.search(own) else None
     for txt in field_texts(f):
         if not txt:
             continue
@@ -182,9 +190,13 @@ SUBMIT_BUTTONS = [r"^確認送出$", r"^送\s*出$", r"^確定送出$", r"確認
                   r"^送出", r"送出", r"^確\s*定$|^確\s*認$", r"^報\s*名$", r"^submit$"]
 SUBMIT_EXCLUDE = r"取消|返回|回上|上一|重新|清除|重填|換一張|關閉|查詢|說明|列印"
 CONFIRM_BUTTONS = [r"^確認送出$", r"^確定送出$", r"確認報名|確定報名", r"^確\s*定$|^確\s*認$"]
-AGREE_BUTTONS = [r"我已(詳細)?閱讀", r"我同意", r"^同意", r"同意.*(繼續|報名|下一步)"]
+AGREE_BUTTONS = [r"我已(詳細)?閱讀", r"我同意", r"^同意", r"同意.*(繼續|下一步)"]
 NEXT_BUTTONS = [r"^下一步$", r"^進入報名", r"^繼續$"]
-AGREE_EXCLUDE = r"不同意|取消|返回"
+# 注意事項頁只按「同意／下一步」；看起來像送出報名的按鈕一律不按
+AGREE_EXCLUDE = r"不同意|取消|返回|送出|確定|確認|完成|submit"
+# 確認頁上真正送出報名的按鈕（單獨的「確定」只有在頁面寫著請確認時才算）
+STRONG_CONFIRM_BUTTONS = [r"^確認送出$", r"^確定送出$", r"確認報名|確定報名|送出報名"]
+CONFIRM_PAGE_RX = re.compile(r"請確認|確認.{0,6}(資料|內容|資訊)|核對")
 NEXT_PAGE = [r"^下一頁$", r"^下頁$", r"^Next$", r"^[>›»]$"]
 
 
@@ -390,15 +402,25 @@ def plan_fill(fields: list[dict], cfg: dict, has_captcha_image: bool = False) ->
             radios_done.add(name)
             group = [g for g in order if g.get("type") == "radio" and (g.get("name") or describe_field(g)) == name]
             desc = (f.get("row_label") or f.get("before_text") or f.get("col_header") or name)[:30]
-            if any(g.get("checked") for g in group):
-                continue
             if ex_val is not None:
                 want = norm(ex_val)
                 target = next((g for g in group if want and want in norm(g.get("label") or "")), None)
-                if target:
-                    plan.actions.append((target, "check", True))
-                else:
+                if target is None:
                     plan.problems.append(f"單選題「{desc}」找不到選項「{ex_val}」")
+                elif not target.get("checked"):
+                    plan.actions.append((target, "check", True))
+                continue
+            agree = next((g for g in group if classify_field(g) == "agree"), None)
+            if agree is not None:
+                # 「同意／不同意」單選：就算預設勾在不同意，也要改選同意
+                if not agree.get("checked"):
+                    if cfg.get("auto_agree"):
+                        plan.actions.append((agree, "check", True))
+                        plan.notes.append(f"選擇「{describe_field(agree)}」")
+                    else:
+                        plan.problems.append(f"需要選擇「{describe_field(agree)}」（auto_agree 是關的）")
+                continue
+            if any(g.get("checked") for g in group):
                 continue
             if any(_is_required(g) for g in group):
                 plan.problems.append(f"單選題「{desc}」不知道要選哪個（可在 applicant.extra 指定）")
@@ -514,15 +536,19 @@ def session_date_check(page_text: str, d: dt.date | None) -> str:
 # 注意：只拿「動作之後才新出現的文字」和網頁對話框來判斷（見 new_lines），
 # 否則頁面上本來就有的注意事項（例如「未完成危險感知者不得報名」）會被誤判。
 CAPTCHA_WRONG_RX = _rx(r"驗證碼.{0,6}(錯誤|不正確|有誤|不符|失效|過期)|(錯誤|請重新輸入).{0,4}驗證碼")
-FAILED_RX = _rx(r"(?<![如若倘])(報名|預約)失敗|(?<![如若倘])(報名|預約)未成功")
-SUCCESS_RX = _rx(r"(?<![未不法])(報名|預約)成功(?![後前時])|已完成(報名|預約)(?![後前])|(報名|預約)完成(?![後前時])")
+# 「如報名失敗請洽監理所」「報名成功者請準時到考」「是否報名成功」這類條件句、說明文字不算結果
+FAILED_RX = _rx(r"(?<![如若倘有])(報名|預約)(失敗|未成功)(?!請洽|者|或|時|的話|，?請洽)")
+SUCCESS_RX = _rx(r"(?<![未不法如若倘否是將])(報名|預約)成功(?![後前時者與]|的話)"
+                 r"|(?<![如若倘將])已完成(報名|預約)(?![後前時者])"
+                 r"|(?<![如若倘將即])(報名|預約)完成(?![後前時者與])")
 # 明確的錯誤訊息（單獨出現也採信）
 REASON_RX = [
     ("hazard", _rx(r"查無.{0,20}危險感知|無.{0,6}有效.{0,10}危險感知|危險感知.{0,10}(紀錄|記錄).{0,6}(不存在|無效|過期|查無)")),
     ("banned", _rx(r"停權(中|期間)|(您|目前|仍在).{0,12}(暫停|停止|禁止)預約|不得預約至")),
     ("duplicate", _rx(r"已有.{0,6}(報名|預約)(紀錄|記錄|資料)|已(報名|預約)過|已報名此")),
     ("full", _rx(r"額滿|名額已滿|已無名額|名額不足|無剩餘名額")),
-    ("busy", _rx(r"系統忙碌|系統發生錯誤|系統錯誤|請稍後再試|連線逾時|Service Unavailable|Internal Server Error|Bad Gateway")),
+    ("busy", _rx(r"系統忙碌|系統發生錯誤|系統錯誤|請稍後再試|連線逾時|系統維護|維護中|暫停服務|"
+                 r"Service Unavailable|Internal Server Error|Bad Gateway|Gateway Time-?out")),
 ]
 # 注意事項裡也常出現的字眼：只有同時寫了「報名失敗」才拿來判斷原因
 WEAK_REASON_RX = [
@@ -530,7 +556,11 @@ WEAK_REASON_RX = [
     ("banned", _rx(r"停權|暫停預約|禁止預約|停止預約")),
     ("duplicate", _rx(r"重複(報名|預約)")),
 ]
-INPUT_ERROR_RX = _rx(r"請輸入|必須輸入|不可空白|格式(錯誤|不正確|有誤)|資格不符|不得報名|無法(報名|預約)")
+INPUT_ERROR_RX = _rx(r"請輸入|必須輸入|不可空白|格式(錯誤|不正確|有誤)|資格不符|不得報名|無法(報名|預約)"
+                     r"|請(選擇|點選|勾選)|請先(點選|勾選|選擇|同意)")
+# 查詢條件被網站擋下來（通常是設定或日期格式的問題，一直重試也沒用）
+QUERY_REJECT_RX = _rx(r"請(輸入|選擇|填寫).{0,12}(日期|地點|監理|照類|考試|場次)|日期.{0,8}(格式|錯誤|不正確|有誤|超過|不得|須|需)"
+                      r"|格式(錯誤|不正確|有誤)|不可空白|必須(輸入|選擇)")
 QUERY_EMPTY_RX = _rx(r"查無.{0,8}(場次|資料)|無可(報名|預約).{0,4}場次|目前無.{0,6}場次|沒有.{0,4}場次")
 
 
@@ -549,6 +579,8 @@ def classify_result(text: str) -> str | None:
     if CAPTCHA_WRONG_RX.search(t):
         return "captcha_wrong"
     if FAILED_RX.search(t):
+        if SUCCESS_RX.search(t):
+            return None     # 成功、失敗字樣都有：看不出來，交給人判斷
         for kind, rx in REASON_RX + WEAK_REASON_RX:
             if rx.search(t):
                 return kind
@@ -570,5 +602,5 @@ def new_lines(before: str, after: str) -> str:
 
 
 def has_captcha_image(images: list[dict]) -> bool:
-    rx = _rx(r"captcha|valid|verif|checkcode|imgcode|kaptcha|randcode|vcode|code\.(jpg|png|gif)|驗證")
+    rx = _rx(r"captcha|valid|verif|checkcode|imgcode|kaptcha|randcode|vcode|code\.(jpg|png|gif)|驗證|^data:image|imgservlet")
     return any(rx.search(i.get("src") or "") or rx.search(i.get("alt") or "") or i.get("near_refresh") for i in images)

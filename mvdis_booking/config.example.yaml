@@ -57,9 +57,9 @@ notify:
   desktop: true           # 跳出電腦桌面通知
   email:
     enabled: false        # 要寄 Email 通知就改成 true
-    smtp_user: you@gmail.com
+    smtp_user: ""         # 你的 Gmail 完整地址，例如 "abc@gmail.com"
     smtp_password: ""     # Gmail「應用程式密碼」16 碼（不是你的登入密碼），申請：https://myaccount.google.com/apppasswords
-    mail_to: you@gmail.com
+    mail_to: ""           # 收件信箱；空白＝寄給自己（smtp_user）
 
 browser:
   channel:                # 空白＝用 Playwright 內建的 Chromium；Windows 也可以填 msedge 直接用 Edge

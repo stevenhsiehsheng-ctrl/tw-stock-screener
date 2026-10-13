@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-FORMATS = ("roc7", "roc_slash", "slash", "iso")
+FORMATS = ("roc7", "roc_slash", "roc_dash", "slash", "iso")
 
 # 115/10/20、115-10-20、115.10.20、115年10月20日、2026/10/20
 _SEP_RE = re.compile(r"(?<!\d)(\d{2,4})\s*[/\-.年]\s*(\d{1,2})\s*[/\-.月]\s*(\d{1,2})(?!\d)")
@@ -25,6 +25,8 @@ def format_date(d: dt.date, fmt: str) -> str:
         return to_roc7(d)
     if fmt == "roc_slash":
         return f"{d.year - 1911:03d}/{d.month:02d}/{d.day:02d}"
+    if fmt == "roc_dash":
+        return f"{d.year - 1911:03d}-{d.month:02d}-{d.day:02d}"
     if fmt == "slash":
         return f"{d.year:04d}/{d.month:02d}/{d.day:02d}"
     if fmt == "iso":
@@ -74,11 +76,18 @@ def guess_input_format(input_type: str, placeholder: str, maxlength: int | None)
     ph = placeholder or ""
     if re.search(r"(?<!\d)\d{7}(?!\d)", ph):
         return "roc7"
-    m = re.search(r"(?<!\d)(\d{2,4})\s*/\s*\d{1,2}\s*/\s*\d{1,2}", ph)
+    m = re.search(r"(?<!\d)(\d{2,4})\s*([/\-.])\s*\d{1,2}\s*\2\s*\d{1,2}", ph)
     if m:
-        return "slash" if len(m.group(1)) == 4 else "roc_slash"
+        four = len(m.group(1)) == 4
+        if m.group(2) == "-":
+            return "iso" if four else "roc_dash"
+        return "slash" if four else "roc_slash"
     if re.search(r"yyyy", ph, re.I):
         return "slash" if "/" in ph else "iso"
+    if re.search(r"yyy|民國", ph, re.I):
+        if "-" in ph:
+            return "roc_dash"
+        return "roc_slash" if "/" in ph else "roc7"
     if maxlength == 9:
         return "roc_slash"
     if maxlength == 10:

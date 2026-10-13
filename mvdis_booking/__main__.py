@@ -16,8 +16,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8")   # Windows 命令列顯示中文
-    except Exception:
+    except Exception:     # 舊版或被導向的輸出：維持原樣
         pass
+    _disable_quick_edit()
 
     if args.command == "recon":
         try:
@@ -58,6 +59,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     from .runner import run
     return run(cfg, verbose=args.verbose)
+
+
+def _disable_quick_edit() -> None:
+    """Windows 的黑色視窗預設「快速編輯」：不小心點一下視窗就會讓程式整個卡住。把它關掉。"""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.GetStdHandle(-10)                       # STD_INPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if k32.GetConsoleMode(h, ctypes.byref(mode)):
+            k32.SetConsoleMode(h, (mode.value & ~0x0040) | 0x0080)   # 關 QUICK_EDIT、開 EXTENDED_FLAGS
+    except Exception:     # 不是一般命令列視窗：不用處理
+        pass
 
 
 if __name__ == "__main__":
