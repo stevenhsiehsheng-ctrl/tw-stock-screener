@@ -107,6 +107,15 @@ def test_health_checks_reads_files(tmp_path, monkeypatch):
     (tmp_path / "ledger" / "2026-10-12.json").write_text("{}", "utf-8")
     items = {i["name"]: i for i in health.checks("2026-10-12", "2026-10-12")}
     assert items["虛擬帳戶帳本"]["ok"]
+    # 日期到了、但只抓到一半（平常 100 筆，那天 40 筆）→ 不算到齊，交給傍晚補抓重抓
+    rows = [(d, f"{1000 + i}") for d in ["2026-10-06", "2026-10-07", "2026-10-08"] for i in range(100)]
+    rows += [("2026-10-12", f"{1000 + i}") for i in range(40)]
+    pd.DataFrame(rows, columns=["date", "code"]).to_csv(tmp_path / "extras" / "inst_hist.csv.gz", index=False)
+    pd.DataFrame(rows[:300] + [("2026-10-12", f"{1000 + i}") for i in range(95)], columns=["date", "code"]).to_csv(
+        tmp_path / "extras" / "margin_hist.csv.gz", index=False)
+    items = {i["name"]: i for i in health.checks("2026-10-12", "2026-10-12")}
+    assert not items["三大法人"]["ok"] and "只有 40 筆" in items["三大法人"]["have"] and items["三大法人"]["fix"] == "extras"
+    assert items["融資融券"]["ok"]                                                   # 95 筆＝平常的 95%，算正常
 
 
 # ---------------------------------------------------------------- 虛擬帳戶拆桶

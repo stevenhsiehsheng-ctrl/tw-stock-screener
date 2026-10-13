@@ -92,6 +92,18 @@ def _max_date(path: Path, col="date", where=None) -> str:
         return ""
 
 
+def _thin(path: Path, D: str) -> str:
+    """D 那天筆數不到前幾天（中位數）八成＝只抓到一半（例如證交所還沒公布、只有櫃買），回傳說明；正常回傳空字串。"""
+    try:
+        n = pd.read_csv(_src(path), usecols=["date"], dtype=str, compression="gzip").date.value_counts().sort_index()
+        prev = n[n.index < D].tail(5)
+        if D in n.index and len(prev) and n[D] < 0.8 * prev.median():
+            return f"{D}（只有 {n[D]} 筆，平常約 {int(prev.median())}）"
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def _json(path: Path, key: str) -> str:
     try:
         return str(json.loads(_src(path).read().decode("utf-8")).get(key) or "")
@@ -130,7 +142,13 @@ def checks(D: str, us_day: str) -> list[dict]:
         # Cowork 15:47 結算 → Claude Code 16:25 存檔；沒有就是那兩個排程有一個沒跑成，要人看
         ("虛擬帳戶帳本", _ledger_last(), D, None),
     ]
-    return [{"name": n, "have": h or "—", "want": w, "ok": bool(h) and h >= w, "fix": f} for n, h, w, f in items]
+    out = [{"name": n, "have": h or "—", "want": w, "ok": bool(h) and h >= w, "fix": f} for n, h, w, f in items]
+    # 日期到了但只抓到一半（證交所、櫃買有一邊還沒公布）：日期看起來對，筆數少一大截
+    for i in out:
+        f = {"三大法人": ex / "inst_hist.csv.gz", "融資融券": ex / "margin_hist.csv.gz", "當沖": ex / "daytrade_hist.csv.gz"}.get(i["name"])
+        if f and i["ok"] and (t := _thin(f, D)):
+            i.update(ok=False, have=t)
+    return out
 
 
 def failed_runs(hours=20) -> list[dict]:
