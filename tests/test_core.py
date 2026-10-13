@@ -2210,3 +2210,31 @@ def test_stockpage_system_tags(tmp_path, monkeypatch):
     (tmp_path / "rb.csv").write_text("壞掉", "utf-8")
     t = {c: [x["text"] for x in v] for c, v in sp.system_tags().items()}
     assert t["3441"] == ["🚀 強勢續攻 10/09"] and "2454" not in t and "2330" in t
+
+
+def test_positions_fill_lock_percentile(tmp_path, monkeypatch):
+    """收盤後補訊號日的鎖漲停家數：前 250 日百分位（同分算一半）、熱＝高於前 250 日的 2/3 分位，13:12 家數用同一個門檻；
+    前面不滿 250 天的只填家數；已經填好的不重算。"""
+    import numpy as np
+
+    from screener import positions
+
+    monkeypatch.setattr(positions, "FILE", tmp_path / "positions.csv")
+    days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2025-09-01", periods=262)]
+    cnt = pd.Series([i % 30 for i in range(262)], index=days, dtype=float)  # 0～29 循環
+    cnt.iloc[255], cnt.iloc[256] = 25, 10
+    monkeypatch.setattr(positions, "lock_counts", lambda p, bf: cnt)
+    df = pd.DataFrame([{"code": "1101", "signal_date": days[255], "status": "open", "lock_n_1312": 15},
+                       {"code": "1102", "signal_date": days[256], "status": "open"},
+                       {"code": "1103", "signal_date": days[10], "status": "open"}]).reindex(columns=positions.COLS)
+    positions.save(df)
+    assert positions.fill_lock(None, []) == 3
+    t = positions.load().set_index("code")
+    prior = cnt.iloc[5:255]
+    cut = np.quantile(prior, 2 / 3)
+    assert t.at["1101", "lock_n_close"] == 25 and t.at["1101", "lock_hot"] == int(25 > cut) == 1
+    assert t.at["1101", "lock_pct250"] == round(((prior < 25).mean() + 0.5 * (prior == 25).mean()) * 100, 1)
+    assert t.at["1101", "lock_hot_1312"] == int(15 > cut) == 0  # 13:12 用同一個門檻
+    assert t.at["1102", "lock_hot"] == 0 and pd.isna(t.at["1102", "lock_hot_1312"])
+    assert t.at["1103", "lock_n_close"] == 10 and pd.isna(t.at["1103", "lock_pct250"])  # 前面不到 250 天
+    assert positions.fill_lock(None, []) == 1  # 只剩不滿 250 天那筆會再試
