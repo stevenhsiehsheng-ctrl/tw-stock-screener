@@ -1688,3 +1688,28 @@ def test_ledger_stats_matches_homepage(tmp_path, monkeypatch):
     assert t.at["③ 合計", "同期0050"] == st["bench"] and t.at["③ 合計", "超額"] == st["ex"]
     assert t.at["　收盤鎖漲停", "平均"] == st["lu_avg"] and t.at["　收盤沒鎖", "平均"] == st["nolu_avg"]
     assert (t.at["① 已出場", "N"], t.at["② 持有中（收盤估）", "N"]) == (1, 3) and t["勝率"].isna().all()  # 不滿 30 筆
+
+
+def test_backfill_fill_holes_scale(monkeypatch):
+    """回測檔補洞：Yahoo 整天缺一批 → 用官方行情換算到還原價刻度；洞前後因子不同時看除權息日在洞前還是洞後，
+    沒有除權息日解釋就不補（寧缺勿錯）；Yahoo 本來就有的、附近沒出現過的代號不補。"""
+    from screener import backfill
+
+    d = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-07"]
+    adj = {"A": [90] * 5, "B": [95, 95, None, 95, 95], "C": [45, 45, None, 50, 50], "D": [10] * 5}
+    rows = [{"date": x, "code": c, "open": v, "high": v, "low": v, "close": v, "volume": 1000, "adjusted": 1}
+            for c, vs in adj.items() for x, v in zip(d, vs) if v is not None and not (c == "A" and x == d[2])]
+    df = pd.DataFrame(rows)
+    assert backfill.find_holes(df) == [d[2]]  # 9/03 只剩 1 檔
+
+    raw = {"A": (100, 100, 100), "B": (100, 100, 95), "C": (50, 50, 50), "D": (10, 10, 10), "E": (20, 20, 20)}  # B 9/04 除息
+    off = pd.DataFrame([{"date": x, "code": c, "open": str(v), "high": str(v), "low": str(v), "close": str(v), "volume": "500"}
+                        for c, vs in raw.items() for x, v in zip(d[1:4], vs)])
+    asked = []
+    monkeypatch.setattr(backfill.fetch, "fetch_official_range", lambda days, mk: asked.append(days) or off.copy())
+    monkeypatch.setattr(backfill, "_ex_dates", lambda: {"B": ["2026-09-04"]})
+    out = backfill.fill_holes(df)
+    assert [x.isoformat() for x in asked[0]] == d[1:4]  # 洞＋前後各一個正常日
+    got = out[(out.date == d[2])].set_index("code").close.round(4).to_dict()
+    assert got == {"A": 90.0, "B": 95.0, "D": 10.0}  # A 因子 0.9；B 除息在洞後 → 用洞前 0.95；C 因子不同又沒除息 → 不補
+    assert (out.date == d[2]).sum() == 3 and len(out) == len(df) + 2  # D 原本就有、E 附近沒出現 → 不加
