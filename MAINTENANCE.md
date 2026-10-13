@@ -25,6 +25,7 @@
 
 1. **`data/health/latest.json`**（`screener/health.py`）：上一個交易日的資料有沒有到齊。`bad` 是缺的項目、`failed_runs` 是失敗的工作流程、`dispatched` 是早上自動補跑了什麼。
    檢查項目：收盤價、等權指數、13:12 鎖漲停家數、三大法人、盤後零股（上市／上櫃）、融資融券、當沖、美股、風險燈、虛擬帳戶帳本。
+   早上另外看 `cron`：cron-job.org 有沒有準時叫（這班盤中監控、上一個交易日 15:20 的每日資料）。
 2. **GitHub Actions** 紅色的那一個，點進去看 log。
 3. **協作板**（Cowork 和 Claude Code 交接用）：`status/claude_code`、`messages`。
 
@@ -37,6 +38,7 @@
 | 美股沒到 | Run `us.yml` |
 | 虛擬帳戶帳本沒存 | 看協作板 `ledger_daily/日期` 有沒有；沒有就是 Cowork 15:47 沒跑成（fire 它一次）；有就照 16:25 排程的檢查存檔 |
 | GitHub 排程沒跑／晚跑 | 正常現象，都有備援班＋隔天早上體檢 |
+| 首頁 🩺 或體檢信說「cron-job.org 沒準時叫」 | 08:40 盤中監控、15:20 每日資料是 Dennis 的 cron-job.org 叫的（用 GitHub token）。到 cron-job.org 看執行紀錄：401／403 就是 token 過期，GitHub 重新產生一個（權限 Actions: write）貼回去。連兩天沒叫到才會寄信 |
 | 證交所／櫃買格式變了 | 用 `probe.yml` 從 GitHub 抓原始回應看格式（Claude Code 的沙盒連不到證交所） |
 
 ## 改程式的規則

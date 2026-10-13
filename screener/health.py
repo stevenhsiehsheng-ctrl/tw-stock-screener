@@ -19,6 +19,7 @@ import datetime as dt
 import io
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -155,6 +156,35 @@ def failed_runs(hours=20) -> list[dict]:
 FIX_NAME = {"daily": "每日資料", "extras": "傍晚補抓", "us": "美股隔夜"}
 
 
+def cron_check(D: str, now: dt.datetime) -> list[str] | None:
+    """cron-job.org 有沒有準時叫（08:40 盤中監控、15:20 每日資料）。它用 Dennis 的 GitHub token，token 過期就默默不叫了，
+    只剩常晚好幾小時的 GitHub 排程（每日資料拖到晚上，Cowork 15:47 結算就沒資料）。只在早上體檢（Actions 裡）看：
+    ① 這班盤中監控是不是 workflow_dispatch 叫的（cron-job.org 08:40 叫的那班會先跑完一整天，GitHub 備援班輪到時
+       早上體檢已經做過、直接跳過；所以早上體檢由 schedule 那班做 = 08:40 沒叫到）
+    ② 上一個交易日 15:10～15:45 有沒有 workflow_dispatch 的每日資料
+    回傳沒叫到的說明（空的＝都有叫）；不在 Actions 裡回傳 None（不判斷）。"""
+    ev = os.environ.get("GITHUB_EVENT_NAME")
+    if not ev:
+        return None
+    out = []
+    if ev == "schedule":
+        out.append(f"盤中監控今天由 GitHub 備援排程 {now:%H:%M} 啟動（08:40 沒叫到）")
+    try:
+        r = subprocess.run(["gh", "run", "list", "--workflow", "daily.yml", "-L", "60", "--json", "event,createdAt"],
+                           capture_output=True, text=True, timeout=60, check=True)
+        runs = json.loads(r.stdout)
+    except Exception as e:  # noqa: BLE001
+        log.warning("讀不到每日資料的執行紀錄：%s", e)
+        return out
+    lo, hi = dt.time(15, 10), dt.time(15, 45)
+    hit = any(x.get("event") == "workflow_dispatch"
+              and (t := pd.Timestamp(x["createdAt"]).tz_convert(TPE)).date().isoformat() == D and lo <= t.time() <= hi
+              for x in runs)
+    if not hit:
+        out.append(f"每日資料 {D[5:]} 15:20 那班沒叫到")
+    return out
+
+
 def _busy(wf: str) -> bool:
     """這個工作流程現在有排隊或在跑的（例如 GitHub 排程剛好也在跑美股隔夜）就不再派一次。"""
     try:
@@ -241,14 +271,17 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
            "checked_at": now.strftime("%Y-%m-%dT%H:%M:%S%z"), "slot": slot, "trading_day": D, "source": REF or "checkout",
            "calendar": "twse" if days else "history", "us_day": us_day, "items": items,
            "bad": [i["name"] for i in bad], "failed_runs": fails, "dispatched": sent,
-           "dispatched_am": (prev.get("dispatched") or []) if done == ["am"] else []}
+           "dispatched_am": (prev.get("dispatched") or []) if done == ["am"] else [],
+           "cron": cron_check(D, now) if slot == "am" else prev.get("cron") if done else None}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", "utf-8")
     log.info("體檢 %s：交易日 %s，缺 %s，失敗 %d 個，補跑 %s", slot, D, res["bad"] or "無", len(fails), sent or "無")
 
     # 早上補跑救得到的先不吵；救不到的（沒有補跑方法、派工失敗、工作流程失敗）才寄。下午還缺就寄。
     unfixed = [i for i in bad if i["fix"] not in sent]
-    if notify and (unfixed or fails):
+    # cron-job.org：偶爾漏一次不吵，連兩次（今天＋上一次體檢）都沒叫到才寄（多半是 token 過期）
+    cron_bad = slot == "am" and bool(res["cron"]) and prev.get("date") != res["date"] and bool(prev.get("cron"))
+    if notify and (unfixed or fails or cron_bad):
         from . import notify as nt
 
         lines = [f"## 系統體檢（{'早上' if slot == 'am' else '收盤後'}）：上一個交易日 {D}", ""]
@@ -260,9 +293,14 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
             lines += [f"已自動補跑：{'、'.join(FIX_NAME[f] for f in sent)}（結果收盤後再查一次）。", ""]
         if res["dispatched_am"]:
             lines += [f"早上已自動補跑過：{'、'.join(FIX_NAME[f] for f in res['dispatched_am'])}，還是沒補到。", ""]
+        if cron_bad:
+            lines += ["**cron-job.org 連兩天沒準時叫：**", ""] + [f"- {x}" for x in res["cron"]] + [
+                f"- 上一次：{'；'.join(prev['cron'])}", "",
+                "多半是 cron-job.org 用的 GitHub token 過期了。到 cron-job.org 看那兩個工作的執行紀錄，"
+                "出現 401／403 就到 GitHub 重新產生 token（權限要有 Actions: write）貼回去。", ""]
         lines += ["自動補跑救不回來的才會寄這封信。Claude Code 每個交易日 16:25 會看這份體檢（data/health/latest.json）自己處理，"
                   "你不用做什麼；急的話直接在 Claude Code 對話叫它。"]
-        nt.send(f"⚠️ 台股系統體檢 {D}：{len(unfixed) + len(fails)} 項要看", "\n".join(lines))
+        nt.send(f"⚠️ 台股系統體檢 {D}：{len(unfixed) + len(fails) + int(cron_bad)} 項要看", "\n".join(lines))
     return res
 
 
