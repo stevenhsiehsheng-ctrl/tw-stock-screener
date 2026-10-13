@@ -45,11 +45,13 @@ def fetch_quotes(stocks: pd.DataFrame, batch: int = 50) -> tuple[pd.DataFrame, s
         log.warning("MIS 首頁連線失敗：%s", e)
     keys = [f"{'tse' if m == 'TWSE' else 'otc'}_{c}.tw" for c, m in zip(stocks.code, stocks.market)]
     got, day = {}, None
+    failed: list[str] = []   # 連錯 3 次整批跳過的（MIS 偶爾回非 JSON），最後再抓一次
 
     def pull(key_list):
         nonlocal day
         for i in range(0, len(key_list), batch):
-            chunk = "|".join(key_list[i : i + batch])
+            part = key_list[i : i + batch]
+            chunk = "|".join(part)
             for attempt in range(3):
                 try:
                     r = s.get(MIS, params={"ex_ch": chunk, "json": "1", "delay": "0", "_": int(time.time() * 1000)},
@@ -60,6 +62,7 @@ def fetch_quotes(stocks: pd.DataFrame, batch: int = 50) -> tuple[pd.DataFrame, s
                     log.warning("MIS 失敗（%d）：%s", attempt + 1, e)
                     time.sleep(3)
             else:
+                failed.extend(part)
                 continue
             for q in j.get("msgArray", []):
                 row = {"code": q.get("c"), "name": q.get("n"), "price": _price(q), "open": _f(q.get("o")),
@@ -74,6 +77,12 @@ def fetch_quotes(stocks: pd.DataFrame, batch: int = 50) -> tuple[pd.DataFrame, s
             time.sleep(0.8)
 
     pull(keys)
+    if failed:
+        # 整批跳過的不能就這樣少掉（10/13 12:40 那輪少了 50 檔；碰上 13:12 那輪就是漏訊號）：等一下整批再抓一次
+        again, failed[:] = failed[:], []
+        time.sleep(5)
+        pull(again)
+        log.info("MIS 整批失敗 %d 檔，再抓後仍缺 %d 檔", len(again), len(failed))
     # MIS 偶爾在兩筆成交之間回傳 "-"（沒有最新成交價），對這些股票再抓一次
     key_of = dict(zip(stocks.code.astype(str), keys))
     miss = [key_of[c] for c, r in got.items() if r["price"] is None and c in key_of]

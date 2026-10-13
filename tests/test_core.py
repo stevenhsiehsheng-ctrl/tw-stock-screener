@@ -575,3 +575,37 @@ def test_live_restore_state(tmp_path, monkeypatch):
     assert live.restore_state("2026-10-15")["alerts"] == {}            # 隔天不沿用
     f.write_text("{壞掉", "utf-8")
     assert live.restore_state("2026-10-14")["alerts"] == {}            # 檔案壞掉也不會讓盤中監控起不來
+
+
+def test_intraday_fetch_quotes_retries_failed_batch(monkeypatch):
+    """MIS 某一批連錯 3 次（回非 JSON）不能就少掉那 50 檔：最後整批再抓一次（10/13 12:40 那輪少了 50 檔）。"""
+    from screener import intraday
+    stocks = pd.DataFrame({"code": [f"{1100 + i}" for i in range(7)], "market": ["TWSE"] * 4 + ["TPEX"] * 3})
+    bad = {"n": 0}
+
+    class R:
+        def __init__(self, keys):
+            self.keys = keys
+
+        def json(self):
+            if "tse_1102.tw" in self.keys and bad["n"] < 3:       # 第二批前 3 次壞掉
+                bad["n"] += 1
+                raise ValueError("Expecting value: line 22 column 1 (char 21)")
+            return {"msgArray": [{"c": k.split("_")[1][:-3], "n": "x", "z": "10.5", "y": "10", "v": "5", "d": "20261014",
+                                  "t": "13:12:00"} for k in self.keys]}
+
+    class S:
+        headers = {}
+
+        def get(self, url, params=None, timeout=None):
+            return R((params or {}).get("ex_ch", "").split("|")) if params else R([])
+
+    monkeypatch.setattr(intraday.requests, "Session", S)
+    monkeypatch.setattr(intraday.time, "sleep", lambda s: None)
+    df, day = intraday.fetch_quotes(stocks, batch=2)
+    assert sorted(df.code) == sorted(stocks.code) and day == "20261014" and bad["n"] == 3
+    # 一直壞：照舊回其他的，不會卡住
+    monkeypatch.setattr(R, "json", lambda self: (_ for _ in ()).throw(ValueError("x")) if "tse_1102.tw" in self.keys
+                        else {"msgArray": [{"c": k.split("_")[1][:-3], "z": "1", "d": "20261014"} for k in self.keys]})
+    df, _ = intraday.fetch_quotes(stocks, batch=2)
+    assert sorted(df.code) == ["1100", "1101", "1104", "1105", "1106"]
