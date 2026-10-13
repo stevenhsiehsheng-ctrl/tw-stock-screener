@@ -369,6 +369,9 @@ def save_book(today: str, when: str, q: pd.DataFrame, codes: set[str]) -> None:
 
 ODD_COLS = ["when", "time", "code", "odd_price", "odd_vol_sh", "odd_bid1", "odd_bid1_sh", "odd_bid5_sh",
             "odd_ask1", "odd_ask1_sh", "odd_ask5_sh"]
+# 盤中零股報價。getStockInfo.jsp 加 odd=1 沒有用（回的跟整股一模一樣；10/14 用 probe 比過：台積電 v＝34420 張、
+# getOddInfo 才是零股 v＝6,128,251 股），#269 原本用錯，記下來的其實是整股
+MIS_ODD = "https://mis.twse.com.tw/stock/api/getOddInfo.jsp"
 
 
 def _levels(v) -> list[float]:
@@ -382,7 +385,7 @@ def _levels(v) -> list[float]:
 
 
 def odd_rows(msg: list[dict]) -> list[dict]:
-    """MIS 盤中零股報價（getStockInfo.jsp?odd=1）→ 每檔一列。b／a＝五檔價、g／f＝五檔委買／委賣「股數」、v＝零股累計成交股數。"""
+    """MIS 盤中零股報價（getOddInfo.jsp）→ 每檔一列。b／a＝五檔價、g／f＝五檔委買／委賣「股數」、v＝零股累計成交股數。"""
     out = []
     for q in msg:
         b, g, a, f = _levels(q.get("b")), _levels(q.get("g")), _levels(q.get("a")), _levels(q.get("f"))
@@ -407,7 +410,7 @@ def save_odd_book(today: str, when: str, stocks: pd.DataFrame) -> None:
     keys = "|".join(f"{'tse' if m == 'TWSE' else 'otc'}_{c}.tw" for c, m in zip(st.code, st.market))
     sess = requests.Session()
     sess.headers.update(fetch.HEADERS | {"Referer": "https://mis.twse.com.tw/stock/index.jsp"})
-    r = sess.get(intraday.MIS, params={"ex_ch": keys, "json": "1", "delay": "0", "odd": "1", "_": int(time.time() * 1000)}, timeout=20)
+    r = sess.get(MIS_ODD, params={"ex_ch": keys, "json": "1", "delay": "0", "_": int(time.time() * 1000)}, timeout=20)
     rows = odd_rows(r.json().get("msgArray", []))
     if not rows:
         return

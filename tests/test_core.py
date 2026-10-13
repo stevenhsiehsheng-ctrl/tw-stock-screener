@@ -159,15 +159,36 @@ def test_ledger_nav_flags_missing_trade():
 
 
 # ---------------------------------------------------------------- 盤中零股五檔（MIS odd=1，10/14 probe 的真資料）
-def test_live_odd_rows():
+def test_live_odd_rows(tmp_path, monkeypatch):
+    """盤中零股：要打 getOddInfo.jsp（getStockInfo 加 odd=1 回的是整股，#269 用錯）。樣本是 10/13 收盤台積電的真回應。"""
     from screener import live
-    msg = [{"c": "2330", "t": "13:30:00", "z": "2490.0000", "v": "34420", "a": "2495.0000_2500.0000_2505.0000_2510.0000_2515.0000_",
-            "b": "2490.0000_2485.0000_2480.0000_2475.0000_2470.0000_", "f": "268_305_467_634_412_", "g": "764_974_1690_378_457_"},
-           {"c": "6789", "t": "13:12:00", "z": "-", "pz": "88.5", "v": "0", "a": "-", "b": "88.5000_", "f": "-", "g": "12000_"}]
+    odd = {"c": "2330", "t": "13:30:00", "z": "2500.0000", "pz": "2515.0000", "v": "6128251",
+           "a": "2505.0000_2510.0000_2515.0000_2520.0000_2525.0000_", "b": "2500.0000_2495.0000_2490.0000_2485.0000_2480.0000_",
+           "f": "11610_37827_27194_11709_6758_", "g": "14632_606122_997638_261606_467088_"}
+    msg = [odd, {"c": "6789", "t": "13:12:00", "z": "-", "pz": "88.5", "v": "0", "a": "-", "b": "88.5000_", "f": "-", "g": "12000_"}]
     r = live.odd_rows(msg)
-    assert r[0]["odd_bid1"] == 2490 and r[0]["odd_bid1_sh"] == 764 and r[0]["odd_bid5_sh"] == 764 + 974 + 1690 + 378 + 457
-    assert r[0]["odd_ask5_sh"] == 268 + 305 + 467 + 634 + 412 and r[0]["odd_vol_sh"] == 34420
+    assert r[0]["odd_price"] == 2500 and r[0]["odd_vol_sh"] == 6128251 and r[0]["odd_bid1"] == 2500 and r[0]["odd_bid1_sh"] == 14632
+    assert r[0]["odd_bid5_sh"] == 14632 + 606122 + 997638 + 261606 + 467088 and r[0]["odd_ask5_sh"] == 11610 + 37827 + 27194 + 11709 + 6758
     assert r[1]["odd_ask1"] is None and r[1]["odd_ask5_sh"] == 0 and r[1]["odd_bid1_sh"] == 12000 and r[1]["odd_price"] == 88.5   # 鎖漲停：沒人賣
+
+    # save_odd_book 打的是零股端點、照 data/book/日期.csv 那批股票
+    monkeypatch.setattr(live, "ROOT", tmp_path)
+    (tmp_path / "data" / "book").mkdir(parents=True)
+    pd.DataFrame({"code": ["2330"]}).to_csv(tmp_path / "data" / "book" / "2026-10-14.csv", index=False)
+    seen = []
+
+    class S:
+        headers = {}
+
+        def get(self, url, params=None, timeout=None):
+            seen.append((url, params))
+            return type("R", (), {"json": lambda self: {"msgArray": [odd]}})()
+
+    monkeypatch.setattr(live.requests, "Session", S)
+    live.save_odd_book("2026-10-14", "1312", pd.DataFrame({"code": ["2330", "2317"], "market": ["TWSE", "TWSE"]}))
+    assert seen[0][0].endswith("/getOddInfo.jsp") and seen[0][1]["ex_ch"] == "tse_2330.tw" and "odd" not in seen[0][1]
+    out = pd.read_csv(tmp_path / "data" / "book" / "odd_2026-10-14.csv", dtype={"code": str})
+    assert list(out.code) == ["2330"] and out.odd_vol_sh[0] == 6128251 and out.when[0] == 1312
 
 
 # ---------------------------------------------------------------- 每日信的聯一光型段落
@@ -575,3 +596,98 @@ def test_live_restore_state(tmp_path, monkeypatch):
     assert live.restore_state("2026-10-15")["alerts"] == {}            # 隔天不沿用
     f.write_text("{壞掉", "utf-8")
     assert live.restore_state("2026-10-14")["alerts"] == {}            # 檔案壞掉也不會讓盤中監控起不來
+
+
+def test_intraday_fetch_quotes_retries_failed_batch(monkeypatch):
+    """MIS 某一批連錯 3 次（回非 JSON）不能就少掉那 50 檔：最後整批再抓一次（10/13 12:40 那輪少了 50 檔）。"""
+    from screener import intraday
+    stocks = pd.DataFrame({"code": [f"{1100 + i}" for i in range(7)], "market": ["TWSE"] * 4 + ["TPEX"] * 3})
+    bad = {"n": 0}
+
+    class R:
+        def __init__(self, keys):
+            self.keys = keys
+
+        def json(self):
+            if "tse_1102.tw" in self.keys and bad["n"] < 3:       # 第二批前 3 次壞掉
+                bad["n"] += 1
+                raise ValueError("Expecting value: line 22 column 1 (char 21)")
+            return {"msgArray": [{"c": k.split("_")[1][:-3], "n": "x", "z": "10.5", "y": "10", "v": "5", "d": "20261014",
+                                  "t": "13:12:00"} for k in self.keys]}
+
+    class S:
+        headers = {}
+
+        def get(self, url, params=None, timeout=None):
+            return R((params or {}).get("ex_ch", "").split("|")) if params else R([])
+
+    monkeypatch.setattr(intraday.requests, "Session", S)
+    monkeypatch.setattr(intraday.time, "sleep", lambda s: None)
+    df, day = intraday.fetch_quotes(stocks, batch=2)
+    assert sorted(df.code) == sorted(stocks.code) and day == "20261014" and bad["n"] == 3
+    # 一直壞：照舊回其他的，不會卡住
+    monkeypatch.setattr(R, "json", lambda self: (_ for _ in ()).throw(ValueError("x")) if "tse_1102.tw" in self.keys
+                        else {"msgArray": [{"c": k.split("_")[1][:-3], "z": "1", "d": "20261014"} for k in self.keys]})
+    df, _ = intraday.fetch_quotes(stocks, batch=2)
+    assert sorted(df.code) == ["1100", "1101", "1104", "1105", "1106"]
+
+
+def test_daily_evening_dispatch(tmp_path):
+    """daily.yml 的 evening1／evening2（#286、#307）：把 shell 抽出來，用假時鐘、假 gh 跑。
+    今天跑出今天資料才叫、18:05／21:50 準時叫、晚於 18:00 跑完馬上叫、那個時段已經有一班就不重複、
+    隔天半夜才到的備援班不叫、21:50 那段過午夜才開始不等到隔天。"""
+    import datetime as dt
+    import os
+    import subprocess
+
+    import yaml
+    w = yaml.safe_load(open(".github/workflows/daily.yml", encoding="utf-8"))["jobs"]
+    tz = dt.timezone(dt.timedelta(hours=8))
+    clock = tmp_path / "clock"
+    b = tmp_path / "bin"
+    b.mkdir()
+    (b / "date").write_text("#!/usr/bin/env python3\nimport sys, os, datetime as d\n"
+                            "t = d.datetime.fromtimestamp(float(open(os.environ['CLOCK']).read()), d.timezone(d.timedelta(hours=8)))\n"
+                            "print(t.strftime(sys.argv[-1][1:]))\n")
+    (b / "sleep").write_text("#!/usr/bin/env python3\nimport sys, os\nf = os.environ['CLOCK']\n"
+                             "t = float(open(f).read()) + float(sys.argv[1])\nopen(f, 'w').write(str(t))\n")
+    (b / "gh").write_text('#!/usr/bin/env bash\necho "$*" >> "$GHLOG"\ncase "$1 $2" in\n'
+                          '  "api repos/"*) printf \'{"last_done": "%s"}\' "$LAST_DONE" | base64 ;;\n'
+                          '  "run list") echo "$RUNS" ;;\nesac\n')
+    for f in b.iterdir():
+        f.chmod(0o755)
+    # SINCE 裡的「現在」改讀假時鐘
+    since = w["evening1"]["env"]["SINCE"].replace(
+        "d.datetime.now(tz)", "d.datetime.fromtimestamp(float(open(__import__('os').environ['CLOCK']).read()), tz)")
+    assert since != w["evening1"]["env"]["SINCE"] and w["evening1"]["env"]["SINCE"] == w["evening2"]["env"]["SINCE"]
+
+    def iso(s):
+        return dt.datetime.strptime(s, "%Y-%m-%d %H:%M").replace(tzinfo=tz).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def run(job, start, last_done, runs=()):
+        clock.write_text(str(dt.datetime.strptime(start, "%Y-%m-%d %H:%M").replace(tzinfo=tz).timestamp()))
+        out, log = tmp_path / "out", tmp_path / "gh.log"
+        out.write_text("")
+        log.write_text("")
+        env = dict(os.environ, PATH=f"{b}:{os.environ['PATH']}", CLOCK=str(clock), GHLOG=str(log), LAST_DONE=last_done,
+                   RUNS=json.dumps([{"createdAt": iso(r)} for r in runs]), GITHUB_OUTPUT=str(out), GH_REPO="x/y",
+                   D=last_done, SINCE=since)
+        r = subprocess.run(["bash", "-e", "-c", w[job]["steps"][0]["run"]], env=env, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        end = dt.datetime.fromtimestamp(float(clock.read_text()), tz).strftime("%H:%M")
+        return end, out.read_text().strip(), sum("workflow run" in x for x in log.read_text().splitlines())
+
+    T = "2026-10-14"
+    end, o, n = run("evening1", f"{T} 15:31", T)
+    assert end in ("18:05", "18:06") and o == f"D={T}" and n == 1                     # 正常：等到 18:05 叫
+    assert run("evening1", f"{T} 17:48", T, [f"{T} 18:05"])[2] == 0                  # 17:40 備援班：已有一班就不叫
+    assert run("evening1", f"{T} 18:30", T, [f"{T} 08:41"])[1:] == (f"D={T}", 1)     # 晚到：馬上叫（早上補跑的不算）
+    assert run("evening1", f"{T} 19:30", T, [f"{T} 18:05"])[1:] == (f"D={T}", 0)
+    assert run("evening1", f"{T} 21:40", T)[1:] == (f"D={T}", 0)                     # 過 21:30 只留 21:50 那班
+    assert run("evening1", "2026-10-15 01:07", T)[1:] == ("", 0)                     # 隔天半夜才到的備援班
+    assert run("evening1", f"{T} 15:31", "2026-10-13")[1:] == ("", 0)               # 今天資料還沒出來
+    end, _, n = run("evening2", f"{T} 18:07", T, [f"{T} 18:05"])
+    assert end in ("21:50", "21:51") and n == 1                                      # 21:50 再叫一次
+    assert run("evening2", f"{T} 23:06", T, [f"{T} 21:50"])[2] == 0                  # 已有一班
+    assert run("evening2", f"{T} 21:40", T, [f"{T} 21:47"])[2] == 0                  # GitHub 21:47 排程準時跑了
+    assert run("evening2", "2026-10-15 00:01", T) == ("00:01", "", 0)                # 過午夜不等到隔天
