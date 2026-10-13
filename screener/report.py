@@ -610,17 +610,18 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
     """寫出 site/：YYYY-MM-DD.html（當日）、index.html（最新）、archive.html（歷史清單）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     from . import chipspage, etfpage, exdivpage, gifts, ledgerpage, longterm, macro, momo, revdrift, screenpage, sitenav, stockpage, us, usx, weekly
-    weeks = weekly.write(out_dir)
     try:
-        has_us = us.write(out_dir)
+        weekly.write(out_dir)
+    except Exception as e:  # 週報頁壞掉不能拖垮每日報表
+        logging.warning("週報頁產生失敗：%s", e)
+    try:
+        us.write(out_dir)
     except Exception as e:  # 美股頁壞掉不能拖垮每日報表
         logging.warning("美股頁產生失敗：%s", e)
-        has_us = False
     try:
-        has_rev = revdrift.write(out_dir)
+        revdrift.write(out_dir)
     except Exception as e:  # 研究頁壞掉不能拖垮每日報表
         logging.warning("營收漂移成績頁產生失敗：%s", e)
-        has_rev = False
     try:
         momo.write(out_dir)
     except Exception as e:  # 研究頁壞掉不能拖垮每日報表
@@ -630,15 +631,13 @@ def write_site(out_dir: Path, date: str, html_for) -> None:
     except Exception as e:  # 虛擬帳戶頁壞掉不能拖垮每日報表
         logging.warning("虛擬帳戶頁產生失敗：%s", e)
     try:
-        has_macro = macro.write(out_dir)
+        macro.write(out_dir)
     except Exception as e:  # 大環境頁壞掉不能拖垮每日報表
         logging.warning("大環境頁產生失敗：%s", e)
-        has_macro = False
     try:
-        has_gifts = gifts.write(out_dir)
+        gifts.write(out_dir)
     except Exception as e:  # 紀念品頁壞掉不能拖垮每日報表
         logging.warning("股東紀念品頁產生失敗：%s", e)
-        has_gifts = False
     try:
         longterm.write(out_dir)
     except Exception as e:  # 長期 Top 20 頁壞掉不能拖垮每日報表

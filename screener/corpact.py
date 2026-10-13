@@ -20,7 +20,6 @@ import logging
 import re
 import time
 
-import numpy as np
 import pandas as pd
 
 from .enrich import DIR, _col, _json, _num, _session, _tables
