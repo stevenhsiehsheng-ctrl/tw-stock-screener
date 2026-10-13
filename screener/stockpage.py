@@ -139,7 +139,6 @@ def build(out_dir: Path) -> int:
     except Exception as e:  # noqa: BLE001
         log.warning("個股頁價格接軌失敗，用原始價：%s", e)
         hga = hg
-    days = sorted(h.date.unique())
 
     rev = _read(EX / "rev_hist.csv.gz")
     inst = _read(EX / "inst_hist.csv.gz")

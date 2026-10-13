@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import re
 
-import numpy as np
 import pandas as pd
 
 from .enrich import DIR, _get
