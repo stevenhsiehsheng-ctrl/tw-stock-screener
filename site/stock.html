@@ -197,6 +197,7 @@ async function show(code){await loadIndex();$('#out').innerHTML='<p class="meta"
   const b=[];if(o.warn)b.push(`<span class="b crit">⚠️ ${esc(o.warn)}中</span>`);
   if(o.dt_ok===false)b.push(`<span class="b warn">🚫 不可當沖</span>`);
   if(o.lt&&o.lt.top)b.push(`<span class="b good">🌱 長期 Top 20</span>`);
+  (o.tags||[]).forEach(x=>b.push(`<a class="b" style="text-decoration:none;color:inherit" href="${esc(x.href)}">${esc(x.text)}</a>`));
   if(o.w0050)b.push(`<span class="b" title="元大台灣50 成分股權重（${esc(o.w0050[1])}）">🧺 0050 權重 ${fmt(o.w0050[0],2)}%</span>`);
   const today=(o.strats||[]).filter(x=>x[0]===o.asof).map(x=>x[1]);today.forEach(t=>b.push(`<span class="b">📊 今天上榜：${esc(t)}</span>`));
   if(o.exdiv_next&&o.exdiv_next.length){const e=o.exdiv_next[0];b.push(`<span class="b">💰 ${esc(e[0])} 除${esc(e[1])}${e[2]?' 現金 '+fmt(e[2],2)+' 元':''}</span>`)}
