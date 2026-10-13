@@ -840,6 +840,24 @@ def test_workflows_gh_token():
     assert seen >= 8
 
 
+def test_config_matches_backtest():
+    """13:12 正式訊號（config.yaml intraday）跟 5 年回測（tools/btsim signals／trades 預設值）要同一套門檻，
+    不然虛擬帳戶照的訊號跟回測驗過的不是同一個東西。要改門檻就兩邊一起改、重跑回測。"""
+    import inspect
+
+    import yaml
+
+    from tools import btsim
+    ic = yaml.safe_load(open("config.yaml", encoding="utf-8"))["intraday"]
+    sg = {k: v.default for k, v in inspect.signature(btsim.signals).parameters.items() if v.default is not inspect._empty}
+    tr = {k: v.default for k, v in inspect.signature(btsim.trades).parameters.items() if v.default is not inspect._empty}
+    assert ic["volume_multiple"] == sg["vol_mult"]
+    assert ic["min_change_pct"] == sg["chg_min"] and ic["max_change_pct"] == sg["chg_max"]
+    assert ic["new_high_days"] == sg["high_days"]
+    assert ic["min_volume_lots"] == sg["min_lots"] and ic["min_price"] == sg["min_price"]
+    assert ic["exit_shrink_ratio"] == tr["shrink"] and ic["max_hold_days"] == tr["max_hold"]
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
