@@ -35,6 +35,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # 存檔後叫 pages.yml 重畫網站（bot 推的 commit 不會自己觸發）
 
 concurrency:
   group: screener
@@ -84,6 +85,8 @@ jobs:
         if: ${{ inputs.attn_years != '' && inputs.attn_years != null }}
         run: python -m screener.enrich --attn-years "${{ inputs.attn_years }}" --date "$(TZ=Asia/Taipei date +%F)"
       - name: 存檔
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -94,3 +97,5 @@ jobs:
             if git pull --rebase -X theirs && git push; then ok=1; break; fi
             git rebase --abort 2>/dev/null || true; sleep 5
           done; [ "$ok" = 1 ]
+          # 法人籌碼頁、個股頁的法人／融資／當沖要重畫才看得到（不然要等隔天早上）
+          gh workflow run pages.yml --ref main || echo "叫網站重畫失敗（不影響資料）"
