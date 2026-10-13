@@ -159,15 +159,36 @@ def test_ledger_nav_flags_missing_trade():
 
 
 # ---------------------------------------------------------------- 盤中零股五檔（MIS odd=1，10/14 probe 的真資料）
-def test_live_odd_rows():
+def test_live_odd_rows(tmp_path, monkeypatch):
+    """盤中零股：要打 getOddInfo.jsp（getStockInfo 加 odd=1 回的是整股，#269 用錯）。樣本是 10/13 收盤台積電的真回應。"""
     from screener import live
-    msg = [{"c": "2330", "t": "13:30:00", "z": "2490.0000", "v": "34420", "a": "2495.0000_2500.0000_2505.0000_2510.0000_2515.0000_",
-            "b": "2490.0000_2485.0000_2480.0000_2475.0000_2470.0000_", "f": "268_305_467_634_412_", "g": "764_974_1690_378_457_"},
-           {"c": "6789", "t": "13:12:00", "z": "-", "pz": "88.5", "v": "0", "a": "-", "b": "88.5000_", "f": "-", "g": "12000_"}]
+    odd = {"c": "2330", "t": "13:30:00", "z": "2500.0000", "pz": "2515.0000", "v": "6128251",
+           "a": "2505.0000_2510.0000_2515.0000_2520.0000_2525.0000_", "b": "2500.0000_2495.0000_2490.0000_2485.0000_2480.0000_",
+           "f": "11610_37827_27194_11709_6758_", "g": "14632_606122_997638_261606_467088_"}
+    msg = [odd, {"c": "6789", "t": "13:12:00", "z": "-", "pz": "88.5", "v": "0", "a": "-", "b": "88.5000_", "f": "-", "g": "12000_"}]
     r = live.odd_rows(msg)
-    assert r[0]["odd_bid1"] == 2490 and r[0]["odd_bid1_sh"] == 764 and r[0]["odd_bid5_sh"] == 764 + 974 + 1690 + 378 + 457
-    assert r[0]["odd_ask5_sh"] == 268 + 305 + 467 + 634 + 412 and r[0]["odd_vol_sh"] == 34420
+    assert r[0]["odd_price"] == 2500 and r[0]["odd_vol_sh"] == 6128251 and r[0]["odd_bid1"] == 2500 and r[0]["odd_bid1_sh"] == 14632
+    assert r[0]["odd_bid5_sh"] == 14632 + 606122 + 997638 + 261606 + 467088 and r[0]["odd_ask5_sh"] == 11610 + 37827 + 27194 + 11709 + 6758
     assert r[1]["odd_ask1"] is None and r[1]["odd_ask5_sh"] == 0 and r[1]["odd_bid1_sh"] == 12000 and r[1]["odd_price"] == 88.5   # 鎖漲停：沒人賣
+
+    # save_odd_book 打的是零股端點、照 data/book/日期.csv 那批股票
+    monkeypatch.setattr(live, "ROOT", tmp_path)
+    (tmp_path / "data" / "book").mkdir(parents=True)
+    pd.DataFrame({"code": ["2330"]}).to_csv(tmp_path / "data" / "book" / "2026-10-14.csv", index=False)
+    seen = []
+
+    class S:
+        headers = {}
+
+        def get(self, url, params=None, timeout=None):
+            seen.append((url, params))
+            return type("R", (), {"json": lambda self: {"msgArray": [odd]}})()
+
+    monkeypatch.setattr(live.requests, "Session", S)
+    live.save_odd_book("2026-10-14", "1312", pd.DataFrame({"code": ["2330", "2317"], "market": ["TWSE", "TWSE"]}))
+    assert seen[0][0].endswith("/getOddInfo.jsp") and seen[0][1]["ex_ch"] == "tse_2330.tw" and "odd" not in seen[0][1]
+    out = pd.read_csv(tmp_path / "data" / "book" / "odd_2026-10-14.csv", dtype={"code": str})
+    assert list(out.code) == ["2330"] and out.odd_vol_sh[0] == 6128251 and out.when[0] == 1312
 
 
 # ---------------------------------------------------------------- 每日信的聯一光型段落
