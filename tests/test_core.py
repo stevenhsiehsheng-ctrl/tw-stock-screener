@@ -1958,3 +1958,45 @@ def test_us_impact_alignment_and_surge():
     assert hot["n"] == 1 and hot["sig_trades"] == 1 and abs(hot["sig_trade_avg"] - (105 / 104 - 1) * 100) < 1e-9
     assert imp["last"]["date"] == d2 and imp["last"]["us_date"] == d1  # 不是同一天的 d2
     assert rows["±1% 內"]["sig_trades"] == 0 and abs(hot["ew_gap"] - (105 / 104 - 1) * 100 / 3) < 1e-9
+
+
+def test_exdiv_bench_tr_incremental(tmp_path, monkeypatch):
+    """0050 含息指數（所有「同期 0050」的基準）：tr＝前一天 tr × 收盤 × factor ÷ 前一天收盤；
+    算過的不再改（舊資料滾出視窗也不重新起算），只補新日子。"""
+    from screener import exdiv
+
+    monkeypatch.setattr(exdiv, "BENCH", tmp_path / "bench.csv")
+    monkeypatch.setattr(exdiv, "EXDIV", tmp_path / "exdiv.csv")
+    pd.DataFrame({"date": ["2026-10-01", "2026-10-02", "2026-10-05"], "code": "0050", "close": [100.0, 102.0, 99.0]}
+                 ).to_csv(exdiv.BENCH, index=False)
+    pd.DataFrame({"date": ["2026-10-05"], "code": ["0050"], "factor": [102 / 99.5]}).to_csv(exdiv.EXDIV, index=False)  # 10/05 除息 2.5
+    assert exdiv.bench_tr() == 3
+    tr = pd.read_csv(exdiv.BENCH).tr.tolist()
+    assert tr == [100.0, 102.0, round(102 * 99 * (102 / 99.5) / 102, 4)]  # 除息日不當成下跌
+    # 下一天：最舊那天滾出視窗、加新的一天 → 舊的 tr 不動，只補新的
+    b = pd.read_csv(exdiv.BENCH, dtype={"code": str}).iloc[1:]
+    pd.concat([b, pd.DataFrame([{"date": "2026-10-06", "code": "0050", "close": 99.99}])]).to_csv(exdiv.BENCH, index=False)
+    assert exdiv.bench_tr() == 1
+    tr2 = pd.read_csv(exdiv.BENCH).set_index("date").tr
+    assert tr2["2026-10-02"] == 102.0 and tr2["2026-10-06"] == round(tr[2] * 99.99 / 99, 4)
+
+
+def test_stockpage_trigger_ticks():
+    """個股頁「明天要漲到多少才觸發預警」：價位要跳到下一個檔位（「大於」60 日高）、漲幅 3% 往上取檔、最低 10 元；
+    要價超過漲停或 10.5% 就標到不了。"""
+    from screener import stockpage as sp
+
+    assert (sp.up_tick(49.95), sp.up_tick(50), sp.up_tick(9.99), sp.up_tick(999)) == (50.0, 50.1, 10.0, 1000.0)
+    assert (sp.ceil_tick(10.03), sp.ceil_tick(10.05), sp.ceil_tick(103.2), sp.ceil_tick(1001)) == (10.05, 10.05, 103.5, 1005.0)
+    lc = {"new_high_days": 60, "min_change_pct": 3, "min_price": 10, "volume_multiple": 3, "min_volume_lots": 300,
+          "min_actual_multiple": 1, "max_change_pct": 10.5}
+    n = 60
+    closes = pd.Series([100.0] * n)
+    highs = pd.Series([100.0] * (n - 1) + [104.0])
+    vols = pd.Series([200_000.0] * n)  # 200 張
+    t = sp.trigger(closes, highs, vols, lc)
+    assert (t["p_hi"], t["p_chg"], t["need"], t["lu"]) == (104.5, 103.0, 104.5, 110.0)
+    assert (t["vol_full"], t["vol_now"], t["reachable"]) == (600, 300, True)
+    t = sp.trigger(closes, pd.Series([100.0] * (n - 1) + [111.0]), vols, lc)
+    assert t["need"] == 111.5 and t["reachable"] is False  # 超過漲停
+    assert "note" in sp.trigger(closes.iloc[:30], highs.iloc[:30], vols.iloc[:30], lc)  # 上市不到 60 天
