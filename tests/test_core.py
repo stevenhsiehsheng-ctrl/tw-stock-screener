@@ -315,6 +315,29 @@ def test_positions_exit_rules(tmp_path, monkeypatch):
     assert p.at["1111", "close_lu"] == 0 and p.at["2222", "close_lu"] == 1          # 50 是前收 45.5 的漲停價
 
 
+def test_btsim_exit_matches_positions(tmp_path, monkeypatch):
+    """回測（tools/btsim trades）跟實際持倉追蹤（positions.update）用同一套出場：量縮到爆量日一半以下、收漲停那天不算，
+    出場訊號隔天開盤賣。同一份資料兩邊出場日、出場價、毛報酬要一樣，不然回測驗的不是網站在跑的規則。"""
+    from tools import btsim
+    rows = []
+    for d, a, b in [("2026-09-30", (95, 3000, 95), (45.5, 2000, 45)),
+                    ("2026-10-01", (100, 10000, 96), (50.0, 8000, 46)),
+                    ("2026-10-02", (102, 6000, 101), (55.0, 3000, 51)),
+                    ("2026-10-05", (105, 4000, 104), (54.0, 3000, 55)),
+                    ("2026-10-06", (99, 5000, 103), (53.0, 3000, 53.5)),
+                    ("2026-10-07", (98, 5000, 99), (52.0, 3000, 53))]:
+        for code, (c, v, o) in (("1111", a), ("2222", b)):
+            rows.append({"date": d, "code": code, "open": o, "high": max(o, c), "low": min(o, c), "close": c, "volume": v, "adjusted": 0})
+    f = tmp_path / "bt.csv"
+    pd.DataFrame(rows).to_csv(f, index=False)
+    monkeypatch.setattr(btsim, "drop_partial_tail", lambda df: (df, []))
+    P = btsim.load(str(f))
+    T = btsim.trades(P, pd.DataFrame({"date": ["2026-10-01", "2026-10-01"], "code": ["1111", "2222"]}), slip=False).set_index("code")
+    assert T.exit_date.to_dict() == {"1111": "2026-10-06", "2222": "2026-10-06"}
+    assert T.exit_px.to_dict() == {"1111": 103, "2222": 53.5}
+    assert round(T.gross["1111"], 6) == 3.0 and round(T.gross["2222"], 6) == 7.0    # 跟 test_positions_exit_rules 的 est_return_pct 一樣
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify
