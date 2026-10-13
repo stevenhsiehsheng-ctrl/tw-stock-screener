@@ -2575,6 +2575,12 @@ def test_health_dispatch_inputs_match_workflows(monkeypatch):
         assert keys <= inputs, (wf, keys - inputs)
         assert fix == "us" or "date=2026-10-13" in run  # 補的是體檢判定的那個交易日
 
+    # cron-job.org 只送 {"ref":"main"}、體檢／排程叫的也不一定帶全部參數：這幾條不能有「必填又沒預設」的 input
+    for wf in ("live.yml", "daily.yml", "us.yml", "extras_evening.yml"):
+        y = yaml.safe_load((ROOT / ".github" / "workflows" / wf).read_text("utf-8"))
+        inp = ((y.get(True) or y.get("on"))["workflow_dispatch"] or {}).get("inputs", {}) or {}
+        assert not [k for k, v in inp.items() if (v or {}).get("required") and "default" not in (v or {})], wf
+
     class Busy:
         stdout = '[{"status": "in_progress"}]'
     calls.clear()
