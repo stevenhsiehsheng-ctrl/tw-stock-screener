@@ -2586,3 +2586,32 @@ def test_health_dispatch_inputs_match_workflows(monkeypatch):
     calls.clear()
     monkeypatch.setattr(subprocess, "run", lambda cmd, **k: calls.append(cmd) or Busy())
     assert health.dispatch("daily", "2026-10-13") is True and not any(c[:3] == ["gh", "workflow", "run"] for c in calls)
+
+
+def test_macro_tw_flows(tmp_path):
+    """大環境頁台股資金面：外資近 20 日買賣超（張×收盤加總，億元）、融資餘額市值 20 日變化 %、站上 20 日線比例；
+    資料不到 20 個點的那條不列，某個檔壞掉不影響其他條。"""
+    from screener import macro
+
+    ex = tmp_path / "data" / "extras"
+    ex.mkdir(parents=True)
+    days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2026-08-03", periods=45)]
+    pd.DataFrame([{"date": d, "code": c, "close": 100.0} for d in days for c in ("1101", "2330")]).to_csv(
+        tmp_path / "data" / "history.csv.gz", index=False)
+    pd.DataFrame([{"date": d, "code": c, "foreign": 10 if c == "1101" else -5} for d in days for c in ("1101", "2330")]).to_csv(
+        ex / "inst_hist.csv.gz", index=False)
+    pd.DataFrame([{"date": d, "code": "1101", "margin_bal": 1000 + 10 * i} for i, d in enumerate(days)]).to_csv(
+        ex / "margin_hist.csv.gz", index=False)
+    pd.DataFrame({"date": days[:10], "above_ma20": [50.0] * 9 + [80.0]}).to_csv(ex / "breadth.csv", index=False)
+    f = {x["name"]: x for x in macro.tw_flows(tmp_path)}
+    fo = f["外資近 20 日買賣超（億元）"]
+    assert fo["unit"] == "億" and abs(fo["value"] - 20 * (10 - 5) * 100 * 1000 / 1e8) < 1e-9 and fo["date"] == days[-1]
+    mg = f["融資餘額近 20 日變化"]
+    assert mg["unit"] == "%" and abs(mg["value"] - ((1000 + 440) / (1000 + 240) - 1) * 100) < 1e-9
+    assert mg["pct"] == 4.0  # 每天固定加 10 張 → 20 日變化率一天比一天小，最新是 25 個點裡最低
+    br = f["站上 20 日線的股票比例"]
+    assert br["value"] == 80.0 and br["pct"] == 100.0 and len(br["spark"]) == 10
+
+    (ex / "margin_hist.csv.gz").write_text("壞掉", "utf-8")
+    names = [x["name"] for x in macro.tw_flows(tmp_path)]
+    assert "站上 20 日線的股票比例" in names
