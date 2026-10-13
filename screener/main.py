@@ -210,6 +210,13 @@ def main(argv=None) -> int:
     except Exception as e:  # noqa: BLE001
         log.warning("等權指數更新失敗：%s", e)
     pos_md = positions.build_md(exits, holding)
+    try:   # 聯一光型訊號（Dennis 10/12 問）：write_site 裡 momo.write 剛存好今天的名單
+        from . import momo
+        mm = momo.today_md(data_date, dict(zip(stocks.code, stocks.name)))
+        if mm:
+            pos_md = mm + "\n" + pos_md
+    except Exception as e:  # noqa: BLE001
+        log.warning("強勢續攻信件段落失敗：%s", e)
     if senti:
         pos_md = sentiment.md_line(senti) + "\n" + pos_md
 

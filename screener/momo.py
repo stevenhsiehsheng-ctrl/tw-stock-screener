@@ -103,6 +103,22 @@ def recent(days: int = 10) -> pd.DataFrame:
     return df.sort_values(["rule", "date", "vx"], ascending=[True, False, False], ignore_index=True)
 
 
+def today_md(date: str, names: dict | None = None) -> str:
+    """每日信用的一段（Markdown）：今天新出現的強勢續攻／低檔爆量突破（momo.write 存的名單）。沒有就回空字串。"""
+    if not RECENT.exists():
+        return ""
+    m = pd.read_csv(RECENT, dtype={"code": str})
+    m = m[m.date == date]
+    if m.empty:
+        return ""
+    names = names or {}
+    parts = [f"{RULES[r]}：" + "、".join(f"{c} {names.get(c) or ''}".strip() for c in m[m.rule == r].code)
+             for r in RULES if (m.rule == r).any()]
+    return ("🚀 **聯一光型訊號（今天新出現）**　" + "；".join(parts) +
+            "。彩券型：60 天內翻倍的機會約隨便挑的 3 倍，但抱 60 天中位數是賠的、停損會讓平均變差；"
+            "要玩就小錢分散，統計和出場比較看網站「🚀 強勢續攻」頁。\n")
+
+
 def _num(v, fmt="{:.0f}", none="—"):
     return none if v is None or (isinstance(v, float) and np.isnan(v)) else fmt.format(v)
 
