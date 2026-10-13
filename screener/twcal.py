@@ -66,21 +66,31 @@ def parse(j) -> list[str]:
     return sorted(set(out))
 
 
+_MISS: set[int] = set()   # 這次執行已經抓過、沒抓到的年份（同一支程式算好幾次交易日時不重抓）
+
+
 def _fetch(year: int) -> list[str] | None:
     import requests
-    srcs = [("https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule", {"date": f"{year}0101", "response": "json"}),
-            ("https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule", None)]   # openapi 只有今年
+    if year in _MISS:
+        return None
+    srcs = [("https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule", {"date": f"{year}0101", "response": "json"})]
+    if year == dt.date.today().year:   # openapi 只有今年的表，問明年只會拿到今年的
+        srcs.append(("https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule", None))
     for url, params in srcs:
         try:
             j = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=30).json()
         except Exception as e:  # noqa: BLE001
             log.warning("證交所休市日表 %s 抓不到（%s）：%s", year, url.split("/")[2], e)
             continue
+        if isinstance(j, dict) and "data" in j and not j["data"] and year > dt.date.today().year:
+            log.info("證交所 %s 年休市日表還沒公布（通常年底才有），先只扣週末＋推定休市日", year)
+            continue
         days = [d for d in parse(j) if d.startswith(str(year))]
         if 3 <= len(days) <= 40:   # 一年平日休市大約 10～20 天；太少太多都是格式沒對上
             return days
         sample = (j.get("data") or [])[:2] if isinstance(j, dict) else (j or [])[:2] if isinstance(j, list) else j
         log.warning("證交所休市日表 %s（%s）解析出 %d 天，格式可能變了：%s", year, url.split("/")[2], len(days), str(sample)[:300])
+    _MISS.add(year)
     return None
 
 

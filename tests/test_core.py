@@ -41,6 +41,31 @@ def test_twcal_future_days_fallback(tmp_path, monkeypatch):
     assert not approx and days[-1] == "2026-11-11"
 
 
+def test_twcal_fetch_next_year_not_published(monkeypatch):
+    """明年的表還沒公布：只問 rwd 一次（openapi 只有今年、不問），同一次執行不重抓。"""
+    import requests
+    calls = []
+
+    class R:
+        def __init__(self, j):
+            self.j = j
+
+        def json(self):
+            return self.j
+
+    def get(url, params=None, **kw):
+        calls.append(url)
+        return R({"stat": "ok", "fields": ["日期", "名稱", "說明"], "data": []})
+
+    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(twcal, "_MISS", set())
+    nxt = twcal.dt.date.today().year + 1
+    assert twcal._fetch(nxt) is None and len(calls) == 1 and "openapi" not in calls[0]
+    assert twcal._fetch(nxt) is None and len(calls) == 1
+    # 今年的表：rwd 抓不到才換 openapi
+    assert twcal._fetch(nxt - 1) is None and len(calls) == 3 and "openapi" in calls[2]
+
+
 # ---------------------------------------------------------------- revdrift 批次日／申報期限
 def test_revdrift_deadline_and_batch_day():
     days = ["2026-10-07", "2026-10-08", "2026-10-12", "2026-10-13", "2026-10-14",
@@ -196,6 +221,9 @@ def test_gzip_csv_deterministic(tmp_path):
         df.to_csv(str(p), index=False, **kw)
         assert p.read_bytes() == a, kw
     assert pd.read_csv(p, dtype={"code": str}).equals(df.astype({"code": str}))
+    s = tmp_path / "s.csv.gz"
+    df.set_index("code")["close"].to_csv(s)                   # Series 也一樣
+    assert s.read_bytes()[4:8] == b"\0\0\0\0"                 # gzip 檔頭第 4～7 byte 是時間
     q = tmp_path / "plain.csv"
     df.to_csv(q, index=False)
     assert q.read_text().startswith("date,code,close")       # 一般 CSV 不受影響

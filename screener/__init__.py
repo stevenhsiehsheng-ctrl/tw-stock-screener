@@ -5,9 +5,9 @@ gzip 檔頭會記「寫檔當下的時間」，資料一模一樣也會寫出不
 10/14 量過：repo 515 MB 裡約 426 MB 是這種白存的（history.csv.gz 44 版裡 33 版只差檔頭、margin／當沖各 24 版）。
 所有程式都會 import screener，在這裡統一處理，內容沒變就是同一個檔、git 不會多存。只影響檔頭，讀檔完全一樣。
 """
-import pandas as _pd
+from pandas.core.generic import NDFrame as _NDFrame
 
-_to_csv = _pd.DataFrame.to_csv
+_to_csv = _NDFrame.to_csv   # DataFrame、Series 共用這一個；包在這裡兩種都有效
 
 
 def _to_csv_stable(self, path_or_buf=None, *args, **kw):
@@ -20,4 +20,4 @@ def _to_csv_stable(self, path_or_buf=None, *args, **kw):
     return _to_csv(self, path_or_buf, *args, **kw)
 
 
-_pd.DataFrame.to_csv = _to_csv_stable
+_NDFrame.to_csv = _to_csv_stable
