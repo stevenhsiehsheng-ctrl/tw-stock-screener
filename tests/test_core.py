@@ -453,3 +453,36 @@ def test_ledger_save_check():
     assert any("不是交易日" in e for e in err)
     _, err, _ = ledger_save.check({k: v for k, v in base.items() if k != "positions"}, days, closes)
     assert err == ["缺欄位：positions"]
+
+
+# ---------------------------------------------------------------- workflow 檔：語法、輸入、cron-job.org 相容
+def test_workflows_valid():
+    """GitHub 要等觸發時才發現 workflow 寫錯（每日流程整個不跑）。這裡先擋：YAML 讀得進來、每段 run 過 bash -n、
+    用到的 inputs.X 都有宣告、needs 指到存在的 job；live.yml、daily.yml 一定要有 test 輸入
+    （cron-job.org 叫的 body 帶 test，少了 GitHub 回 422、整天不跑）。"""
+    import glob
+    import re
+    import subprocess
+
+    import yaml
+    files = sorted(glob.glob(".github/workflows/*.yml"))
+    assert len(files) >= 8
+    for f in files:
+        txt = open(f, encoding="utf-8").read()
+        d = yaml.safe_load(txt)
+        on = d.get(True, d.get("on"))
+        wd = on.get("workflow_dispatch") if isinstance(on, dict) else None
+        declared = set((wd or {}).get("inputs") or {}) if isinstance(wd, dict) else set()
+        assert set(re.findall(r"inputs\.([A-Za-z_][\w-]*)", txt)) <= declared, f
+        jobs = d["jobs"]
+        for jn, j in jobs.items():
+            assert "runs-on" in j, (f, jn)
+            needs = [j["needs"]] if isinstance(j.get("needs"), str) else j.get("needs") or []
+            assert set(needs) <= set(jobs), (f, jn, needs)
+            for st in j.get("steps") or []:
+                if "run" in st:
+                    r = subprocess.run(["bash", "-n"], input=re.sub(r"\$\{\{.*?\}\}", "X", st["run"]),
+                                       text=True, capture_output=True)
+                    assert r.returncode == 0, (f, jn, st.get("name"), r.stderr)
+        if f.endswith(("/live.yml", "/daily.yml")):
+            assert "test" in declared, f"{f} 少了 test 輸入，cron-job.org 叫會被拒"
