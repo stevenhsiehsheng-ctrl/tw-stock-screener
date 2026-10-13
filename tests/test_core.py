@@ -2070,3 +2070,42 @@ def test_positions_lock_count_close_vs_1312():
         q.append({"code": c, "price": cl, "yclose": y or 0, "high": h, "vol_lots": lots})
     n_close = positions.lock_counts(Panel(pd.DataFrame(rows)), base)
     assert n_close[d1] == 1 and positions.lock_now(pd.DataFrame(q)) == 1
+
+
+def test_macro_unfinished_fmtqik_staleness(tmp_path, monkeypatch):
+    """大環境頁：盤中抓到的半根 K 切掉（台股 14:30、美股美東 17:00 前）、證交所 FMTQIK 民國日期、
+    落後清單（比同組最新少一個交易日以上＝behind、Yahoo 少給而沿用舊檔太多天＝carried）、分位要滿年數才給。"""
+    import json as _json
+
+    import numpy as np
+
+    from screener import macro
+
+    df = pd.DataFrame({"date": ["2026-10-13", "2026-10-14", "2026-10-13", "2026-10-14"],
+                       "sym": ["^TWII", "^TWII", "^SOX", "^SOX"], "close": 1.0})
+    keep = lambda now: sorted(map(tuple, macro._drop_unfinished(df, pd.Timestamp(now)).values[:, :2].tolist()))  # noqa: E731
+    assert ("2026-10-14", "^TWII") not in keep("2026-10-14T05:00:00Z")    # 台北 13:00：台股當天還沒收
+    assert ("2026-10-14", "^TWII") in keep("2026-10-14T06:31:00Z")        # 台北 14:31
+    assert ("2026-10-14", "^SOX") not in keep("2026-10-14T20:00:00Z")      # 美東 16:00
+    assert ("2026-10-14", "^SOX") in keep("2026-10-14T21:01:00Z")          # 美東 17:01
+
+    j = {"fields": ["日期", "成交股數", "成交金額", "成交筆數", "發行量加權股價指數", "漲跌點數"],
+         "data": [["115/10/07", "1", "1", "1", "26,123.45", "1"], ["115/10/08", "1", "1", "1", "26,200.00", "1"],
+                  ["壞資料", "", "", "", "", ""]]}
+    t = macro._parse_fmtqik(j, "2026-10-07", "2026-10-31")
+    assert t.to_dict("records") == [{"date": "2026-10-08", "sym": "^TWII", "close": 26200.0, "close_adj": 26200.0}]
+    assert macro._parse_fmtqik({"fields": ["日期"], "data": []}, "", "9").empty
+
+    s = pd.Series(np.arange(800, dtype=float), index=pd.bdate_range("2023-07-01", periods=800))
+    assert macro._pct_rank(s, 3) == 100.0 and np.isnan(macro._pct_rank(s, 5))  # 不滿 5 年不給
+    assert macro._lag("2026-10-09", "2026-10-13", []) == 2 and macro._lag("2026-10-09", "2026-10-13", ["2026-10-12"]) == 1
+
+    monkeypatch.setattr(macro, "SOURCES", tmp_path / "sources.json")
+    monkeypatch.setattr(macro, "ROOT", tmp_path)
+    (tmp_path / "sources.json").write_text(_json.dumps({"^SOX": "2026-10-06", "^GSPC": "2026-10-13"}), "utf-8")
+    long = pd.DataFrame({"sym": ["^TWII", "0050.TW", "^SOX", "^GSPC", "^VIX"],
+                         "date": ["2026-10-13", "2026-10-13", "2026-10-13", "2026-10-13", "2026-10-10"]})
+    last, src, stale = macro.staleness(long)
+    why = {x["sym"]: x["reason"] for x in stale}
+    assert why.get("^VIX") == "behind" and why.get("^SOX") == "carried" and "^GSPC" not in why and "^TWII" not in why
+    assert src["^SOX"]["source"] == "carried" and src["^SOX"]["carried_days"] >= macro.CARRIED_MAX
