@@ -1053,6 +1053,39 @@ def test_notify_falls_back_to_issue(monkeypatch):
     assert sent == ["盤中預警"] and len(calls) == 1
 
 
+def test_fetch_official_day_parse(monkeypatch):
+    """每日收盤行情（證交所 MI_INDEX、櫃買 dailyQuotes）：找對表格、數字去千分位、沒成交的 -- 變空、休市回 None、
+    證交所舊版 fieldsN／dataN 也吃。格式一變每日流程就整個停，所以用官方回應的樣子固定住。"""
+    from screener import fetch
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
+    tw_f = ["證券代號", "證券名稱", "成交股數", "成交筆數", "成交金額", "開盤價", "最高價", "最低價", "收盤價",
+            "漲跌(+/-)", "漲跌價差", "最後揭示買價", "最後揭示買量", "最後揭示賣價", "最後揭示賣量", "本益比"]
+    tw_rows = [["2330", "台積電", "31,234,567", "45,678", "80,000,000,000", "2,560.00", "2,590.00", "2,555.00", "2,585.00",
+                "<p style= color:red>+</p>", "25.00", "2,585.00", "120", "2,590.00", "88", "28.5"],
+               ["9999", "停牌股", "0", "0", "0", "--", "--", "--", "--", "", "0.00", "--", "0", "--", "0", "0.00"]]
+    tp_f = ["代號", "名稱", "收盤", "漲跌", "開盤", "最高", "最低", "均價", "成交股數", "成交金額(元)", "成交筆數"]
+    tp_rows = [["6488", "環球晶", "1,020.00", "+15.00", "1,005.00", "1,025.00", "1,000.00", "1,013.2", "1,234,567", "1", "1"]]
+    replies = {}
+
+    class S:
+        def get(self, url, params=None, headers=None, timeout=None):
+            return type("R", (), {"status_code": 200, "json": lambda self, j=replies[url.split("/")[-1]]: j})()
+
+    d = dt.date(2026, 10, 13)
+    replies["MI_INDEX"] = {"stat": "OK", "tables": [{"title": "大盤統計", "fields": ["指數", "收盤指數"], "data": [["加權", "1"]]},
+                                                    {"title": "每日收盤行情", "fields": tw_f, "data": tw_rows}]}
+    df = fetch.fetch_twse_day(S(), d).set_index("code")
+    assert df.close["2330"] == 2585 and df.volume["2330"] == 31234567 and df.open["2330"] == 2560 and df.name["2330"] == "台積電"
+    assert pd.isna(df.close["9999"]) and df.date.iloc[0] == "2026-10-13"
+    replies["MI_INDEX"] = {"stat": "OK", "fields9": tw_f, "data9": tw_rows[:1]}            # 舊版格式
+    assert fetch.fetch_twse_day(S(), d).close.iloc[0] == 2585
+    replies["MI_INDEX"] = {"stat": "很抱歉，沒有符合條件的資料!"}                             # 休市
+    assert fetch.fetch_twse_day(S(), d) is None
+    replies["dailyQuotes"] = {"tables": [{"fields": tp_f, "data": tp_rows}]}
+    t = fetch.fetch_tpex_day(S(), d).iloc[0]
+    assert (t.code, t.close, t.open, t.high, t.low, t.volume) == ("6488", 1020, 1005, 1025, 1000, 1234567)
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
