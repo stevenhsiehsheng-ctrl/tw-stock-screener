@@ -2365,3 +2365,29 @@ def test_live_official_result_and_touch(tmp_path, monkeypatch):
     live.save_touch(today, "10:03", tq)
     t = pd.read_csv(tmp_path / "touch" / f"{today}.csv", dtype={"code": str})
     assert t[["code", "limit", "at_limit"]].values.tolist() == [["1101", 33.0, 1], ["1102", 55.0, 0]]  # 1103 漲 5% 沒碰到
+
+
+def test_live_alert_md_and_log(tmp_path, monkeypatch):
+    """盤中預警通知內容（持股跌幅＋早期預警表＋網頁連結＋免責）與預警存檔（標記後來有沒有進 13:12 正式提醒）。"""
+    from screener import live
+
+    holds = [{"code": "1101", "name": "台泥", "entry": 33.0, "price": 30.0, "ret": -9.09}]
+    rows = [{"first_time": "09:21", "code": "2330", "name": "台積電", "market": "TWSE", "industry": "半導體業", "price": 1050,
+             "chg": 3.45, "vol_lots": 41234, "proj_x": 3.2, "watch": True, "peers": 4},
+            {"first_time": "10:02", "code": "6488", "name": "環球晶", "market": "TPEX", "industry": None, "price": 500,
+             "chg": 5.0, "vol_lots": 900, "proj_x": 4.1, "watch": False, "peers": 0}]
+    md = live.alert_md(rows, holds, None, "https://x/live.html")
+    assert "## 🔻 持股跌幅警示" in md and "| 1101 台泥 | 33.0 | 30.0 | -9.09% |" in md
+    assert "[2330 台積電](https://tw.stock.yahoo.com/quote/2330.TW)" in md and "quote/6488.TWO" in md
+    assert "| 41,234 | 3.2× | ⭐昨日觀察名單、族群同步 4 家 |" in md and "| 6488 環球晶" not in md
+    assert md.endswith("<sub>僅供參考，不構成投資建議。</sub>") and "👉 [盤中即時網頁](https://x/live.html)" in md
+    assert "持股跌幅" not in live.alert_md(rows, [], None, "")
+
+    monkeypatch.setattr(live, "ROOT", tmp_path)
+    live.save_alert_log("2026-10-14", [{**r, "first_price": r["price"], "hit": True} for r in rows],
+                        {"stocks": [{"code": "6488"}]})
+    a = pd.read_csv(tmp_path / "data" / "alerts" / "2026-10-14.csv", dtype={"code": str})
+    assert a.code.tolist() == ["2330", "6488"] and a.official.tolist() == [False, True]
+    assert {"last_price", "last_chg", "still_hit"} <= set(a.columns) and a.date.unique().tolist() == ["2026-10-14"]
+    live.save_alert_log("2026-10-15", [], None)
+    assert not (tmp_path / "data" / "alerts" / "2026-10-15.csv").exists()
