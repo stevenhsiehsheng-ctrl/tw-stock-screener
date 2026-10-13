@@ -2000,3 +2000,47 @@ def test_stockpage_trigger_ticks():
     t = sp.trigger(closes, pd.Series([100.0] * (n - 1) + [111.0]), vols, lc)
     assert t["need"] == 111.5 and t["reachable"] is False  # 超過漲停
     assert "note" in sp.trigger(closes.iloc[:30], highs.iloc[:30], vols.iloc[:30], lc)  # 上市不到 60 天
+
+
+def test_revdrift_baskets_rule():
+    """營收漂移籃子：年增 ≥30% 而且營收是近 12 個月最高（要有滿 12 個月），只要 4 碼普通股。"""
+    from screener import revdrift
+
+    yms = [f"2025-{m:02d}" for m in range(10, 13)] + [f"2026-{m:02d}" for m in range(1, 10)]  # 12 個月
+    rows = []
+    for c, last, yoy in (("1101", 200, 35), ("1102", 200, 25), ("1103", 150, 50), ("00878", 300, 80)):
+        for k, ym in enumerate(yms):
+            rows.append({"ym": ym, "code": c, "revenue": last if k == len(yms) - 1 else (180 if c == "1103" and k == 5 else 100),
+                         "yoy": yoy if k == len(yms) - 1 else 0})
+    rows += [{"ym": ym, "code": "2330", "revenue": 500 if ym == yms[-1] else 100, "yoy": 90} for ym in yms[1:]]  # 只有 11 個月
+    b = revdrift.baskets(pd.DataFrame(rows))
+    assert b[yms[-1]] == ["1101"]  # 1102 年增不夠、1103 不是 12 個月新高、00878 不是普通股、2330 不滿 12 個月
+    assert all(v == [] for k, v in b.items() if k != yms[-1])
+
+
+def test_chips_revenue_and_margin_metrics(tmp_path, monkeypatch):
+    """自訂選股的營收欄：年增連續月數（中間缺月就停）、近 3 月 vs 前 3 月加速、12 個月新高；
+    融資欄：增減、券資比、連增天數、5 日增減 %、當沖比率接上去。"""
+    from screener import chips
+
+    monkeypatch.setattr(chips, "REV_HIST", tmp_path / "rev.csv")
+    yms = [f"2025-{m:02d}" for m in range(10, 13)] + [f"2026-{m:02d}" for m in range(1, 10)]
+    rows = [{"code": "1101", "ym": ym, "revenue": 100 + k, "yoy": [-5, 1, 2, 3, 4, 5, 6, 10, 20, 30, 40, 50][k], "mom": 1.0}
+            for k, ym in enumerate(yms)]
+    rows += [{"code": "1102", "ym": ym, "revenue": 50, "yoy": 10, "mom": 0.0} for ym in ("2026-05", "2026-06", "2026-08", "2026-09")]  # 缺 7 月
+    pd.DataFrame(rows).to_csv(chips.REV_HIST, index=False)
+    r = chips.revenue_metrics()
+    a, b = r.loc["1101"], r.loc["1102"]
+    assert a.rev_ym == "2026-09" and a.rev_streak == 11 and a.rev_high12 == True  # noqa: E712
+    assert a.rev_yoy_3m == 40.0 and a.rev_yoy_3m_prev == round((6 + 10 + 20) / 3, 2) and a.rev_accel == round(40 - 12, 2)
+    assert b.rev_streak == 2 and pd.isna(b.rev_yoy_3m) and b.rev_high12 is None  # 7 月缺 → 只算 8、9 月
+
+    monkeypatch.setattr(chips, "MARGIN_HIST", tmp_path / "m.csv")
+    monkeypatch.setattr(chips, "DT_HIST", tmp_path / "dt.csv")
+    days = [f"2026-10-0{i}" for i in range(1, 8)]
+    pd.DataFrame([{"date": d, "code": "1101", "margin_bal": 1000 + 10 * k, "margin_chg": 10 if k else 0,
+                   "short_bal": 50, "util": 5.0} for k, d in enumerate(days)]).to_csv(chips.MARGIN_HIST, index=False)
+    pd.DataFrame([{"date": days[-1], "code": "1101", "dt_ratio": 12.5}]).to_csv(chips.DT_HIST, index=False)
+    m = chips.margin_metrics().loc["1101"]
+    assert (m.margin_bal, m.margin_chg, m.margin_streak, m.margin_days, m.margin_date) == (1060, 10, 6, 7, days[-1])
+    assert m.short_ratio == round(50 / 1060 * 100, 2) and m.margin_5d_pct == round((1060 / 1010 - 1) * 100, 2) and m.dt_ratio == 12.5
