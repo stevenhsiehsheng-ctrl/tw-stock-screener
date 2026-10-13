@@ -1,0 +1,39 @@
+name: 程式檢查
+
+# PR 時先跑一遍：語法錯誤、未定義的名字、每支 screener 模組都 import 得起來、tests/ 的單元測試。
+# 每天自動跑的流程（每日資料、盤中監控、網站）壞掉時沒人在旁邊看，合併前先擋。不連網、不改資料。
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest ruff
+      - name: 語法錯誤、未定義的名字
+        run: ruff check --select E9,F63,F7,F82 screener tools tests
+      - name: 每支 screener 模組都能 import
+        run: |
+          python - <<'PY'
+          import importlib, pkgutil, screener
+          bad = []
+          for m in pkgutil.iter_modules(screener.__path__):
+              try:
+                  importlib.import_module(f"screener.{m.name}")
+              except Exception as e:
+                  bad.append(f"screener.{m.name}: {e!r}")
+          print("\n".join(bad) or "全部 OK")
+          raise SystemExit(1 if bad else 0)
+          PY
+      - name: 單元測試
+        run: python -m pytest -q tests
