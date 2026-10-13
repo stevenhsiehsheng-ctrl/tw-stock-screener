@@ -174,6 +174,15 @@ def build() -> dict:
             out["ledger"]["mix"] = ledger_mix(lg)
         except Exception as e:  # noqa: BLE001
             log.warning("帳本讀不到：%s", e)
+        try:   # 拆桶績效（screener/ledger_nav.py）：各桶自己的時間加權報酬 vs 同期 0050 含息；對帳不過就不列
+            from . import ledger_nav
+            nv = ledger_nav.compute()
+            if nv and nv["ok"] and "ledger" in out:
+                out["ledger"]["nav_b"] = [{"name": x["name"], "ret": x["ret"], "bench": x["bench"], "ex": x["excess"],
+                                           "days": x["days"], "start": x["start"], "open": x["open"]}
+                                          for b, x in nv["buckets"].items() if b != "cash"]
+        except Exception as e:  # noqa: BLE001
+            log.warning("拆桶績效算不出來：%s", e)
     watch = {x["code"] for x in hold}
     top = {}
     try:
@@ -228,7 +237,7 @@ function regime(){health();const r=T.regime,w=T.ew;
 function overnight(){const s=T.sox,t=T.tsm;if(!s&&!t)return;add('🌙',`昨夜費半 <b class="num">${P(s&&s.chg)}</b>${t?`・台積電 ADR <b class="num">${P(t.chg)}</b>${t.tw2330?`（換算台積電約 <b class="num">${t.tw2330}</b>）`:''}`:''} <a href="us.html">美股隔夜 →</a>`,(s||t).date)}
 function ledgerLine(kind){const G=T.ledger;if(!G)return false;const N=G.names||{};
   if(kind==='pre'){const Q=G.pending||[];add('🧾',Q.length?`虛擬帳戶今天要執行 <b>${Q.length}</b> 筆：${Q.slice(0,4).map(q=>`${q.side==='buy'?'買':'賣'} <a href="${S(q.code)}">${E(N[q.code]||q.code)}</a>`).join('、')}`:'虛擬帳戶今天沒有要執行的單',G.date);return true}
-  add('🧾',`虛擬帳戶今天 <b class="num">${P(G.ret_today)}</b>（0050 含息 ${P(G.bench_tr_today)}）・累計 <b class="num">${P(G.ret_cum)}</b>${G.core_ret_cum!=null?`（核心選股 ${P(G.core_ret_cum)}）`:''} vs 0050 ${P(G.bench_tr_cum)}${G.bench_base_date?`（從 ${E(String(G.bench_base_date).slice(5,10))} 收盤起算）`:''}・持倉 ${G.n_pos} 檔`+(G.mix&&G.mix.parts?`<br><span style="font-size:13px;opacity:.8">組成：${G.mix.parts.map(x=>`${E(x.name)}${x.name==='0050 底倉'?'':` ${x.n} 檔`} ${x.pct}%`).join('｜')}｜現金 ${G.mix.cash_pct}%。累計含 0050 底倉，只當參考；有沒有 edge 要看各桶自己對 0050 的超額（拆桶計算上線前先不列）</span>`:'')+((G.exits_tomorrow||[]).length?`・明天要出場 ${G.exits_tomorrow.map(c=>`<a href="${S(c)}">${E(N[c]||c)}</a>`).join('、')}`:''),G.date);return true}
+  add('🧾',`虛擬帳戶今天 <b class="num">${P(G.ret_today)}</b>（0050 含息 ${P(G.bench_tr_today)}）・累計 <b class="num">${P(G.ret_cum)}</b>${G.core_ret_cum!=null?`（核心選股 ${P(G.core_ret_cum)}）`:''} vs 0050 ${P(G.bench_tr_cum)}${G.bench_base_date?`（從 ${E(String(G.bench_base_date).slice(5,10))} 收盤起算）`:''}・持倉 ${G.n_pos} 檔`+(G.mix&&G.mix.parts?`<br><span style="font-size:13px;opacity:.8">組成：${G.mix.parts.map(x=>`${E(x.name)}${x.name==='0050 底倉'?'':` ${x.n} 檔`} ${x.pct}%`).join('｜')}｜現金 ${G.mix.cash_pct}%。累計含 0050 底倉，只當參考；有沒有 edge 要看下面各桶自己對 0050 的超額</span>`:'')+(G.nav_b&&G.nav_b.length?`<br><span style="font-size:13px;opacity:.8">各桶 vs 同期 0050 含息：${G.nav_b.filter(x=>x.open).map(x=>`${E(x.name)} <b class="num">${P(x.ret)}</b>（0050 ${P(x.bench)}，${x.ex>=0?'贏':'輸'} ${Math.abs(x.ex).toFixed(1)} 點，${x.days} 天）`).join('｜')}${G.nav_b.some(x=>!x.open)?`；已結束：${G.nav_b.filter(x=>!x.open).map(x=>`${E(x.name)} ${P(x.ret)}（0050 ${P(x.bench)}）`).join('｜')}`:''}。時間加權、扣費稅；0050 底倉那桶的超額＝零股滑價、費用和閒置現金的成本。天數少時一天的漲跌就能翻盤</span>`:'')+((G.exits_tomorrow||[]).length?`・明天要出場 ${G.exits_tomorrow.map(c=>`<a href="${S(c)}">${E(N[c]||c)}</a>`).join('、')}`:''),G.date);return true}
 function holdLine(H,ts,stale){if(!H||!H.length){add('💼','系統訊號持倉：<b>0</b> 檔',ts,stale);return}
   const r=H.filter(x=>x.ret!=null),avg=r.length?r.reduce((a,x)=>a+x.ret,0)/r.length:null,worst=r.slice().sort((a,b)=>a.ret-b.ret)[0];
   const C=T.closed,Y=T.sys;

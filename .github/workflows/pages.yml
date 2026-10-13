@@ -28,6 +28,8 @@ on:
       - screener/watch_page.html
       - screener/sitenav.py
       - screener/today.py
+      - screener/ledger_nav.py
+      - data/ledger/**
       - screener/ewindex.py
       - data/us/**
       - data/usx/**
