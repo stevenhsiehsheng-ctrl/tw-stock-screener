@@ -129,12 +129,14 @@ def build() -> dict:
     hold, exits, today_sig = [], [], []
     if len(pos):
         op = pos[pos.status == "open"]
+        # 今天的 13:12 訊號：收工（13:31）後網站重畫時 history 還是昨天，用 positions 最新的訊號日（不早於 tw_date）
+        sig_day = max([str(x) for x in op.signal_date.dropna()] + [str(out.get("tw_date") or "")])
         for r in op.itertuples():
             row = {"code": r.code, "name": r.name, "signal_date": r.signal_date, "entry": float(r.entry_price),
                    "days": None if pd.isna(r.days_held) else int(float(r.days_held)),
                    "ret": None if pd.isna(r.est_return_pct) else float(r.est_return_pct)}
             hold.append(row)
-            if r.signal_date == out.get("tw_date"):
+            if r.signal_date == sig_day:
                 today_sig.append(row)
         # 出場訊號已出、還沒到隔天開盤賣（positions.py：status=closed、exit_open 空）
         for r in pos[(pos.status == "closed") & pos.exit_open.isna() & pos.exit_signal_date.notna()].itertuples():
