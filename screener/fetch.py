@@ -100,6 +100,13 @@ def _rows_to_df(fields, rows, date: dt.date) -> pd.DataFrame:
     return pd.DataFrame(recs, columns=COLS + ["name"])
 
 
+def not_json_reason(text: str) -> str:
+    """回的不是 JSON 時猜原因：證交所半夜維護會回「網站維護中」頁（不是被封鎖）；其他 HTML 多半是請求太密被暫時封鎖。"""
+    if "維護中" in text[:3000]:
+        return "證交所網站維護中（通常是半夜，過一陣子就好）"
+    return "非 JSON 回應（可能被暫時封鎖）"
+
+
 def _get_json(session: requests.Session, url: str, params: dict) -> dict:
     last = None
     for attempt in range(5):
@@ -109,8 +116,7 @@ def _get_json(session: requests.Session, url: str, params: dict) -> dict:
                 try:
                     return r.json()
                 except ValueError:
-                    # 被封鎖時常回傳 HTML
-                    last = f"非 JSON 回應（可能被暫時封鎖）：{r.text[:120]!r}"
+                    last = f"{not_json_reason(r.text)}：{r.text[:120]!r}"
             else:
                 last = f"HTTP {r.status_code}"
         except requests.RequestException as e:
