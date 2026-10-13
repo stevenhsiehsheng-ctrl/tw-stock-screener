@@ -170,7 +170,8 @@ def build() -> dict:
             out["ledger"] = {k: lg.get(k) for k in ("date", "asof", "nav", "ret_cum", "ret_today", "bench_tr_cum", "bench_tr_today",
                                                     "pending", "exits_tomorrow", "core_ret_cum", "bench_base_date")}
             out["ledger"]["n_pos"] = len(lg.get("positions") or [])
-            out["ledger"]["names"] = {x.get("code"): x.get("name") for x in lg.get("positions") or []}
+            out["ledger"]["names"] = {x.get("code"): x.get("name") for x in (lg.get("positions") or []) + (lg.get("pending") or [])
+                                      if x.get("name")}   # 待執行的單（例如 revdrift 待買）也要有名字，不然首頁只顯示代號
             out["ledger"]["mix"] = ledger_mix(lg)
         except Exception as e:  # noqa: BLE001
             log.warning("帳本讀不到：%s", e)
