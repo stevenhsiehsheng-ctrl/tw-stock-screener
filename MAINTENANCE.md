@@ -56,6 +56,7 @@
 - **測試鎖住的規則**（`tests/test_core.py`，改了這些地方測試會紅，要改就連測試一起改、寫清楚為什麼）：
   - 網站、回測、13:12 正式訊號是同一套：`config.yaml` intraday 門檻＝`tools/btsim` 預設值；btsim 出場＝`positions.update`；
     btsim 進場＝`tech.surge_frame`＋三道門檻（≥500 張、≤10.5%、≥10 元）。
+    研究地基 `lottery.surge_trades` 的進出場＝網站 K 線買賣點（`tech.signals`）。
   - 「今天幾家鎖漲停」收盤版（`positions.lock_counts`）＝13:12 盤中版（`lock_now`）同一個母體、同一條近似；訊號日鎖漲停百分位與熱／非熱（`fill_lock`，13:12 用同一個門檻）。
   - 13:12 正式訊號寫進 positions（`intraday.main`）、盤中判斷（`live.scan`）、盤中持股狀態（`holdings_view`）、MIS 取價、成交量曲線。
   - 資料解析：每日收盤行情、三大法人、融資融券、當沖、本益比、月營收、注意／處置、除權息（含 factor 精算、預告、明細補齊：沿用舊檔→純息用息值→才逐檔查）、盤後零股（含 MIS 備援與換回官方）、減資接價、等權指數、休市日。

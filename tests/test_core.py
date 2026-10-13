@@ -2238,3 +2238,34 @@ def test_positions_fill_lock_percentile(tmp_path, monkeypatch):
     assert t.at["1102", "lock_hot"] == 0 and pd.isna(t.at["1102", "lock_hot_1312"])
     assert t.at["1103", "lock_n_close"] == 10 and pd.isna(t.at["1103", "lock_pct250"])  # 前面不到 250 天
     assert positions.fill_lock(None, []) == 1  # 只剩不滿 250 天那筆會再試
+
+
+def test_lottery_surge_trades_match_kline_marks():
+    """研究地基 lottery.surge_trades 跟網站 K 線買賣點（tech.signals）同一套：爆量突破日收盤進、
+    之後第一次量 < 爆量日一半（漲停日不算）出場訊號、隔天開盤賣；報酬減同段全市場等權再扣成本。"""
+    from screener import lottery, tech
+    from screener.rules import Panel
+
+    days = [str(dt.date(2026, 1, 1) + dt.timedelta(days=i)) for i in range(70)]
+    rows = []
+    for code in ("1101", "1102"):
+        for i, d in enumerate(days):
+            if code == "1101" and i == 62:      # 爆量突破
+                o, c, v = 101, 104, 4000
+            elif code == "1101" and i == 63:    # 量還大
+                o, c, v = 104, 105, 3000
+            elif code == "1101" and i == 64:    # 量縮到一半以下 → 出場訊號
+                o, c, v = 105, 105, 1500
+            elif code == "1101" and i >= 65:
+                o, c, v = 107, 107, 1000
+            else:
+                o, c, v = 100, 100, 1000
+            rows.append({"date": d, "code": code, "open": o, "high": max(o, c) + (1 if i < 60 else 0), "low": min(o, c),
+                         "close": c, "volume": v})
+    h = pd.DataFrame(rows)
+    marks = tech.signals(Panel(h), ["1101"], 70)["1101"]
+    t = lottery.surge_trades(h, cost=0.38)
+    assert marks == [[days[62], "B"], [days[64], "S"]]
+    assert t[["entry", "exit", "code", "hold"]].values.tolist() == [[days[62], days[65], "1101", 3]]
+    eq = ((107 / 104 - 1) + 0) / 2   # 同段全市場等權：1101 和 1102（平盤）
+    assert abs(t.ret.iloc[0] - (((107 / 104 - 1) - eq) * 100 - 0.38)) < 1e-9 and not t.lu.iloc[0]
