@@ -115,6 +115,12 @@ def _trading_days() -> list[str]:
         return []
 
 
+def _partial(h: pd.DataFrame) -> set:
+    """筆數不到平常（各天筆數中位數）八成的日子：只抓到一半（例如只有櫃買）。"""
+    n = h.groupby("date").code.count()
+    return set(n[n < 0.8 * n.median()].index) if len(n) else set()
+
+
 def update_margin_history(s, d: dt.date, backfill: int = 25) -> dict:
     """把今天的融資融券、當沖加進歷史；再往前補最多 backfill 個缺漏的交易日（新的先補）。"""
     mh = pd.read_csv(MARGIN_HIST, dtype={"code": str}) if MARGIN_HIST.exists() else pd.DataFrame(columns=MARGIN_COLS)
@@ -122,11 +128,14 @@ def update_margin_history(s, d: dt.date, backfill: int = 25) -> dict:
     days = [x for x in _trading_days() if x <= d.isoformat()][-MARGIN_KEEP:]
     if d.isoformat() not in days:
         days.append(d.isoformat())
-    todo = [x for x in reversed(days) if x not in set(mh.date)][: backfill + 1]
+    # 要重抓的日子：融資或當沖沒資料、或只抓到一半（筆數不到平常八成，例如證交所還沒公布、只有櫃買）。
+    # 以前只看融資：傍晚先抓到融資、當沖還沒公布的那天，之後就不會再補當沖（傍晚補抓 18:05 準時跑以後會遇到）
+    have_m, have_t = set(mh.date) - _partial(mh), set(th.date) - _partial(th)
+    todo = [x for x in reversed(days) if x not in have_m or x not in have_t][: backfill + 1]
 
     def save():
         nonlocal mh, th
-        keep = sorted(set(mh.date))[-MARGIN_KEEP:]
+        keep = sorted(set(mh.date) | set(th.date))[-MARGIN_KEEP:]
         mh = mh[mh.date.isin(keep)].drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
         th = th[th.date.isin(keep)].drop_duplicates(["date", "code"], keep="last").sort_values(["date", "code"])
         DIR.mkdir(parents=True, exist_ok=True)
@@ -142,11 +151,12 @@ def update_margin_history(s, d: dt.date, backfill: int = 25) -> dict:
         except Exception as e:  # noqa: BLE001
             log.warning("融資融券／當沖 %s 失敗：%s", x, e)
             continue
-        if m.empty:
-            log.info("融資融券 %s 沒有資料", x)
+        if m.empty and t.empty:
+            log.info("融資融券／當沖 %s 都還沒有資料", x)
             continue
-        mh = pd.concat([mh[mh.date != x], m.assign(date=x)[MARGIN_COLS]], ignore_index=True)
-        if len(t):
+        if len(m) and len(m) >= (mh.date == x).sum():   # 抓到的不比舊的少才換（不拿一半蓋掉完整的）
+            mh = pd.concat([mh[mh.date != x], m.assign(date=x)[MARGIN_COLS]], ignore_index=True)
+        if len(t) and len(t) >= (th.date == x).sum():
             vol = _volume_map(x)
             t["dt_ratio"] = (t.dt_vol * 1000 / t.code.map(vol).where(lambda v: v > 0) * 100).round(2)
             th = pd.concat([th[th.date != x], t.assign(date=x)[DT_COLS]], ignore_index=True)
