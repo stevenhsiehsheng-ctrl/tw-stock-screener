@@ -49,7 +49,21 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: |
-          if [ "$(TZ=Asia/Taipei date +%H)" -lt 11 ]; then python -m screener.health --slot am --heal --notify --latest; else echo "不在早上時段，跳過"; fi
+          if [ "$(TZ=Asia/Taipei date +%H)" -lt 11 ]; then
+            python -m screener.health --slot am --heal --notify --latest
+            # 早上的結果先推上去、叫網站重畫：不然要等 13:31 收工才一起推，首頁 🩺 整個上午停在昨天收工後那次（10/14）。
+            # GITHUB_TOKEN 推的 commit 不會觸發 pages.yml，要自己叫。推不上去就算了，收工時會一起推
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/health
+            if ! git diff --cached --quiet; then
+              git commit -q -m "系統體檢 $(TZ=Asia/Taipei date +%F) 早上"
+              for i in 1 2 3; do
+                if git pull -q --rebase -X theirs && git push -q; then gh workflow run pages.yml --ref main || true; break; fi
+                git rebase --abort 2>/dev/null || true; sleep 5
+              done
+            fi
+          else echo "不在早上時段，跳過"; fi
       - name: 盤中監控
         env:
           SMTP_USER: ${{ secrets.SMTP_USER }}
