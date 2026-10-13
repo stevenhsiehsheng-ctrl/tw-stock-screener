@@ -1086,6 +1086,35 @@ def test_fetch_official_day_parse(monkeypatch):
     assert (t.code, t.close, t.open, t.high, t.low, t.volume) == ("6488", 1020, 1005, 1025, 1000, 1234567)
 
 
+def test_institutional_parse(monkeypatch):
+    """三大法人（證交所 T86、櫃買 dailyTrade）：外資取「不含外資自營商」那欄、自營商取合計不取自行／避險、股數換張；
+    櫃買新版欄名沒寫法人別，照固定順序取。抓錯欄網站的外資連買、法人籌碼頁整個錯。"""
+    from screener import enrich
+    monkeypatch.setattr(enrich.time, "sleep", lambda s: None)
+    tw_f = ["證券代號", "證券名稱", "外陸資買進股數(不含外資自營商)", "外陸資賣出股數(不含外資自營商)",
+            "外陸資買賣超股數(不含外資自營商)", "外資自營商買進股數", "外資自營商賣出股數", "外資自營商買賣超股數",
+            "投信買進股數", "投信賣出股數", "投信買賣超股數", "自營商買賣超股數",
+            "自營商買進股數(自行買賣)", "自營商賣出股數(自行買賣)", "自營商買賣超股數(自行買賣)",
+            "自營商買進股數(避險)", "自營商賣出股數(避險)", "自營商買賣超股數(避險)", "三大法人買賣超股數"]
+    tw_row = ["2330", "台積電", "9,000,000", "4,000,000", "5,000,000", "0", "0", "777,000", "300,000", "100,000", "200,000",
+              "-50,000", "0", "0", "-20,000", "0", "0", "-30,000", "5,150,000"]
+    tp_f = ["代號", "名稱"] + ["買進股數", "賣出股數", "買賣超股數"] * 7 + ["三大法人買賣超股數"]
+    tp_row = ["6488", "環球晶"] + [str(i * 1000) for i in range(1, 23)]                  # 第 i 欄（2 起算）＝(i-1) 張
+    replies = {"T86": {"stat": "OK", "fields": tw_f, "data": [tw_row]}, "dailyTrade": {"tables": [{"fields": tp_f, "data": [tp_row]}]}}
+
+    class R:
+        def __init__(self, j):
+            self.j = j
+
+        def json(self):
+            return self.j
+
+    monkeypatch.setattr(enrich, "_get", lambda s, url, params=None: R(replies[url.split("/")[-1]]))
+    df = enrich.institutional(None, dt.date(2026, 10, 13)).set_index("code")
+    assert df.loc["2330"].to_dict() == {"foreign": 5000, "trust": 200, "dealer": -50, "inst_total": 5150}
+    assert df.loc["6488"].to_dict() == {"foreign": 3, "trust": 12, "dealer": 21, "inst_total": 22}
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
