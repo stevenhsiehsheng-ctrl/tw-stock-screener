@@ -1115,6 +1115,35 @@ def test_institutional_parse(monkeypatch):
     assert df.loc["6488"].to_dict() == {"foreign": 3, "trust": 12, "dealer": 21, "inst_total": 22}
 
 
+def test_daytrade_and_pe_parse(monkeypatch):
+    """當沖（證交所 TWTB4U、櫃買 intraday/stat）、本益比（BWIBBU_d、peQryDate）解析：欄名有空白也找得到、
+    當沖股數換張、ETF／權證代號不收；本益比 -- 變空、殖利率淨值比對欄。"""
+    from screener import chips, enrich
+    monkeypatch.setattr(chips.time, "sleep", lambda s: None)
+    monkeypatch.setattr(enrich.time, "sleep", lambda s: None)
+    replies = {
+        "TWTB4U": {"tables": [{"fields": ["證券代號", "證券名稱", "暫停現股賣出後現款買進當沖註記", "當日沖銷交易成交股數",
+                                          "當日沖銷交易買進成交金額", "當日沖銷交易賣出成交金額"],
+                               "data": [["2330", "台積電", "", "5,432,000", "1", "1"], ["0050", "元大台灣50", "", "9,000", "1", "1"]]}]},
+        "stat": {"tables": [{"fields": ["代號", "名稱", "當日沖銷交易 成交股數", "買進金額", "賣出金額"],
+                             "data": [["6488", "環球晶", "123,000", "1", "1"], ["70001", "權證", "5,000", "1", "1"]]}]},
+        "BWIBBU_d": {"tables": [{"fields": ["證券代號", "證券名稱", "收盤價", "殖利率(%)", "股利年度", "本益比", "股價淨值比", "財報年/季"],
+                                 "data": [["2330", "台積電", "2585", "0.70", "114", "28.50", "8.10", "115/2"],
+                                          ["2409", "友達", "15", "0.00", "114", "--", "0.80", "115/2"]]}]},
+        "peQryDate": {"tables": [{"fields": ["股票代號", "名稱", "本益比", "每股股利", "股利年度", "殖利率(%)", "股價淨值比", "財報年/季"],
+                                  "data": [["6488", "環球晶", "35.20", "8", "114", "0.80", "3.30", "115/2"]]}]},
+    }
+    fake = lambda s, url, params=None: replies[url.split("/")[-1]]
+    monkeypatch.setattr(chips, "_json", fake)
+    monkeypatch.setattr(enrich, "_json", fake)
+    d = chips.daytrade(None, dt.date(2026, 10, 13)).set_index("code").dt_vol.to_dict()
+    assert d == {"2330": 5432.0, "6488": 123.0}
+    p = enrich.pe(None, dt.date(2026, 10, 13)).set_index("code")
+    assert p.loc["2330"].to_dict() == {"pe": 28.5, "yield": 0.7, "pb": 8.1}
+    assert pd.isna(p.pe["2409"]) and p.pb["2409"] == 0.8
+    assert p.loc["6488"].to_dict() == {"pe": 35.2, "yield": 0.8, "pb": 3.3}
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
