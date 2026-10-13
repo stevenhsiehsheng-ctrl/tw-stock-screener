@@ -7,19 +7,20 @@
  "checked_at": "2026-10-13T13:31:04+0800",
  "slot": "pm",
  "trading_day": "2026-10-12",
+ "source": "origin/main",
  "calendar": "twse",
  "us_day": "2026-10-12",
  "items": [
   {
    "name": "每日資料（收盤價）",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-12",
    "ok": true,
    "fix": "daily"
   },
   {
    "name": "等權指數",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-12",
    "ok": true,
    "fix": "daily"
@@ -33,61 +34,66 @@
   },
   {
    "name": "三大法人",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-12",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "盤後零股（上市）",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-12",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "盤後零股（上櫃）",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-12",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "融資融券",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-12",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "當沖",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-12",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "美股隔夜（費半）",
-   "have": "2026-10-09",
+   "have": "2026-10-12",
    "want": "2026-10-12",
-   "ok": false,
+   "ok": true,
    "fix": "us"
   },
   {
    "name": "風險燈（大環境）",
-   "have": "2026-10-08",
+   "have": "2026-10-12",
    "want": "2026-10-12",
-   "ok": false,
+   "ok": true,
    "fix": "us"
+  },
+  {
+   "name": "虛擬帳戶帳本",
+   "have": "2026-10-13",
+   "want": "2026-10-12",
+   "ok": true,
+   "fix": null
   }
  ],
- "bad": [
-  "美股隔夜（費半）",
-  "風險燈（大環境）"
- ],
+ "bad": [],
  "failed_runs": [],
  "dispatched": [],
  "dispatched_am": [
   "us"
- ]
+ ],
+ "note": "10/14 00:35 Claude Code 用修好的體檢（--latest，讀 origin/main）重算 10/13 收工後那次：原本 13:31 讀到 08:40 的舊檔，把早上就補進來的美股隔夜、風險燈誤報成沒到（#263 修）"
 }
