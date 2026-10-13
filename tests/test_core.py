@@ -146,3 +146,38 @@ def test_momo_today_md(tmp_path, monkeypatch):
     md = momo.today_md("2026-10-13", {"3406": "玉晶光", "1312": "國喬"})
     assert md.index("強勢續攻：3406 玉晶光") < md.index("低檔爆量突破：1312 國喬") and "6834" not in md
     assert momo.today_md("2026-10-14") == ""
+
+
+# ---------------------------------------------------------------- revdrift 預告：申報期限過後營收補抓過才算「明天開盤前名單」
+def test_revdrift_preview_settled(monkeypatch, tmp_path):
+    monkeypatch.setattr(twcal, "CACHE", tmp_path / "tw_holidays.json")
+    yms = [f"{y}-{m:02d}" for y, m in [(2025, 9), (2025, 10), (2025, 11), (2025, 12)] + [(2026, k) for k in range(1, 10)]]
+    rows = [{"code": c, "ym": ym, "revenue": 100 + i * 10, "yoy": 50.0, "mom": 1.0, "ann_date": None}
+            for c in ("1101", "1102") for i, ym in enumerate(yms)]
+    rev = pd.DataFrame(rows)
+    days = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-12"]
+    hist = pd.DataFrame([{"date": d, "code": c, "close": 50.0} for d in days for c in ("1101", "1102")])
+
+    def run(seen):
+        rev.loc[rev.ym == "2026-09", "ann_date"] = seen
+        return revdrift.preview(hist, rev, fetch_cal=False)
+    early = run("2026-10-12")          # 10/12 晚上：期限當天才看到 → 還會有人公布
+    assert early["batch_date"] == "2026-10-13" and early["deadline"] == "2026-10-12"
+    assert early["next_day"] and not early["settled"] and not early["exact"]
+    late = run("2026-10-13")           # 10/13 半夜補抓：期限隔天看到的 → 齊了
+    assert late["settled"] and late["exact"]
+
+
+# ---------------------------------------------------------------- 漲停價：四個地方各算一次，要一模一樣
+def test_limit_up_price_consistent():
+    import numpy as np
+    from screener import live, positions, rules, stockpage
+    prevs = np.round(np.concatenate([np.arange(1, 12, 0.01), np.arange(12, 120, 0.05), np.arange(120, 1100, 0.5),
+                                     np.arange(1100, 3000, 1.0), [9.09, 9.1, 45.45, 45.5, 90.9, 91.0, 454.5, 455.0, 909.0, 910.0]]), 2)
+    r = rules.limit_price(pd.DataFrame({"x": prevs}))["x"].round(2).to_numpy()
+    lv = live._lu_price(pd.Series(prevs)).to_numpy()
+    sp = np.array([stockpage.limit_up(p) for p in prevs])
+    assert np.allclose(r, lv) and np.allclose(r, sp)
+    assert all(positions._limit_up(lu, p) and not positions._limit_up(lu - stockpage._tick(lu), p) for p, lu in zip(prevs[::37], r[::37]))
+    assert stockpage.limit_up(100) == 110 and stockpage.limit_up(45.5) == 50.0 and stockpage.limit_up(9.1) == 10.0
+    assert stockpage.limit_up(2490) == 2735 and stockpage.limit_up(25.55) == 28.1
