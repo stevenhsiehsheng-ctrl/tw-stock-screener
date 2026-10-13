@@ -432,3 +432,24 @@ def test_rules_engine_basic_strategies():
     assert hits["爆量突破季線"] == ["1111"] and hits["漲停"] == []
     # not／days_ago：昨天沒有漲停、今天有
     assert bool(rules.evaluate(p, {"type": "limit_up", "days_ago": 1, "not": True})["3333"])
+
+
+# ---------------------------------------------------------------- 虛擬帳戶帳本存檔前檢查（16:25）
+def test_ledger_save_check():
+    from screener import ledger_save
+    days = ["2026-10-12", "2026-10-13"]
+    base = {"date": "2026-10-13", "equity": 1100.0, "cash": 100.0, "nav": 1.1, "note": "只含虛擬帳戶", "trades": [],
+            "cash_by_bucket": {"core": 60, "etf": 40},
+            "positions": [{"code": "2330", "shares": 2, "close": 250.0, "mv": 500.0},
+                          {"code": "0050", "shares": 5, "close": 100.0, "mv": 500.0}]}
+    closes = {"2330": 250.0, "0050": 100.0}
+    led, err, warn = ledger_save.check({"id": "2026-10-13", "data": base}, days, closes)   # 協作板整份也吃
+    assert led["equity"] == 1100.0 and err == [] and warn == []
+    _, err, warn = ledger_save.check(dict(base, equity=1151.4), days, {"2330": 251.0, "0050": 100.0})
+    assert err == [] and any("差 +51.4" in w for w in warn) and any("2330 收盤寫 250.0" in w for w in warn)
+    _, err, _ = ledger_save.check(dict(base, note="媽媽的持股"), days, closes)            # 真實持股字眼 → 擋
+    assert any("真實持股" in e for e in err) and any("虛擬" in e for e in err)
+    _, err, _ = ledger_save.check(dict(base, date="2026-10-10"), days, closes)            # 休市日
+    assert any("不是交易日" in e for e in err)
+    _, err, _ = ledger_save.check({k: v for k, v in base.items() if k != "positions"}, days, closes)
+    assert err == ["缺欄位：positions"]

@@ -14,7 +14,7 @@
 | 15:20 | `daily.yml` 台股每日篩選（cron-job.org；GitHub 15:20／17:40 備援） | 抓收盤、篩選、網站、revdrift 批次；`oddtpex` 等櫃買盤後零股到 16:40 |
 | 15:47 | Cowork 排程 | 虛擬帳戶收盤結算 → 協作板 `ledger_daily` |
 | 16:08 | Cowork 排程 | Dennis 持股日報（真實持股，加密，**Claude Code 不碰**） |
-| 16:25 | Claude Code 排程（一～六） | 看體檢、把 `ledger_daily` 存成 `data/ledger/日期.json`、處理協作板留言 |
+| 16:25 | Claude Code 排程（一～六） | 看體檢、把 `ledger_daily` 存成 `data/ledger/日期.json`（先 `python -m screener.ledger_save 匯出檔.json` 檢查，沒錯誤再加 `--write`）、處理協作板留言 |
 | 18:05、21:50 | `extras_evening.yml` 傍晚補抓（由 `daily.yml` 的 evening1／evening2 準時叫；GitHub 18:05／21:47 排程當備援） | 法人、本益比、融資、當沖、零股回補（GitHub 排程常拖到半夜，日期用 history 最新交易日） |
 | 06:17（每天） | GitHub `gifts.yml` | 股東紀念品 |
 | 週六 09:52 | Cowork 排程 | 週檢討、週報草稿；Claude Code 16:25 核數字發佈 |
