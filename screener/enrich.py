@@ -109,13 +109,14 @@ def pe(s, d: dt.date) -> pd.DataFrame:
 
 # ------------------------------------------------------------ 盤後零股（14:30 撮合一次）
 ODD_HIST = DIR / "oddlot_hist.csv.gz"
+ODD_MIS = DIR / "oddlot_mis.json"   # {日期: [市場]}：哪幾天哪個市場是官方還沒公布、先用 MIS 補的（之後補抓要換成官方的）
 ODD_COLS = ["date", "code", "market", "price", "shares", "amount", "bid", "ask"]
 
 
 def oddlot(s, d: dt.date) -> pd.DataFrame:
     """盤後零股成交價（證交所 TWT53U、櫃買 odd_result）。price 空白＝當天盤後零股沒成交。
     虛擬帳戶零股記帳用：比整股收盤價實際。"""
-    out = []
+    out, mis = [], []
     srcs = [("TWSE", "https://www.twse.com.tw/rwd/zh/afterTrading/TWT53U",
              {"date": d.strftime("%Y%m%d"), "selectType": "ALL", "response": "json"}),
             ("TPEX", "https://www.tpex.org.tw/web/stock/aftertrading/odd_stock/odd_result.php",
@@ -161,8 +162,11 @@ def oddlot(s, d: dt.date) -> pd.DataFrame:
             if len(out) == n0:
                 log.warning("⚠️ %s 盤後零股 %s 沒有資料", mkt, d)
             else:
+                mis.append(mkt)
                 log.info("%s 盤後零股 %s 官方還沒公布，用 MIS 補 %d 檔（之後傍晚補抓抓到官方的會換掉）", mkt, d, len(out) - n0)
-    return pd.DataFrame(out, columns=ODD_COLS[1:])
+    df = pd.DataFrame(out, columns=ODD_COLS[1:])
+    df.attrs["mis"] = mis
+    return df
 
 
 def _oddlot_mis(d: dt.date, market: str, batch: int = 50) -> list[dict]:
@@ -210,7 +214,29 @@ def update_oddlot_history(df: pd.DataFrame, d: dt.date) -> int:
     drop = (old.date == d.isoformat()) & old.market.isin(set(x.market))
     h = pd.concat([old[~drop], x], ignore_index=True).sort_values(["date", "code"])
     h.to_csv(ODD_HIST, index=False, compression="gzip")
+    _mark_mis(d.isoformat(), set(x.market), set(df.attrs.get("mis", [])))
     return int(h.date.nunique())
+
+
+def _mis_days() -> dict[str, list[str]]:
+    try:
+        return json.loads(ODD_MIS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _mark_mis(day: str, written: set[str], mis: set[str]) -> None:
+    """記下這次寫進去的市場是不是 MIS 補的：MIS 補的登記，官方的就從登記拿掉。只留最近 30 天。"""
+    m = _mis_days()
+    now = (set(m.get(day, [])) - written) | (written & mis)
+    if now:
+        m[day] = sorted(now)
+    else:
+        m.pop(day, None)
+    lo = (dt.date.fromisoformat(day) - dt.timedelta(days=30)).isoformat()
+    m = {k: v for k, v in sorted(m.items()) if k >= lo}
+    if m or ODD_MIS.exists():
+        ODD_MIS.write_text(json.dumps(m, ensure_ascii=False, indent=1) + "\n")
 
 
 def backfill_oddlot(s, d: dt.date, n: int = 60) -> int:
@@ -220,6 +246,7 @@ def backfill_oddlot(s, d: dt.date, n: int = 60) -> int:
     # 「有了」＝上市、上櫃兩邊都有；只有一邊的日子（例如 10/7 上櫃 0 列）要補
     have = (set(pd.read_csv(ODD_HIST, usecols=["date", "market"]).groupby("date").market.nunique().loc[lambda x: x >= 2].index)
             if ODD_HIST.exists() else set())
+    have -= set(_mis_days())   # 先用 MIS 補的日子：再抓官方的（官方有 ETF，MIS 那份只有股票清單裡的）
     got = 0
     for x in days:
         if x in have:
