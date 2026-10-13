@@ -306,7 +306,7 @@ def write(site_dir: Path) -> bool:
               f"{rows}</table></div>"
               f"<p class='meta'>費半漲跌跟台股開盤跳空的相關係數 {imp['corr_gap']:.2f}、跟台股全天 {imp['corr_day']:.2f}。"
               "只是統計描述，樣本只有約一年；分組天數少的格子（10 天以下）不要當真。</p>")
-    body = ("<h1>美股（給台股用）</h1><p class='meta'>每天台北早上 06:20 更新（美股收盤後）。這頁不是美股選股，"
+    body = ("<h1>美股（給台股用）</h1><p class='meta'>每天早上更新（美股收盤後，平日約 08:50 前、開盤前）。這頁不是美股選股，"
             "是看前一晚美股怎麼走、會怎麼影響今天的台股。</p>"
             f"<h2>指數</h2><div class='tbl'><table>{head}{idx}</table></div>{pm}"
             f"<h2>台股供應鏈相關（依今天漲跌排序）</h2><div class='tbl'><table>{head}{lk}</table></div>{im}")

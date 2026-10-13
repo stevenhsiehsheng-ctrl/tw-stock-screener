@@ -372,7 +372,7 @@ def write(site_dir: Path) -> bool:
     js = lambda o: json.dumps(o, ensure_ascii=False, default=str).replace("</", "<\\/")  # noqa: E731
     body = f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>美股篩選</title><style>{PAGE_CSS}</style></head><body><main><!--SITENAV:usx-->
-<h1>🇺🇸 美股篩選</h1><div class="meta">{html.escape(last)} 美股收盤（台北隔天早上 06:20 更新）・S&amp;P 500＋那斯達克 100＋常用 ETF／ADR，{len(got[0])} 檔・價格為還原價（美元）</div>
+<h1>🇺🇸 美股篩選</h1><div class="meta">{html.escape(last)} 美股收盤（台北隔天早上更新，平日約 08:50 前）・S&amp;P 500＋那斯達克 100＋常用 ETF／ADR，{len(got[0])} 檔・價格為還原價（美元）</div>
 <div class="tiles" id="tiles"></div><p class="note" id="btnote"></p>
 <p class="note" id="btpit"></p>
 {cal}
