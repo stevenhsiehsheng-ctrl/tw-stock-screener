@@ -1588,3 +1588,42 @@ def test_valuation_percentile_and_month(tmp_path, monkeypatch):
     h2 = pd.read_csv(valuation.HIST, dtype={"code": str})
     new = h2[h2.date == "2026-11-03"]
     assert len(new) == 1 and new.iloc[0].market == "TWSE" and list(h2.columns) == ["date", "code", "market", "pe", "pb", "yield"]
+
+
+def test_longterm_tracking(tmp_path, monkeypatch):
+    """長期 Top 20 前推成績：除權息還原、0050 用含息 tr、同池排除名單本身、電子／非電子配權、同產業不到 5 檔退回。"""
+    from screener import longterm
+
+    lt, ex = tmp_path / "data" / "longterm", tmp_path / "data" / "extras"
+    lt.mkdir(parents=True)
+    ex.mkdir(parents=True)
+    monkeypatch.setattr(longterm, "ROOT", tmp_path)
+    monkeypatch.setattr(longterm, "DATA", lt)
+    days = ["2026-10-07", "2026-10-08", "2026-10-13"]
+    ind = {"2330": "半導體業", "2303": "半導體業", "2454": "半導體業", "3711": "半導體業", "2308": "電子零組件業",
+           "2317": "其他電子業", "2382": "電腦及週邊設備業", "1101": "水泥工業", "1102": "水泥工業", "1103": "水泥工業",
+           "1104": "水泥工業", "1108": "水泥工業", "1109": "水泥工業", "2603": "航運業"}
+    ret = {"2303": 1, "2308": 2, "2317": 3, "2382": 4, "2454": 5, "3711": 6,  # 名單外電子：平均 3.5％
+           "1102": -1, "1103": -2, "1104": -3, "1108": -4, "1109": -5, "2603": 4}  # 名單外水泥平均 −3％、非電子 −11/6％
+    rows = [{"date": d, "code": c, "close": 100 * (1 + (r / 100 if d == days[-1] else 0))} for c, r in ret.items() for d in days]
+    rows += [{"date": d, "code": "2330", "close": p} for d, p in zip(days, (1000, 1000, 1100))]
+    rows += [{"date": d, "code": "1101", "close": p} for d, p in zip(days, (50, 48, 48))]  # 10/08 除息 2 元
+    pd.DataFrame(rows).to_csv(tmp_path / "data" / "history.csv.gz", index=False)
+    pd.DataFrame({"date": days, "code": "0050", "close": [100, 101, 102]}).to_csv(ex / "etf.csv.gz", index=False)
+    pd.DataFrame({"date": days, "code": "0050", "tr": [100, 101, 103]}).to_csv(ex / "bench.csv", index=False)
+    pd.DataFrame({"date": ["2026-10-08"], "code": ["1101"], "factor": [50 / 48]}).to_csv(ex / "exdiv.csv", index=False)
+    pd.DataFrame({"code": list(ind), "industry": list(ind.values()), "cap_e8": 500}).to_csv(lt / "screen.csv", index=False)
+    top = {"asof": days[0], "screen": "screen.csv",
+           "picks": [{"code": "2330", "name": "台積電", "industry": "半導體業"}, {"code": "1101", "name": "台泥", "industry": "水泥工業"}]}
+
+    tr = longterm.tracking(top)
+    assert (tr["last"], tr["days"], tr["total_return"]) == ("2026-10-13", 2, True)
+    assert tr["per"] == {"2330": 10.0, "1101": 0.0} and tr["ew"] == 5.0  # 台泥除息還原後 0％，不是 −4％
+    assert (tr["old_ew"], tr["bench"], tr["old_bench"]) == (3.0, 3.0, 2.0)
+    assert tr["exdiv"] == [["2026-10-08", "1101", round(50 / 48, 4)]]
+    assert (tr["pool"], tr["pool_n"]) == (1.43, 14)  # 同池平均含名單（20/14）
+    assert (tr["elec_w"], tr["matched"]) == (0.5, 0.83)  # 0.5×3.5＋0.5×(−11/6)，名單本身排除
+    assert tr["ind"] == 0.25 and tr["ind_fallback"] == ["台積電"]  # 半導體名單外只有 3 檔 → 退回電子 3.5；水泥 −3
+
+    top["asof"] = "2026-10-06"  # 起點日 0050 還沒收盤資料 → 不給成績
+    assert longterm.tracking(top) is None
