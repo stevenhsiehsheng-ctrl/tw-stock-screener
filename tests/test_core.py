@@ -1423,3 +1423,59 @@ def test_not_json_reason_maintenance(monkeypatch):
     with pytest.raises(fetch.SourceUnavailable, match="網站維護中"):
         fetch._get_json(S(), "https://www.twse.com.tw/x", {})
     assert "封鎖" in fetch.not_json_reason("<html><body>Forbidden</body></html>")
+
+
+def test_weekly_stats_numbers(tmp_path):
+    """週六公開週報的數字（tools/weekly_stats.py）：上週最後交易日、除權息調整後的週報酬、流動性門檻、法人金額。"""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2026-09-01", "2026-10-09")]
+    X = tmp_path / "data" / "extras"
+    X.mkdir(parents=True)
+    vol = {"1101": 200_000, "2330": 300_000, "3008": 50_000}  # 股；3008 不到 100 張不算流動性
+    rows = []
+    for i, d in enumerate(days):
+        for c, v in vol.items():
+            px = {"1101": 50.0, "2330": 1000.0, "3008": 20.0}[c]
+            if c == "1101" and d >= "2026-10-05":
+                px = 47.5  # 10/05 除息 2.5 元：沒調整是 −5%，factor 50/47.5 調回 0%
+            if c == "2330" and d == "2026-10-09":
+                px = 1100.0
+            rows.append({"date": d, "code": c, "close": px, "high": px, "volume": v})
+    rows.append({"date": days[-1], "code": "0050", "close": 60.0, "high": 60.0, "volume": 1e7})  # ETF 不算進來
+    pd.DataFrame(rows).to_csv(tmp_path / "data" / "history.csv.gz", index=False)
+    pd.DataFrame({"code": ["1101", "2330", "3008"], "name": ["台泥", "台積電", "大立光"],
+                  "market": "TWSE", "industry": ["水泥工業", "半導體業", "光電業"]}).to_csv(tmp_path / "data" / "stock_list.csv", index=False)
+    pd.DataFrame({"date": ["2026-10-05"], "code": ["1101"], "factor": [50 / 47.5]}).to_csv(X / "exdiv.csv", index=False)
+    pd.DataFrame({"date": ["2026-10-02", "2026-10-09"], "code": "0050", "tr": [100.0, 103.0]}).to_csv(X / "bench.csv", index=False)
+    pd.DataFrame([{"date": d, "above_ma20": 50.0, "up_pct": 50.0, "limit_up": 3, "limit_down": 1, "mkt20": 0.5, "n_liquid": 2}
+                  for d in days]).to_csv(X / "breadth.csv", index=False)
+    pd.DataFrame([{"date": d, "code": c, "margin_bal": b} for d, bals in (("2026-10-02", (1000, 2000)), ("2026-10-09", (1100, 1900)))
+                  for c, b in zip(("1101", "2330"), bals)]).to_csv(X / "margin_hist.csv.gz", index=False)
+    pd.DataFrame([{"date": d, "code": "2330", "foreign": 10, "trust": -2} for d in days[-5:]]).to_csv(X / "inst_hist.csv.gz", index=False)
+
+    out = tmp_path / "w.json"
+    root = Path(__file__).resolve().parent.parent
+    r = subprocess.run([sys.executable, str(root / "tools" / "weekly_stats.py"), str(tmp_path), "--json", str(out)],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    w = json.loads(out.read_text())
+    assert (w["prev"], w["end"]) == ("2026-10-02", "2026-10-09")  # 週五收 → 上週五收
+    assert w["days"] == ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]
+    assert w["n_liquid"] == 2 and w["r0050_tr"] == 3.0
+    assert w["ew_liquid"] == 5.0 and w["up_down_flat_liquid"] == [1, 0, 1]  # 1101 除息調回 0%，2330 +10%
+    assert w["limit_up_sum"] == 15 and w["limit_down_sum"] == 5
+    assert w["margin_total_lots"] == [3000.0, 3000.0, 0, 0.0]
+    assert w["margin_up_top10"][0][:3] == ["1101", "台泥", 100]
+    assert w["foreign_total_amt_yi"] == 0.5  # 每天 10 張×1000 股×收盤：1000 元 4 天＋1100 元 1 天＝0.51 億
+    assert w["foreign_buy_top10"][0][:3] == ["2330", "台積電", 50]
+    assert w["turnover_top30"][0][0] == "2330"
+    assert "0050 含息 +3.0%" in r.stdout
+
+    # bench.csv 還沒有本週五（週六早上 0050 沒更新到）：照樣出週報，0050 寫 NA，不要整個當掉
+    pd.DataFrame({"date": ["2026-10-02"], "code": "0050", "tr": [100.0]}).to_csv(X / "bench.csv", index=False)
+    r = subprocess.run([sys.executable, str(root / "tools" / "weekly_stats.py"), str(tmp_path)], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "0050 含息 NA" in r.stdout

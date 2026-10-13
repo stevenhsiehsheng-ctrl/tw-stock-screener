@@ -131,8 +131,9 @@ for col in ('foreign', 'trust'):
 out['inst_days_present'] = sorted(iw.date.unique().tolist())
 
 # markdown
+r50 = f"{out['r0050_tr']:+}%" if 'r0050_tr' in out else 'NA（bench.csv 缺這兩天）'
 L = [f"### 市場數字 {prev}（收）→ {end}（收），{len(wk)} 個交易日",
-     f"- 0050 含息 {out.get('r0050_tr', 'NA'):+}%；流動性股票（{out['n_liquid']} 檔）等權 {out['ew_liquid']:+}%、中位 {out['median_liquid']:+}%，漲／跌／平 {out['up_down_flat_liquid']}",
+     f"- 0050 含息 {r50}；流動性股票（{out['n_liquid']} 檔）等權 {out['ew_liquid']:+}%、中位 {out['median_liquid']:+}%，漲／跌／平 {out['up_down_flat_liquid']}",
      f"- breadth.csv above_ma20：{out['breadth_prev'].get('above_ma20')}% → {list(out['breadth_days'].values())[-1]['above_ma20'] if out['breadth_days'] else 'NA'}%；mkt20 {list(out['breadth_days'].values())[-1].get('mkt20') if out['breadth_days'] else 'NA'}",
      f"- 收盤漲停／跌停家數（每日）：" + '、'.join(f"{d[5:]} {int(v['limit_up'])}／{int(v['limit_down'])}" for d, v in out['breadth_days'].items()),
      f"- 60 日新高家數：" + '、'.join(f"{d[5:]} {n}" for d, n in out['new_high60'].items()),
