@@ -1929,3 +1929,32 @@ def test_enrich_streak_shares_warn_inst(tmp_path, monkeypatch):
     n = enrich.update_inst_history(None, dt.date(2026, 10, 6), pd.DataFrame([row("", c) for c in codes]).drop(columns="date"))
     h = pd.read_csv(tmp_path / "inst.csv", dtype={"code": str})
     assert asked == ["2026-10-05"] and n == 4 and h.groupby("date").code.count().tolist() == [10, 10, 10, 10]
+
+
+def test_us_impact_alignment_and_surge():
+    """美股隔夜→台股隔天：台股 d 對到「d 之前」最後一個美股交易日（不能用同一天，那時還沒收盤）；
+    爆量突破訊號跟 tech.surge_frame 同一套，隔天開盤跳空算進那晚費半的分組。"""
+    from screener import tech, us
+    from screener.rules import Panel
+
+    days = [str(dt.date(2026, 1, 1) + dt.timedelta(days=i)) for i in range(68)]
+    d1, d2 = days[-2], days[-1]  # d1 收盤爆量突破、d2 開盤賣
+    rows = []
+    for code in ("1101", "1102", "1103"):
+        for d in days[:-2]:
+            rows.append({"date": d, "code": code, "open": 100, "high": 101, "low": 99, "close": 100, "volume": 1_000_000})
+        o, c, v = (101, 104, 4_000_000) if code == "1101" else (100, 100, 1_000_000)
+        rows.append({"date": d1, "code": code, "open": o, "high": c, "low": o, "close": c, "volume": v})
+        rows.append({"date": d2, "code": code, "open": 105 if code == "1101" else 100, "high": 106, "low": 99,
+                     "close": 105 if code == "1101" else 100, "volume": 1_000_000})
+    tw = pd.DataFrame(rows)
+    assert tech.surge_frame(Panel(tw)).loc[d1].to_dict() == {"1101": True, "1102": False, "1103": False}
+
+    sox = [100.0] * (len(days) - 2) + [105.0, 105.0]  # 美股 d1 那晚費半 +5％，d2 平盤
+    usd = pd.DataFrame({"date": days, "sym": "^SOX", "close": sox})
+    imp = us.impact(usd, tw)
+    rows = {r["bucket"]: r for r in imp["rows"]}
+    hot = rows["漲 3% 以上"]
+    assert hot["n"] == 1 and hot["sig_trades"] == 1 and abs(hot["sig_trade_avg"] - (105 / 104 - 1) * 100) < 1e-9
+    assert imp["last"]["date"] == d2 and imp["last"]["us_date"] == d1  # 不是同一天的 d2
+    assert rows["±1% 內"]["sig_trades"] == 0 and abs(hot["ew_gap"] - (105 / 104 - 1) * 100 / 3) < 1e-9
