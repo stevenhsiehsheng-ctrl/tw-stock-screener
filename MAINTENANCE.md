@@ -14,7 +14,7 @@
 | 15:20 | `daily.yml` 台股每日篩選（cron-job.org；GitHub 15:20／17:40 備援） | 抓收盤、篩選、網站、revdrift 批次；櫃買盤後零股官方還沒公布就先用 MIS 補（`oddtpex` 再等官方到 16:40，平常會直接結束） |
 | 15:47 | Cowork 排程 | 虛擬帳戶收盤結算 → 協作板 `ledger_daily` |
 | 16:08 | Cowork 排程 | Dennis 持股日報（真實持股，加密，**Claude Code 不碰**） |
-| 16:25 | Claude Code 排程（一～六） | 先看今天是不是交易日（`twcal`，讀 `data/extras/tw_holidays.json`；休市日只處理留言，不會因為沒有今天的資料就叫每日資料、叫 Dennis 換 token）。交易日：看體檢、把 `ledger_daily` 存成 `data/ledger/日期.json`（先 `python -m screener.ledger_save 匯出檔.json` 檢查，沒錯誤再加 `--write`）、處理協作板留言 |
+| 16:25 | Claude Code 排程（一～六） | 先看今天是不是交易日（`python -m screener.twcal` 印「交易日／休市」，讀 `data/extras/tw_holidays.json`；休市日只處理留言，不會因為沒有今天的資料就叫每日資料、叫 Dennis 換 token）。交易日：看體檢、把 `ledger_daily` 存成 `data/ledger/日期.json`（先 `python -m screener.ledger_save 匯出檔.json` 檢查，沒錯誤再加 `--write`）、處理協作板留言 |
 | 18:05、21:50 | `extras_evening.yml` 傍晚補抓（由 `daily.yml` 的 evening1／evening2 準時叫，每日資料晚於 18:00 才跑完就跑完馬上叫；GitHub 18:05／21:47 排程當備援） | 法人、本益比、融資、當沖、零股回補（GitHub 排程常拖到半夜，日期用 history 最新交易日） |
 | 06:17（每天） | GitHub `gifts.yml` | 股東紀念品 |
 | 週六 09:52 | Cowork 排程 | 週檢討、週報草稿；Claude Code 16:25 核數字發佈 |
