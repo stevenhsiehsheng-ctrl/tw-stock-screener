@@ -181,3 +181,21 @@ def test_limit_up_price_consistent():
     assert all(positions._limit_up(lu, p) and not positions._limit_up(lu - stockpage._tick(lu), p) for p, lu in zip(prevs[::37], r[::37]))
     assert stockpage.limit_up(100) == 110 and stockpage.limit_up(45.5) == 50.0 and stockpage.limit_up(9.1) == 10.0
     assert stockpage.limit_up(2490) == 2735 and stockpage.limit_up(25.55) == 28.1
+
+
+# ---------------------------------------------------------------- .gz 檔內容沒變就要一模一樣（git 才不會白存一份）
+def test_gzip_csv_deterministic(tmp_path):
+    import time
+    import screener  # noqa: F401  （import 時裝好 to_csv 的固定檔頭）
+    df = pd.DataFrame({"date": ["2026-10-13"] * 3, "code": ["2330", "2317", "3041"], "close": [2490, 240, 25.55]})
+    p = tmp_path / "h.csv.gz"
+    for kw in ({}, {"compression": "gzip"}, {"compression": {"method": "gzip", "compresslevel": 9}}):
+        df.to_csv(p, index=False, **kw)
+        a = p.read_bytes()
+        time.sleep(1.05)
+        df.to_csv(str(p), index=False, **kw)
+        assert p.read_bytes() == a, kw
+    assert pd.read_csv(p, dtype={"code": str}).equals(df.astype({"code": str}))
+    q = tmp_path / "plain.csv"
+    df.to_csv(q, index=False)
+    assert q.read_text().startswith("date,code,close")       # 一般 CSV 不受影響
