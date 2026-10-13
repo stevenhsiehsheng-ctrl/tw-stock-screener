@@ -338,6 +338,28 @@ def test_btsim_exit_matches_positions(tmp_path, monkeypatch):
     assert round(T.gross["1111"], 6) == 3.0 and round(T.gross["2222"], 6) == 7.0    # 跟 test_positions_exit_rules 的 est_return_pct 一樣
 
 
+def test_btsim_signals_vs_surge_frame(tmp_path, monkeypatch):
+    """回測進場 btsim.signals ＝ 網站 K 線買點 tech.surge_frame 再加三道門檻（≥500 張、漲幅 ≤10.5%、股價 ≥10）。
+    三檔都過 surge_frame，只有三道門檻也過的那檔進回測。"""
+    from screener import tech
+    from screener.rules import Panel
+    from tools import btsim
+    days = [str(dt.date(2026, 1, 1) + dt.timedelta(days=i)) for i in range(66)]
+    last = {"1111": (101, 104, 4_000_000), "2222": (101, 104, 400_000), "3333": (101, 111, 4_000_000)}   # (開, 收, 股數)
+    base = {"1111": 1_000_000, "2222": 100_000, "3333": 1_000_000}
+    rows = []
+    for code, (o, c, v) in last.items():
+        rows += [{"date": d, "code": code, "open": 100, "high": 101, "low": 99, "close": 100, "volume": base[code], "adjusted": 0} for d in days[:-1]]
+        rows.append({"date": days[-1], "code": code, "open": o, "high": c, "low": o, "close": c, "volume": v, "adjusted": 0})
+    df = pd.DataFrame(rows)
+    assert tech.surge_frame(Panel(df)).loc[days[-1]].all()
+    f = tmp_path / "bt.csv"
+    df.to_csv(f, index=False)
+    monkeypatch.setattr(btsim, "drop_partial_tail", lambda d: (d, []))
+    sig = btsim.signals(btsim.load(str(f)))
+    assert list(zip(sig.date, sig.code)) == [(days[-1], "1111")]       # 2222 量 400 張 < 500；3333 漲 11% > 10.5%
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify
