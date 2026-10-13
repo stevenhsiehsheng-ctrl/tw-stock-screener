@@ -53,10 +53,17 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: 重抓
+      # 資料日期：有指定就用；沒指定用 history 最新交易日。GitHub 排程常拖到半夜才跑（10/13 那班 03:45），
+      # 以前用「當下日期」會去抓還沒開盤的隔天：本益比、當天法人抓不到（融資、法人歷史有往回補才沒漏）
+      - name: 決定資料日期
         env:
-          D: ${{ inputs.date }}
-        run: python -m screener.enrich --refresh --date "${D:-$(TZ=Asia/Taipei date +%F)}"
+          IN: ${{ inputs.date }}
+        run: |
+          D="${IN:-$(python -c "import pandas as p; print(p.read_csv('data/history.csv.gz', usecols=['date']).date.max())")}"
+          echo "D=$D" >> "$GITHUB_ENV"
+          echo "資料日期 $D（現在台北 $(TZ=Asia/Taipei date '+%F %H:%M')）"
+      - name: 重抓
+        run: python -m screener.enrich --refresh --date "$D"
       - name: 處置長歷史
         if: ${{ inputs.dispo_years != '' && inputs.dispo_years != null }}
         run: python -m screener.enrich --dispo-years "${{ inputs.dispo_years }}" --date "$(TZ=Asia/Taipei date +%F)"
@@ -66,9 +73,7 @@ jobs:
       # 15:20 每日資料抓盤後零股時，櫃買常還沒公布（10/7、10/8、10/12 上櫃都是 0 列）；
       # 18:05 這班每天順手補近 5 個交易日裡缺一邊市場的日子（兩邊都有的日子會跳過，平常幾乎不花時間）
       - name: 盤後零股回補
-        env:
-          D: ${{ inputs.date }}
-        run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days || '5' }}" --date "${D:-$(TZ=Asia/Taipei date +%F)}" || echo "盤後零股回補失敗（不擋後面存檔）"
+        run: python -m screener.enrich --oddlot-days "${{ inputs.oddlot_days || '5' }}" --date "$D" || echo "盤後零股回補失敗（不擋後面存檔）"
       - name: 除權息長歷史
         if: ${{ inputs.exdiv_years != '' && inputs.exdiv_years != null }}
         run: python -c "import logging; logging.basicConfig(level=logging.INFO); from screener import exdiv; print(exdiv.backfill_long(float('${{ inputs.exdiv_years }}')))"
@@ -84,7 +89,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/extras
           if git diff --cached --quiet; then echo "沒有變更"; exit 0; fi
-          git commit -m "傍晚補抓消息面 $(TZ=Asia/Taipei date +%F)"
+          git commit -m "傍晚補抓消息面 $D（跑於 $(TZ=Asia/Taipei date '+%m-%d %H:%M')）"
           ok=0; for i in 1 2 3; do
             if git pull --rebase -X theirs && git push; then ok=1; break; fi
             git rebase --abort 2>/dev/null || true; sleep 5
