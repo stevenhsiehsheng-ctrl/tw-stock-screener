@@ -466,6 +466,29 @@ def test_macro_regime_light(tmp_path, monkeypatch):
     assert r["changed"] and r["prev_light"] == "green" and "轉紅" in sent[0][0] and "維持了" in sent[0][1]
 
 
+def test_exdiv_parse_and_exact_factor():
+    """除權息（等權指數還原、週報、btsim 對照組都用）：民國日期三種寫法；證交所純除息的權值＋息值＝現金股利；
+    櫃買有現金股利、配股、現增欄；factor 改用公告股利精算（參考價會掃檔位），有現增的維持參考價。"""
+    from screener import exdiv
+    assert exdiv.roc_date("114年10月02日") == exdiv.roc_date("114/10/02") == exdiv.roc_date("1141002") == "2025-10-02"
+    assert exdiv.roc_date("abc") is None
+    tw_f = ["資料日期", "股票代號", "股票名稱", "除權息前收盤價", "除權息參考價", "權值+息值", "權/息", "漲停價格", "跌停價格"]
+    tw = exdiv._rows(tw_f, [["115年09月17日", "2330", "台積電", "901.00", "896.99", "4.000138", "息", "1", "1"],
+                            ["115年09月17日", "0056", "高股息", "38.00", "37.00", "1.0", "息", "1", "1"]], "TWSE")
+    assert [r["code"] for r in tw] == ["2330", "0056"]                             # ETF 也要（0050 含息、ETF 頁用）
+    assert tw[0]["date"] == "2026-09-17" and tw[0]["kind"] == "息" and tw[0]["cash_div"] == 4.000138
+    tp_f = ["除權息日期", "代號", "名稱", "除權息前收盤價", "除權息參考價", "權值", "息值", "權值+息值", "權/息",
+            "現金股利", "每仟股無償配股", "現金增資股數", "現金增資認購價", "公開承銷股數", "員工認購股數", "原股東認購數", "按持股比例仟股認購"]
+    tp = exdiv._rows(tp_f, [["115/09/18", "6488", "環球晶", "1000.00", "980.95", "", "", "", "權息", "0", "20", "0", "0", "0", "0", "0", "0"],
+                            ["115/09/18", "5536", "聖暉", "100.00", "95.00", "", "", "", "權息", "5", "0", "0", "80", "0", "0", "0", "10"]], "TPEX")
+    df = pd.DataFrame(tw + tp)
+    exdiv.exact_factor(df)
+    f = df.set_index("code").factor
+    assert abs(f["2330"] - 901 / (901 - 4.000138)) < 1e-8                         # 精算，不用掃過檔位的 896.99
+    assert abs(f["6488"] - 1000 / (1000 / 1.02)) < 1e-8 and df.set_index("code").stock_ratio["6488"] == 0.02
+    assert f["5536"] == round(100 / 95, 8)                                         # 有現增：維持參考價
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify
