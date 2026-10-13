@@ -609,3 +609,64 @@ def test_intraday_fetch_quotes_retries_failed_batch(monkeypatch):
                         else {"msgArray": [{"c": k.split("_")[1][:-3], "z": "1", "d": "20261014"} for k in self.keys]})
     df, _ = intraday.fetch_quotes(stocks, batch=2)
     assert sorted(df.code) == ["1100", "1101", "1104", "1105", "1106"]
+
+
+def test_daily_evening_dispatch(tmp_path):
+    """daily.yml 的 evening1／evening2（#286、#307）：把 shell 抽出來，用假時鐘、假 gh 跑。
+    今天跑出今天資料才叫、18:05／21:50 準時叫、晚於 18:00 跑完馬上叫、那個時段已經有一班就不重複、
+    隔天半夜才到的備援班不叫、21:50 那段過午夜才開始不等到隔天。"""
+    import datetime as dt
+    import os
+    import subprocess
+
+    import yaml
+    w = yaml.safe_load(open(".github/workflows/daily.yml", encoding="utf-8"))["jobs"]
+    tz = dt.timezone(dt.timedelta(hours=8))
+    clock = tmp_path / "clock"
+    b = tmp_path / "bin"
+    b.mkdir()
+    (b / "date").write_text("#!/usr/bin/env python3\nimport sys, os, datetime as d\n"
+                            "t = d.datetime.fromtimestamp(float(open(os.environ['CLOCK']).read()), d.timezone(d.timedelta(hours=8)))\n"
+                            "print(t.strftime(sys.argv[-1][1:]))\n")
+    (b / "sleep").write_text("#!/usr/bin/env python3\nimport sys, os\nf = os.environ['CLOCK']\n"
+                             "t = float(open(f).read()) + float(sys.argv[1])\nopen(f, 'w').write(str(t))\n")
+    (b / "gh").write_text('#!/usr/bin/env bash\necho "$*" >> "$GHLOG"\ncase "$1 $2" in\n'
+                          '  "api repos/"*) printf \'{"last_done": "%s"}\' "$LAST_DONE" | base64 ;;\n'
+                          '  "run list") echo "$RUNS" ;;\nesac\n')
+    for f in b.iterdir():
+        f.chmod(0o755)
+    # SINCE 裡的「現在」改讀假時鐘
+    since = w["evening1"]["env"]["SINCE"].replace(
+        "d.datetime.now(tz)", "d.datetime.fromtimestamp(float(open(__import__('os').environ['CLOCK']).read()), tz)")
+    assert since != w["evening1"]["env"]["SINCE"] and w["evening1"]["env"]["SINCE"] == w["evening2"]["env"]["SINCE"]
+
+    def iso(s):
+        return dt.datetime.strptime(s, "%Y-%m-%d %H:%M").replace(tzinfo=tz).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def run(job, start, last_done, runs=()):
+        clock.write_text(str(dt.datetime.strptime(start, "%Y-%m-%d %H:%M").replace(tzinfo=tz).timestamp()))
+        out, log = tmp_path / "out", tmp_path / "gh.log"
+        out.write_text("")
+        log.write_text("")
+        env = dict(os.environ, PATH=f"{b}:{os.environ['PATH']}", CLOCK=str(clock), GHLOG=str(log), LAST_DONE=last_done,
+                   RUNS=json.dumps([{"createdAt": iso(r)} for r in runs]), GITHUB_OUTPUT=str(out), GH_REPO="x/y",
+                   D=last_done, SINCE=since)
+        r = subprocess.run(["bash", "-e", "-c", w[job]["steps"][0]["run"]], env=env, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        end = dt.datetime.fromtimestamp(float(clock.read_text()), tz).strftime("%H:%M")
+        return end, out.read_text().strip(), sum("workflow run" in x for x in log.read_text().splitlines())
+
+    T = "2026-10-14"
+    end, o, n = run("evening1", f"{T} 15:31", T)
+    assert end in ("18:05", "18:06") and o == f"D={T}" and n == 1                     # 正常：等到 18:05 叫
+    assert run("evening1", f"{T} 17:48", T, [f"{T} 18:05"])[2] == 0                  # 17:40 備援班：已有一班就不叫
+    assert run("evening1", f"{T} 18:30", T, [f"{T} 08:41"])[1:] == (f"D={T}", 1)     # 晚到：馬上叫（早上補跑的不算）
+    assert run("evening1", f"{T} 19:30", T, [f"{T} 18:05"])[1:] == (f"D={T}", 0)
+    assert run("evening1", f"{T} 21:40", T)[1:] == (f"D={T}", 0)                     # 過 21:30 只留 21:50 那班
+    assert run("evening1", "2026-10-15 01:07", T)[1:] == ("", 0)                     # 隔天半夜才到的備援班
+    assert run("evening1", f"{T} 15:31", "2026-10-13")[1:] == ("", 0)               # 今天資料還沒出來
+    end, _, n = run("evening2", f"{T} 18:07", T, [f"{T} 18:05"])
+    assert end in ("21:50", "21:51") and n == 1                                      # 21:50 再叫一次
+    assert run("evening2", f"{T} 23:06", T, [f"{T} 21:50"])[2] == 0                  # 已有一班
+    assert run("evening2", f"{T} 21:40", T, [f"{T} 21:47"])[2] == 0                  # GitHub 21:47 排程準時跑了
+    assert run("evening2", "2026-10-15 00:01", T) == ("00:01", "", 0)                # 過午夜不等到隔天
