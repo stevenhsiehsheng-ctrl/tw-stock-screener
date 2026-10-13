@@ -136,7 +136,8 @@ def _check_regex(s: str, what: str) -> None:
         raise ConfigError(f"{what} 不是正確的規則：{e}") from None
 
 
-def validate(cfg: dict) -> dict:
+def validate(cfg: dict, require_applicant: bool = True) -> dict:
+    """require_applicant=False：偵察模式用，不檢查（也用不到）applicant 的個人資料。"""
     if cfg["mode"] not in MODES:
         raise ConfigError(f"mode 只能是 {' 或 '.join(MODES)}（現在是 {cfg['mode']!r}）")
     t = cfg["target"]
@@ -154,8 +155,29 @@ def validate(cfg: dict) -> dict:
     t["weekdays"] = sorted(set(wd))
     _check_regex(t.get("group_include"), "target.group_include")
     _check_regex(t.get("group_exclude"), "target.group_exclude")
+    if require_applicant:
+        _validate_applicant(cfg["applicant"])
 
-    a = cfg["applicant"]
+    from . import schedule   # 避免循環 import
+    for w in cfg["poll"].get("windows") or []:
+        try:
+            schedule.parse_window(w)
+        except ValueError as e:
+            raise ConfigError(f"poll.windows 的 {w!r} 寫錯了：{e}") from None
+    if float(cfg["poll"]["base_s"]) < 30:
+        raise ConfigError("poll.base_s 不要小於 30 秒，太頻繁可能被網站封鎖")
+
+    e = cfg["notify"]["email"]
+    if e.get("enabled"):
+        e["smtp_password"] = e.get("smtp_password") or os.environ.get("SMTP_PASSWORD", "")
+        e["smtp_user"] = e.get("smtp_user") or os.environ.get("SMTP_USER", "")
+        e["mail_to"] = e.get("mail_to") or os.environ.get("MAIL_TO", "") or e["smtp_user"]
+        if not (e["smtp_user"] and e["smtp_password"]):
+            raise ConfigError("notify.email 開了，但 smtp_user／smtp_password（Gmail 應用程式密碼）沒有填")
+    return cfg
+
+
+def _validate_applicant(a: dict) -> None:
     a["id_no"] = str(a.get("id_no") or "").strip().upper()
     if a["id_no"] == "A123456789":
         raise ConfigError("applicant.id_no 還是範例號碼 A123456789，請改成你自己的身分證字號")
@@ -179,26 +201,8 @@ def validate(cfg: dict) -> dict:
         raise ConfigError("applicant.extra 要寫成「欄位名稱: 值」的形式")
     a["extra"] = {str(k): str(v) for k, v in (a.get("extra") or {}).items()}
 
-    from . import schedule   # 避免循環 import
-    for w in cfg["poll"].get("windows") or []:
-        try:
-            schedule.parse_window(w)
-        except ValueError as e:
-            raise ConfigError(f"poll.windows 的 {w!r} 寫錯了：{e}") from None
-    if float(cfg["poll"]["base_s"]) < 30:
-        raise ConfigError("poll.base_s 不要小於 30 秒，太頻繁可能被網站封鎖")
 
-    e = cfg["notify"]["email"]
-    if e.get("enabled"):
-        e["smtp_password"] = e.get("smtp_password") or os.environ.get("SMTP_PASSWORD", "")
-        e["smtp_user"] = e.get("smtp_user") or os.environ.get("SMTP_USER", "")
-        e["mail_to"] = e.get("mail_to") or os.environ.get("MAIL_TO", "") or e["smtp_user"]
-        if not (e["smtp_user"] and e["smtp_password"]):
-            raise ConfigError("notify.email 開了，但 smtp_user／smtp_password（Gmail 應用程式密碼）沒有填")
-    return cfg
-
-
-def load_config(path: Path | str | None = None) -> dict:
+def load_config(path: Path | str | None = None, require_applicant: bool = True) -> dict:
     path = Path(path) if path else DEFAULT_CONFIG
     if not path.exists():
         raise ConfigError(f"找不到設定檔 {path}。請先把 config.example.yaml 複製一份改名成 config.yaml，再填入你的資料。")
@@ -208,7 +212,7 @@ def load_config(path: Path | str | None = None) -> dict:
         raise ConfigError(f"config.yaml 格式有誤（縮排要用空格、冒號後面要空一格）：{e}") from None
     if not isinstance(raw, dict):
         raise ConfigError("config.yaml 內容格式不對")
-    return validate(_merge(DEFAULTS, raw))
+    return validate(_merge(DEFAULTS, raw), require_applicant)
 
 
 def date_range(cfg: dict, today: dt.date) -> tuple[dt.date, dt.date]:

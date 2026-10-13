@@ -21,7 +21,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "recon":
         try:
-            cfg = load_config(args.config)
+            # 偵察用不到個人資料：applicant 還沒填（例如身分證字號空白）也照樣用 target 的設定實際查詢
+            cfg = load_config(args.config, require_applicant=False)
         except ConfigError as e:
             # 偵察不需要個人資料：設定檔還沒填好也能跑，只是不會實際查詢
             print(f"（設定檔還沒準備好：{e}\n  先只偵察查詢頁。）")

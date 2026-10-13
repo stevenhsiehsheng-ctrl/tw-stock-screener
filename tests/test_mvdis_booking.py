@@ -71,6 +71,16 @@ def test_config_validation():
     assert cfg_of(applicant={"mobile": 912345678})["applicant"]["mobile"] == "0912345678"
 
 
+def test_recon_config_does_not_need_applicant(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("target:\n  office_label: 臺北區監理所\n  station_label: 板橋監理站\n"
+                 "applicant:\n  id_no: \"\"\n  name: \"\"\n", encoding="utf-8")
+    cfg = C.load_config(p, require_applicant=False)
+    assert cfg["target"]["office_label"] == "臺北區監理所"
+    with pytest.raises(C.ConfigError, match="身分證"):
+        C.load_config(p)
+
+
 def test_date_range_clamped_to_booking_window():
     today = dt.date(2026, 10, 13)
     cfg = cfg_of(target={"date_from": "2026-10-01", "date_to": "2026-12-31"})
