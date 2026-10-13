@@ -100,7 +100,7 @@ def md_line(s: dict, intraday: bool = False) -> str:
     t = "盤中" if intraday else "收盤"
     parts = [f"**市場情緒（{t}）：{s['icon']} {s['level']}**",
              f"站上月線 {s['above_ma20']:.0f}%", f"上漲家數 {s['up_pct']:.0f}%",
-             f"漲停 {s['limit_up']} / 跌停 {s['limit_down']}"]
+             f"漲停 {s['limit_up']:.0f} / 跌停 {s['limit_down']:.0f}"]   # 收盤那份從 DataFrame 來是浮點數（10/13 信寫成 24.0）
     if "new_high" in s:
         parts.append(f"創60日新高 {s['new_high']:.0f} / 新低 {s['new_low']:.0f}")
     if "mkt20" in s and s["mkt20"] == s["mkt20"]:
