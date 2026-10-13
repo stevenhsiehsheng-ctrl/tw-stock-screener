@@ -321,7 +321,7 @@ def write(site_dir: Path) -> bool:
             + ("<h2>台股資金面</h2><p>這幾項我們只有一年左右的資料，分位只跟這一年比（灰字），<b>不能跟上面 10／20 年的分位放在一起比</b>：一年裡的 80 分跟 20 年裡的 80 分不是同一把尺。</p>"
                "<div class='tbl'><table><tr><th>項目</th><th>最新</th><th class='short'>一年分位<br>（樣本短，參考）</th><th class='sp'>近一年</th></tr>" + ftr + "</table></div>"
                if ftr else "")
-            + "<p class='meta'>資料：Yahoo Finance（每天台北 06:20 更新）、證交所／櫃買（每天 15:20）。</p>")
+            + "<p class='meta'>資料：Yahoo Finance（美股收盤後更新，平日約 08:50 前）、證交所／櫃買（收盤價 15:30 前；法人、融資傍晚 18:05／21:50）。</p>")
     (site_dir / "macro.html").write_text(_page("大環境", body, "<!--SITENAV:macro-->"), "utf-8")
     return True
 
