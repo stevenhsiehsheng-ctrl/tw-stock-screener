@@ -1756,3 +1756,64 @@ def test_etfw_weights_and_ex_tsmc(tmp_path, monkeypatch):
     assert t.at["2026-10-01", "ex_tsmc"] == round((0.01 - w1 * 0.02) / (1 - w1) * 100, 4)
     assert t.at["2026-10-02", "src"] == "snap" and t.at["2026-10-02", "w2330"] == 50.0  # 前一天就是快照日
     assert t.at["2026-10-02", "r2330"] == 0 and t.at["2026-10-02", "ex_tsmc"] == round((102 / 101 - 1) / 0.5 * 100, 4)
+
+
+def test_sentiment_levels_and_quotes():
+    """市場情緒：分級門檻、收盤版站上月線／近 20 日＝breadth.csv 同一套、盤中版（昨天 20 日均量 ≥100 張的母體、
+    官方檔位漲停）、信裡的家數印整數（10/13 收盤信寫成 24.0）。"""
+    from screener import rules, sentiment, tech
+
+    lv = lambda x: sentiment.classify(x)["level"]  # noqa: E731
+    assert (lv(32.9), lv(33), lv(46), lv(57), lv(69), lv(100)) == ("極度悲觀", "偏悲觀", "中性", "偏樂觀", "極度樂觀", "極度樂觀")
+
+    days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2026-09-01", periods=25)]
+    rows = []
+    for c, px, vol in (("1101", 100.0, 200_000), ("2330", 50.0, 300_000), ("3008", 20.0, 50_000)):
+        for i, d in enumerate(days):
+            p = px * (1.1 if (c == "1101" and i == len(days) - 1) else 1) * (0.9 if (c == "2330" and i >= 15) else 1)
+            rows.append({"date": d, "code": c, "open": p, "high": p, "low": p, "close": p, "volume": vol})
+    h = pd.DataFrame(rows)
+    s = sentiment.from_history(h)
+    b = tech.breadth(rules.Panel(h)).set_index("date")
+    assert s["date"] == days[-1] and s["above_ma20"] == round(float(b.above_ma20.iloc[-1]), 1)
+    assert s["mkt20"] == round(float(b.mkt20.iloc[-1]), 1) and s["weak_market"] == (s["mkt20"] < -3)
+    assert s["limit_up"] == 1 and s["limit_down"] == 0 and s["up_pct"] == 50.0  # 3008 量不到 100 張不算
+    assert s["above_ma20"] == 50.0 and s["level"] == "中性"  # 1101 漲停站上、2330 跌到月線下
+
+    q = pd.DataFrame({"code": ["1101", "2330", "3008"], "price": [110.0, 49.0, 21.0], "yclose": [100.0, 50.0, 20.0],
+                      "vol_lots": [500, 800, 50]})
+    hq = h[h.date < days[-1]].assign(close=lambda x: x.code.map({"1101": 100.0, "2330": 50.0, "3008": 20.0}))
+    iq = sentiment.from_quotes(q, hq)
+    assert (iq["up_pct"], iq["above_ma20"], iq["limit_up"], iq["limit_down"]) == (50.0, 50.0, 1, 0)
+
+    line = sentiment.md_line({**s, "limit_up": 24.0, "limit_down": 3.0, "new_high": 10.0, "new_low": 2.0, "mkt20": -3.5})
+    assert "漲停 24 / 跌停 3" in line and "創60日新高 10 / 新低 2" in line and "大盤近20日 -3.5%" in line
+    assert "盤中" in sentiment.md_line(iq, intraday=True) and "創60日新高" not in sentiment.md_line(iq, intraday=True)
+
+
+def test_groups_rs_and_industry_strength():
+    """族群強弱：RS 分數（63 日×2＋126 日、只比 20 日均量 ≥100 張的）、產業 5 日／20 日排名平均、不到 5 檔的產業不列。"""
+    from screener import groups
+    from screener.rules import Panel
+
+    days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2026-03-02", periods=130)]
+    end = {"A1": 1.3, "A2": 1.2, "A3": 1.1, "A4": 1.0, "A5": 1.0, "B1": 0.9, "B2": 0.9, "B3": 0.9, "B4": 0.9, "B5": 0.9,
+           "C1": 2.0, "LOW": 3.0}  # LOW 量不到 100 張，不比
+    rows = []
+    for c, k in end.items():
+        for i, d in enumerate(days):
+            p = 100 * (k if i == len(days) - 1 else 1)
+            rows.append({"date": d, "code": c, "open": p, "high": p, "low": p, "close": p,
+                         "volume": 50_000 if c == "LOW" else 200_000})
+    p = Panel(pd.DataFrame(rows))
+    rs = groups.rs_rating(p)
+    assert "LOW" not in rs.index and rs["C1"] == 99 and rs["A1"] > rs["A2"] > rs["A3"] > rs["B1"]
+    assert rs.min() >= 1 and rs.max() <= 99
+
+    stocks = pd.DataFrame({"code": list(end), "industry": ["甲"] * 5 + ["乙"] * 5 + ["丙", "丙"]})
+    ind = groups.industry_strength(p, stocks)
+    assert [x["ind"] for x in ind] == ["甲", "乙"]  # 丙只有 1 檔流動的 → 不列
+    a, b = ind
+    assert (a["rank"], a["n"], a["score"], b["score"]) == (1, 5, 100, 50)
+    assert a["r5"] == round((30 + 20 + 10) / 5, 1) and b["r1"] == -10.0
+    assert a["above"] == 60 and b["above"] == 0  # 甲 3 檔漲上去、2 檔平盤不算站上
