@@ -73,7 +73,7 @@
   - 強勢續攻／低檔爆量突破的定義（`momo.events`，網站名單和 `tools/momo5y` 共用）：前高要是 15 天以前（有整理）、量、成交值、低檔區間。
   - 個股頁系統標籤（`stockpage.system_tags`：最新一份帳本、營收漂移最新一批、強勢續攻；一份壞掉只少那種標籤）。
   - 大盤風險燈（R2／R1／R3、變色才通知）；研究用配對安慰劑（同流動性五分位）、月 t（月份聚類）。
-  - revdrift 抽 6 檔（同批次日一定同一組）、首頁系統訊號合計（＝`tools/ledger_stats` 同一個數字）、首頁雜訊帶定義（`tools/ledger_band`）與虛擬帳戶組成、通知走 GitHub Issue、workflow（YAML、bash、gh 權杖、test 輸入）。
+  - revdrift 抽 6 檔（同批次日一定同一組）、首頁系統訊號合計（＝`tools/ledger_stats` 同一個數字）、首頁雜訊帶定義（`tools/ledger_band`）與虛擬帳戶組成、通知走 GitHub Issue、workflow（YAML、bash、gh 權杖、test 輸入）、體檢只報 WATCH 裡的失敗（名字要跟 workflow `name:` 一樣）、daystatus 查詢範圍。
   - 估值位階（本益比／淨值比／殖利率在自己 5 年的百分位：同值算一半、虧損不算、不到 24 個月不給、選股表＝個股頁、月檔一個月補一次）。
   - 長期 Top 20 前推成績（除權息還原、0050 用含息 tr、同池排除名單本身、電子／非電子配權、同產業不到 5 檔退回）。
   - 美股篩選：最後一天到的檔數不到前 20 天中位數 9 成就往前切；條件的 days_ago／within／not、停用策略、基本門檻（`usx.signal_matrix`，每天篩選和 5 年回測共用）。

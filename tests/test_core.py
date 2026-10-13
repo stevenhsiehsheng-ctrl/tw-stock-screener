@@ -2391,3 +2391,67 @@ def test_live_alert_md_and_log(tmp_path, monkeypatch):
     assert {"last_price", "last_chg", "still_hit"} <= set(a.columns) and a.date.unique().tolist() == ["2026-10-14"]
     live.save_alert_log("2026-10-15", [], None)
     assert not (tmp_path / "data" / "alerts" / "2026-10-15.csv").exists()
+
+
+def test_daystatus_runs_query(monkeypatch):
+    """tools.daystatus 查某天的工作流程：用台北那天的 UTC 範圍（前一天 16:00Z～當天 15:59Z）、滿 100 筆才翻下一頁、
+    程式檢查／測資料來源不列、時間換台北排序。"""
+    from tools import daystatus
+
+    pages = {1: [{"name": "每日資料", "created_at": "2026-10-14T07:20:00Z", "event": "workflow_dispatch",
+                  "status": "completed", "conclusion": "success", "html_url": "u1"}] * 99
+             + [{"name": "程式檢查", "created_at": "2026-10-14T00:00:00Z", "event": "pull_request",
+                 "status": "completed", "conclusion": "success", "html_url": "u2"}],
+             2: [{"name": "盤中監控", "created_at": "2026-10-14T00:40:00Z", "event": "workflow_dispatch",
+                  "status": "in_progress", "conclusion": None, "html_url": "u3"}]}
+    seen = []
+
+    class R:
+        def __init__(self, p):
+            self.p = p
+
+        def json(self):
+            return {"workflow_runs": pages.get(self.p, [])}
+
+    def get(url, params, timeout):
+        seen.append(params)
+        return R(params["page"])
+    monkeypatch.setattr(daystatus.requests, "get", get)
+    rs = daystatus.runs("2026-10-14", "o/r")
+    assert seen[0]["created"] == "2026-10-13T16:00:00Z..2026-10-14T15:59:59Z" and [p["page"] for p in seen] == [1, 2]
+    assert rs[0] == {"time": "08:40", "name": "盤中監控", "event": "workflow_dispatch", "status": "in_progress",
+                     "conclusion": None, "url": "u3"}
+    assert len(rs) == 100 and all(x["name"] != "程式檢查" for x in rs) and rs[-1]["time"] == "15:20"
+
+
+def test_health_failed_runs_filter(monkeypatch):
+    """體檢列失敗的工作流程：只列 WATCH 裡的、conclusion＝failure、最近 hours 小時內；gh 讀不到就回空（不讓體檢掛掉）。"""
+    import json as _json
+    import subprocess
+
+    from screener import health
+
+    now = dt.datetime.now(dt.timezone.utc)
+    iso = lambda h: (now - dt.timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    w = sorted(health.WATCH)[0]
+    runs = [{"workflowName": w, "conclusion": "failure", "createdAt": iso(1), "url": "u1"},
+            {"workflowName": w, "conclusion": "failure", "createdAt": iso(30), "url": "u2"},     # 太舊
+            {"workflowName": w, "conclusion": "cancelled", "createdAt": iso(1), "url": "u3"},
+            {"workflowName": "程式檢查", "conclusion": "failure", "createdAt": iso(1), "url": "u4"}]  # 不在 WATCH
+
+    class P:
+        stdout = _json.dumps(runs)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: P())
+    got = health.failed_runs(20)
+    assert [x["url"] for x in got] == ["u1"] and got[0]["name"] == w
+
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(1, "gh")
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert health.failed_runs(20) == []
+
+    # WATCH 的名字要跟 workflow 的 name: 一字不差（改了 yml 名字體檢就默默不報那條的失敗）
+    import yaml
+    from screener.main import ROOT
+    names = {yaml.safe_load(f.read_text("utf-8")).get("name") for f in (ROOT / ".github" / "workflows").glob("*.yml")}
+    assert health.WATCH <= names, health.WATCH - names
