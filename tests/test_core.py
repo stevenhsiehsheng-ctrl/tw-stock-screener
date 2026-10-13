@@ -2109,3 +2109,29 @@ def test_macro_unfinished_fmtqik_staleness(tmp_path, monkeypatch):
     why = {x["sym"]: x["reason"] for x in stale}
     assert why.get("^VIX") == "behind" and why.get("^SOX") == "carried" and "^GSPC" not in why and "^TWII" not in why
     assert src["^SOX"]["source"] == "carried" and src["^SOX"]["carried_days"] >= macro.CARRIED_MAX
+
+
+def test_momo_events_definition():
+    """強勢續攻（聯一光型）：前 120 日已漲 ≥50%、前高是 15 天以前（中間有整理）、今天漲 ≥7% 收過前高、量 ≥2 倍、成交值 ≥3,000 萬；
+    低檔爆量突破：漲停收最高、量 ≥3 倍、收過 120 日高、起漲前 60 日在 −30%～+20%。網站名單和 5 年統計共用這支。"""
+    from screener import momo
+
+    n = 130
+    days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2026-03-02", periods=n)]
+    path = {}
+    up = [100.0] * 9 + [100 + 60 * k / 90 for k in range(91)] + [150.0] * 29 + [163.0]   # 漲到 160（第 99 天）→ 整理 29 天 → +8.7%
+    path["CONT"] = up
+    young = up[:-30] + [160 + 0.3 * k for k in range(1, 30)]
+    path["YOUNG"] = young + [round(young[-1] * 1.08, 2)]   # 一路漲到昨天、前高就是昨天，沒有整理 → 不算
+    path["BASE"] = [100.0] * (n - 1) + [110.0]           # 一直橫盤、最後一天漲停帶量
+    rows = []
+    for c, px in path.items():
+        for i, d in enumerate(days):
+            v = 300_000 * (4 if i == n - 1 else 1)
+            rows.append({"date": d, "code": c.replace("CONT", "1101").replace("YOUNG", "1102").replace("BASE", "1103"),
+                         "open": px[i], "high": px[i], "close": px[i], "volume": v})
+    ev = momo.events(momo.panels(pd.DataFrame(rows)))
+    last = days[-1]
+    assert ev["cont"].loc[last].to_dict() == {"1101": True, "1102": False, "1103": False}
+    assert ev["base"].loc[last].to_dict() == {"1101": False, "1102": False, "1103": True}
+    assert not ev["cont"].iloc[:-1].any().any() and not ev["base"].iloc[:-1].any().any()
