@@ -811,5 +811,22 @@ def main(argv=None) -> int:
     return 0
 
 
+def main_supervised(retries: int = 5, wait: float = 60) -> int:
+    """盤中某一輪出例外（例如 MIS 回了沒見過的格式）不要整天停掉：記下來、等 wait 秒重啟 main()，
+    狀態從 live_state.json／live 分支接續（restore_state，不重複通知），最多重啟 retries 次，
+    再錯就照舊丟出去（工作流程變紅、體檢會寄信）。測試模式不包，直接跑。"""
+    if "--test" in sys.argv:
+        return main()
+    for n in range(retries + 1):
+        try:
+            return main()
+        except Exception:  # noqa: BLE001
+            if n == retries:
+                raise
+            log.exception("盤中監控出錯（第 %d 次），%.0f 秒後重啟、接續今天的紀錄", n + 1, wait)
+            time.sleep(wait)
+    return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main_supervised())

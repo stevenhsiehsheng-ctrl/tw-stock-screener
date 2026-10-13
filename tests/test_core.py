@@ -513,3 +513,34 @@ def test_btsim_drop_partial_tail():
     df = pd.DataFrame([(d, c, vol[d]) for d in days for c in ("1111", "2222")], columns=["date", "code", "volume"])
     out, cut = drop_partial_tail(df)
     assert cut == [] and len(out) == len(df)
+
+
+# ---------------------------------------------------------------- 盤中監控：單輪出錯不要整天停掉
+def test_live_main_supervised(monkeypatch):
+    from screener import live
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise ValueError("MIS 回了怪格式")
+        return 0
+
+    monkeypatch.setattr(live, "main", flaky)
+    monkeypatch.setattr(live.time, "sleep", lambda s: None)
+    monkeypatch.setattr(live.sys, "argv", ["live"])
+    assert live.main_supervised() == 0 and len(calls) == 3          # 錯兩次、第三次正常跑完
+    calls.clear()
+    monkeypatch.setattr(live, "main", lambda: (_ for _ in ()).throw(RuntimeError("一直壞")))
+    try:
+        live.main_supervised(retries=2)
+        raise AssertionError("應該要丟出來")
+    except RuntimeError:
+        pass                                                           # 重啟用完照舊丟出去（工作流程變紅）
+    monkeypatch.setattr(live.sys, "argv", ["live", "--test"])
+    monkeypatch.setattr(live, "main", lambda: (_ for _ in ()).throw(KeyError("x")))
+    try:
+        live.main_supervised()
+        raise AssertionError("測試模式不包")
+    except KeyError:
+        pass
