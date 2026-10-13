@@ -123,7 +123,8 @@ jobs:
 
   # 傍晚補抓（法人、本益比、融資、當沖）準時跑：GitHub 排程 18:05／21:47 常晚好幾小時（10/8～10/12 都半夜 1～4 點才跑），
   # 10/13 兩班都沒跑。每日資料是 cron-job.org 準時觸發的，跑完後在這裡自己等到 18:05、21:50 各叫一次。
-  # 只有「今天下午跑出今天資料」的那次才叫（早上體檢補跑昨天的、晚到的備援班都不叫）；20 分鐘內已經有一班就不重複。
+  # 只有「今天跑出今天資料」的那次才叫（早上體檢補跑昨天的、隔天半夜才到的備援班都不叫）；那個時段已經有一班就不重複。
+  # 每日資料拖到 18:00 以後才跑完：18:05 那班照叫（現在就叫）、21:50 那班照排；過 21:30 就只留 21:50 那班。
   # 一個 job 最多 6 小時，所以拆兩段。不排進 screener 佇列，不擋別的排程。
   evening1:
     needs: screen
@@ -135,19 +136,21 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      # 今天（台北）幾點以後建立的傍晚補抓有幾班：python3 -c "$SINCE" HH:MM < gh run list 的 JSON
+      SINCE: "import json, sys, datetime as d; tz = d.timezone(d.timedelta(hours=8)); h, m = map(int, sys.argv[1].split(':')); t0 = d.datetime.now(tz).replace(hour=h, minute=m, second=0, microsecond=0); print(sum(d.datetime.fromisoformat(x['createdAt'].replace('Z', '+00:00')) >= t0 for x in json.load(sys.stdin)))"
     steps:
       - name: 等到 18:05 叫傍晚補抓
         id: w
         run: |
           T=$(TZ=Asia/Taipei date +%F)
           D=$(gh api "repos/$GH_REPO/contents/data/state.json?ref=main" --jq .content | base64 -d | python3 -c "import json, sys; print(json.load(sys.stdin)['last_done'])" || true)
-          if [ "$D" != "$T" ] || [ "$(TZ=Asia/Taipei date +%H%M)" -ge 1800 ]; then
-            echo "資料日 ${D:-?}、現在台北 $(TZ=Asia/Taipei date +%H:%M)：不用排"; exit 0; fi
-          echo "D=$D" >> "$GITHUB_OUTPUT"
+          if [ "$D" != "$T" ]; then echo "資料日 ${D:-?} 不是今天（台北 $T $(TZ=Asia/Taipei date +%H:%M)）：不用排"; exit 0; fi
+          echo "D=$D" >> "$GITHUB_OUTPUT"   # 21:50 那班照排
+          if [ "$(TZ=Asia/Taipei date +%H%M)" -ge 2130 ]; then echo "已過 21:30，交給 21:50 那班"; exit 0; fi
           while [ "$(TZ=Asia/Taipei date +%H%M)" -lt 1805 ]; do sleep 60; done
           sleep $((RANDOM % 90))   # 備援班的每日資料也在等時錯開，後面那個才看得到前面叫的
-          recent=$(gh run list --workflow extras_evening.yml -L 5 --json createdAt | python3 -c "import json, sys, datetime as d; n = d.datetime.now(d.timezone.utc); print(sum((n - d.datetime.fromisoformat(x['createdAt'].replace('Z', '+00:00'))).total_seconds() < 1200 for x in json.load(sys.stdin)))" || echo 0)
-          if [ "${recent:-0}" -gt 0 ]; then echo "20 分鐘內已經有傍晚補抓，不重複"; else
+          recent=$(gh run list --workflow extras_evening.yml -L 5 --json createdAt | python3 -c "$SINCE" 18:00 || echo 0)
+          if [ "${recent:-0}" -gt 0 ]; then echo "今天 18:00 後已經有傍晚補抓，不重複"; else
             gh workflow run extras_evening.yml --ref main -f date="$D" && echo "已叫傍晚補抓 $D（台北 $(TZ=Asia/Taipei date +%H:%M)）"; fi
 
   evening2:
@@ -159,15 +162,18 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      # 今天（台北）幾點以後建立的傍晚補抓有幾班：python3 -c "$SINCE" HH:MM < gh run list 的 JSON
+      SINCE: "import json, sys, datetime as d; tz = d.timezone(d.timedelta(hours=8)); h, m = map(int, sys.argv[1].split(':')); t0 = d.datetime.now(tz).replace(hour=h, minute=m, second=0, microsecond=0); print(sum(d.datetime.fromisoformat(x['createdAt'].replace('Z', '+00:00')) >= t0 for x in json.load(sys.stdin)))"
     steps:
       - name: 等到 21:50 再叫一次（融資、當沖比較晚公布）
         env:
           D: ${{ needs.evening1.outputs.D }}
         run: |
+          if [ "$(TZ=Asia/Taipei date +%F)" != "$D" ]; then echo "已經隔天了，交給早上體檢"; exit 0; fi
           while [ "$(TZ=Asia/Taipei date +%H%M)" -lt 2150 ]; do sleep 60; done
           sleep $((RANDOM % 90))   # 備援班的每日資料也在等時錯開，後面那個才看得到前面叫的
-          recent=$(gh run list --workflow extras_evening.yml -L 5 --json createdAt | python3 -c "import json, sys, datetime as d; n = d.datetime.now(d.timezone.utc); print(sum((n - d.datetime.fromisoformat(x['createdAt'].replace('Z', '+00:00'))).total_seconds() < 1200 for x in json.load(sys.stdin)))" || echo 0)
-          if [ "${recent:-0}" -gt 0 ]; then echo "20 分鐘內已經有傍晚補抓，不重複"; else
+          recent=$(gh run list --workflow extras_evening.yml -L 5 --json createdAt | python3 -c "$SINCE" 21:45 || echo 0)
+          if [ "${recent:-0}" -gt 0 ]; then echo "今天 21:45 後已經有傍晚補抓，不重複"; else
             gh workflow run extras_evening.yml --ref main -f date="$D" && echo "已叫傍晚補抓 $D（台北 $(TZ=Asia/Taipei date +%H:%M)）"; fi
 
   deploy:
