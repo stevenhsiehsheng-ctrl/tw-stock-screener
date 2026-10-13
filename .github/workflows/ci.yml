@@ -1,7 +1,7 @@
 name: 程式檢查
 
-# PR 時先跑一遍：語法錯誤、未定義的名字、每支 screener 模組都 import 得起來、tests/ 的單元測試。
-# 每天自動跑的流程（每日資料、盤中監控、網站）壞掉時沒人在旁邊看，合併前先擋。不連網、不改資料。
+# PR 時先跑一遍：語法錯誤、未定義的名字、每支 screener 模組都 import 得起來、tests/ 的單元測試、整站重畫。
+# 每天自動跑的流程（每日資料、盤中監控、網站）壞掉時沒人在旁邊看，合併前先擋。不改 repo 的資料（重畫只在這台機器上）。
 on:
   pull_request:
   workflow_dispatch:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,3 +40,9 @@ jobs:
           PY
       - name: 單元測試
         run: python -m pytest -q tests
+      # 每一頁的產生都包在 try 裡，壞掉只寫一行「…產生失敗」、整體還是成功，平常沒人看 log 就不會發現。
+      # 這裡用 repo 裡的資料整站重畫一次（跟 pages.yml 同一個指令，約 2 分鐘），log 有「失敗」或 Traceback 就擋下來。
+      - name: 整站重畫一次（有頁面產生失敗就擋）
+        run: |
+          python -m screener.rebuild 2>&1 | tee rebuild.log
+          if grep -E "失敗|Traceback" rebuild.log; then echo "::error::有頁面產生失敗，看上面的 log"; exit 1; fi
