@@ -2328,3 +2328,40 @@ def test_live_group_heat_mainline():
     assert heat2["半導體業"]["first5"] == "09:45" and heat2["半導體業"]["main"] is True and heat2["半導體業"]["active"] == 0
     assert live.lock_minutes({"last_scan": "13:24", "lock_since": {"A0": "13:00", "A1": "13:24"}}) == {"A0": 24, "A1": 0}
     assert live.lock_minutes({}) == {}
+
+
+def test_live_official_result_and_touch(tmp_path, monkeypatch):
+    """盤中頁 13:12 正式結果：只在今天跑過才給；附當下鎖不鎖漲停（灰色只看不追）、漲幅、前日當沖（不新就不掛）。
+    漲停觸及紀錄：用當日最高價判斷碰過（兩輪之間碰一下打開的也抓到），at_limit＝這一輪還在漲停價。"""
+    import json as _json
+
+    from screener import live, positions
+
+    monkeypatch.setattr(live, "ROOT", tmp_path)
+    monkeypatch.setattr(positions, "FILE", tmp_path / "positions.csv")
+    (tmp_path / "data").mkdir()
+    today = "2026-10-14"
+    positions.save(pd.DataFrame([{"code": "1101", "name": "台泥", "signal_date": today, "alert_price": 33.0},
+                                 {"code": "2330", "name": "台積電", "signal_date": "2026-10-13", "alert_price": 1000.0}]
+                                ).reindex(columns=positions.COLS))
+    sf = tmp_path / "data" / "intraday_state.json"
+    sf.write_text(_json.dumps({"last_run": "2026-10-13", "time": "13:12", "hits": 1}), "utf-8")
+    assert live.official_result(today) is None  # 今天還沒跑 13:12
+    sf.write_text(_json.dumps({"last_run": today, "time": "13:12", "hits": 1}), "utf-8")
+    monkeypatch.setattr(live, "_EXT", {"1101": {"rev_yoy": 12.34, "dt_ratio": 41.6}})
+    monkeypatch.setattr(live, "_DT_FRESH", False)
+    q = pd.DataFrame({"code": ["1101"], "locked": [True], "chg": [9.97]})
+    r = live.official_result(today, q)
+    assert (r["time"], r["count"]) == ("13:12", 1) and [s["code"] for s in r["stocks"]] == ["1101"]
+    s = r["stocks"][0]
+    assert (s["price"], s["rev_yoy"], s["lu"], s["chg"], s["dt"]) == (33.0, 12, True, 9.97, None)  # 當沖資料不新 → 不掛
+    monkeypatch.setattr(live, "_DT_FRESH", True)
+    assert live.official_result(today, q)["stocks"][0]["dt"] == 42
+
+    monkeypatch.setattr(live, "TOUCH_DIR", tmp_path / "touch")
+    tq = pd.DataFrame({"code": ["1101", "1102", "1103"], "yclose": [30.0, 50.0, 100.0], "price": [33.0, 54.0, 104.0],
+                       "high": [33.0, 55.0, 105.0], "bid1": [33.0, 54.0, 104.0], "bid1_lots": [900, 5, 1],
+                       "ask1_lots": [None, 3, 2], "vol_lots": [1000, 800, 50]})
+    live.save_touch(today, "10:03", tq)
+    t = pd.read_csv(tmp_path / "touch" / f"{today}.csv", dtype={"code": str})
+    assert t[["code", "limit", "at_limit"]].values.tolist() == [["1101", 33.0, 1], ["1102", 55.0, 0]]  # 1103 漲 5% 沒碰到
