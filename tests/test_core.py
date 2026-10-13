@@ -1661,3 +1661,30 @@ def test_usx_cut_last_and_signal_modifiers():
     assert a["within3"] == [0, 1, 1, 1, 0, 0, 0]
     assert a["nojump"] == [1, 0, 1, 1, 1, 1, 1]
     assert not any(m["BBB"].any() for m in sig.values())
+
+
+def test_ledger_stats_matches_homepage(tmp_path, monkeypatch):
+    """Cowork 15:47 抄的 tools/ledger_stats 跟首頁「系統訊號合計」（today._sys_stats）同一套口徑、同一個數字。"""
+    from screener import today
+    from tools import ledger_stats
+
+    monkeypatch.setattr(today, "EX", tmp_path)
+    tr = pd.Series([100.0, 101.0, 102.0, 104.0], index=["2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06"])
+    pd.DataFrame({"date": tr.index, "code": "0050", "tr": tr.values}).to_csv(tmp_path / "bench.csv", index=False)
+    pos = pd.DataFrame([
+        {"code": "1101", "name": "甲", "signal_date": "2026-10-01", "status": "closed", "est_return_pct": 5.38,
+         "exit_signal_date": "2026-10-05", "exit_open": 10.5, "close_lu": 0},
+        {"code": "1102", "name": "乙", "signal_date": "2026-10-02", "status": "open", "est_return_pct": -1.62,
+         "exit_signal_date": None, "exit_open": None, "close_lu": 1},
+        {"code": "1103", "name": "丙", "signal_date": "2026-10-05", "status": "closed", "est_return_pct": 1.0,
+         "exit_signal_date": "2026-10-06", "exit_open": None, "close_lu": 0},  # 出場訊號出了、明天開盤才賣 → 算持有中
+        {"code": "1104", "name": "丁", "signal_date": "2026-10-06", "status": "open", "est_return_pct": None,
+         "exit_signal_date": None, "exit_open": None, "close_lu": 0}])
+    st = today._sys_stats(pos)
+    p = ledger_stats.frame(pos, tr)
+    assert list(p.group) == ["closed", "holding", "holding", "holding"]
+    t = ledger_stats.table(p).set_index("段").round(2)
+    assert t.at["③ 合計", "N"] == st["n"] and t.at["③ 合計", "平均"] == st["avg"] and t.at["③ 合計", "中位"] == st["med"]
+    assert t.at["③ 合計", "同期0050"] == st["bench"] and t.at["③ 合計", "超額"] == st["ex"]
+    assert t.at["　收盤鎖漲停", "平均"] == st["lu_avg"] and t.at["　收盤沒鎖", "平均"] == st["nolu_avg"]
+    assert (t.at["① 已出場", "N"], t.at["② 持有中（收盤估）", "N"]) == (1, 3) and t["勝率"].isna().all()  # 不滿 30 筆
