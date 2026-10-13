@@ -382,6 +382,25 @@ def test_margin_parse(monkeypatch):
     assert list(chips.margin(None, dt.date(2026, 10, 13)).code) == ["6488"]
 
 
+def test_today_sys_stats(tmp_path, monkeypatch):
+    """首頁系統訊號合計：持有中按最新收盤估（今天才出的算 0）、已出場用實際、每筆扣 0.38%；
+    同期 0050 含息＝訊號日 → 出場訊號日（持有中到最新）；照收盤鎖不鎖漲停拆兩組，主數字看沒鎖的。"""
+    from screener import today
+    monkeypatch.setattr(today, "EX", tmp_path)
+    pd.DataFrame({"date": ["2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06"], "code": "0050",
+                  "tr": [100.0, 101.0, 102.0, 104.0]}).to_csv(tmp_path / "bench.csv", index=False)
+    pos = pd.DataFrame([
+        {"signal_date": "2026-10-01", "status": "closed", "est_return_pct": 5.38, "exit_signal_date": "2026-10-05", "close_lu": 0},
+        {"signal_date": "2026-10-02", "status": "open", "est_return_pct": -1.62, "exit_signal_date": None, "close_lu": 1},
+        {"signal_date": "2026-10-06", "status": "open", "est_return_pct": None, "exit_signal_date": None, "close_lu": 0}])
+    st = today._sys_stats(pos)
+    assert st["n"] == 3 and st["n_open"] == 2 and st["n_lu"] == 1 and st["n_nolu"] == 2
+    assert st["avg"] == round((5.0 - 2.0 - 0.38) / 3, 2)                  # 今天才出的那筆浮動 0、扣 0.38
+    assert st["bench"] == round((2.0 + (104 / 101 - 1) * 100 + 0.0) / 3, 2)
+    assert st["lu_avg"] == -2.0 and st["nolu_avg"] == round((5.0 - 0.38) / 2, 2) and st["since"] == "2026-10-01"
+    assert st["win"] is None                                              # 不滿 30 筆不算勝率
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify
