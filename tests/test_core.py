@@ -361,3 +361,31 @@ def test_health_cron_check(tmp_path, monkeypatch):
     assert r["cron"] == ["每日資料 X 15:20 那班沒叫到"] and mails == []      # 下午沿用早上的結果、不寄
     health.run("am", heal=False, notify=True, now=now + dt.timedelta(days=1))
     assert len(mails) == 1 and "token" in mails[0][1] and "1 項" in mails[0][0]
+
+
+def test_margin_history_refetch_partial(tmp_path, monkeypatch):
+    """融資／當沖：當沖沒有、或只抓到一半（筆數不到平常八成）的日子要重抓；抓到的比舊的少不換。"""
+    from screener import chips
+    monkeypatch.setattr(chips, "MARGIN_HIST", tmp_path / "m.csv.gz")
+    monkeypatch.setattr(chips, "DT_HIST", tmp_path / "t.csv.gz")
+    monkeypatch.setattr(chips, "DIR", tmp_path)
+    days = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-12", "2026-10-13"]
+    monkeypatch.setattr(chips, "_trading_days", lambda: days)
+    monkeypatch.setattr(chips, "_volume_map", lambda x: pd.Series(dtype=float))
+    monkeypatch.setattr(chips.time, "sleep", lambda s: None)
+    codes = [f"{1000 + i}" for i in range(100)]
+    full_m = pd.DataFrame({"code": codes, "margin_bal": 1.0, "margin_chg": 0.0, "short_bal": 0.0, "util": 1.0})
+    full_t = pd.DataFrame({"code": codes, "dt_vol": 1.0})
+    mh = pd.concat([full_m.assign(date=d) for d in days[:4]] + [full_m.head(40).assign(date="2026-10-13")])   # 10/13 只有一半
+    th = pd.concat([full_t.assign(date=d) for d in days[:3]])                                                 # 10/12、10/13 沒當沖
+    mh[chips.MARGIN_COLS].to_csv(chips.MARGIN_HIST, index=False)
+    th.assign(dt_ratio=None)[chips.DT_COLS].to_csv(chips.DT_HIST, index=False)
+    asked = []
+    monkeypatch.setattr(chips, "margin", lambda s, d: asked.append(d.isoformat()) or (full_m.head(70) if d.isoformat() == "2026-10-12" else full_m))
+    monkeypatch.setattr(chips, "daytrade", lambda s, d: full_t)
+    chips.update_margin_history(None, chips.dt.date(2026, 10, 13))
+    assert sorted(asked) == ["2026-10-12", "2026-10-13"]                       # 完整的 10/6～10/8 不重抓
+    m2 = pd.read_csv(chips.MARGIN_HIST, dtype={"code": str})
+    t2 = pd.read_csv(chips.DT_HIST, dtype={"code": str})
+    assert m2.groupby("date").size().to_dict() == {d: 100 for d in days}       # 10/13 補齊；10/12 抓到 70 筆比舊的少、不換
+    assert t2.groupby("date").size().to_dict() == {d: 100 for d in days}       # 當沖 10/12、10/13 補上
