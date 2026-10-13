@@ -41,6 +41,7 @@
 | 美股沒到 | Run `us.yml` |
 | 虛擬帳戶帳本沒存 | 看協作板 `ledger_daily/日期` 有沒有；沒有就是 Cowork 15:47 沒跑成（fire 它一次）；有就照 16:25 排程的檢查存檔 |
 | GitHub 排程沒跑／晚跑 | 正常現象，都有備援班＋隔天早上體檢 |
+| 盤中頁整個上午沒更新 | 看 Actions「盤中連續監控」的 log。單輪出錯會自己重啟（log 有「盤中監控出錯（第 N 次）」，最多 5 次，狀態從 `live_state.json` 接續、不重複通知）；5 次都失敗才會停。修好後 Run workflow（**取消勾選 test**）就會接續當天 |
 | 首頁 🩺 或體檢信說「cron-job.org 沒準時叫」 | 08:40 盤中監控、15:20 每日資料是 Dennis 的 cron-job.org 叫的（用 GitHub token）。到 cron-job.org 看執行紀錄：401／403 就是 token 過期，GitHub 重新產生一個（權限 Actions: write）貼回去。連兩天沒叫到才會寄信 |
 | 證交所／櫃買格式變了 | 用 `probe.yml` 從 GitHub 抓原始回應看格式（Claude Code 的沙盒連不到證交所） |
 
