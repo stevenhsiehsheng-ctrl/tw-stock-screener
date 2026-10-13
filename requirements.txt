@@ -1,5 +1,8 @@
-pandas>=2.0
-numpy
+# pandas／numpy 只讓小版本自動更新：每次排程都會裝最新版，大改版（例如 pandas 3.1）可能改行為、半夜把每日流程弄壞。
+# 要升級就改這裡開 PR，讓「程式檢查」整站重畫過一次再合併。10/14 正常運作的版本：pandas 3.0.6、numpy 2.4.6。
+# yfinance 不鎖：Yahoo 常改介面，舊版會壞、新版會修。
+pandas>=3.0.6,<3.1
+numpy>=2.4,<2.5
 requests
 pyyaml
 yfinance>=0.2.40
