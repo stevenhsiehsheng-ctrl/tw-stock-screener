@@ -2514,3 +2514,35 @@ def test_today_build_band_and_sig_day(tmp_path, monkeypatch):
     assert k == 30 and (out["sys"]["band_lo"], out["sys"]["band_hi"]) == (-3.0, 5.0)  # 20 和 40 中間
     (ex / "sys_band.json").write_text(_json.dumps({"band": {"5": {"p5": -9.0, "p95": 9.0}, "10": {"p5": -7.0, "p95": 7.0}}}), "utf-8")
     assert (today.build()["sys"]["band_lo"], today.build()["sys"]["band_hi"]) == (-7.0, 7.0)  # 超過最大 k → 夾到 10
+
+
+def test_positions_build_md_and_fill_warn(tmp_path, monkeypatch):
+    """收盤信的出場／持有表：出場列估計報酬帶正負號、持有列沒進場價用提醒價、漲停日標「量縮不算」、缺值印 —；
+    兩邊都空就不出這段。fill_warn：用訊號日前一交易日以前公告的注意／處置，歷史還沒涵蓋到的不亂填。"""
+    import numpy as np
+
+    from screener import enrich, positions
+
+    assert positions.build_md([], []) == ""
+    md = positions.build_md(
+        [{"code": "1101", "name": "台泥", "signal_date": "2026-10-01", "entry_price": 30.0, "exit_close": 33.3,
+          "est_return_pct": 11.0, "exit_reason": "量縮"}],
+        [{"code": "2330", "name": "台積電", "signal_date": "2026-10-13", "entry_price": np.nan, "alert_price": 1000.0,
+          "days_held": 1, "est_return_pct": 2.5, "vol_ratio": 0.42, "lu_today": True, "vol_lots": 30000.0,
+          "shrink_lots": 25000.0, "days_left": 19},
+         {"code": "2454", "name": "聯發科", "signal_date": "2026-10-14", "entry_price": 1500.0, "days_held": np.nan,
+          "est_return_pct": np.nan, "vol_ratio": None, "vol_lots": None, "shrink_lots": None, "days_left": None}])
+    assert "| 1101 台泥 | 2026-10-01 | 30.00 | 33.30 | +11.00% | 量縮 |" in md
+    assert "| 2330 台積電 | 2026-10-13 | 1000.00 | 1 天 | 2.5% | 42%（今天收漲停，量縮不算） | 30,000 | 25,000 | 19 天 |" in md
+    assert "| 2454 聯發科 | 2026-10-14 | 1500.00 | 0 天 | — | — | — | — | — |" in md and md.endswith("\n\n")
+
+    monkeypatch.setattr(positions, "FILE", tmp_path / "positions.csv")
+    monkeypatch.setattr(enrich, "WARN_HIST", tmp_path / "w.csv")
+    pd.DataFrame([{"date": "2026-10-08", "code": "1101", "flag": "注意", "start": "", "end": ""}]).to_csv(enrich.WARN_HIST, index=False)
+    positions.save(pd.DataFrame([{"code": "1101", "signal_date": "2026-10-09", "status": "open"},
+                                 {"code": "1102", "signal_date": "2026-10-09", "status": "open"},
+                                 {"code": "1103", "signal_date": "2026-10-08", "status": "open"}]).reindex(columns=positions.COLS))
+    positions.fill_warn(["2026-10-07", "2026-10-08", "2026-10-09"])
+    t = positions.load().set_index("code")
+    assert (t.at["1101", "warn"], t.at["1101", "warn_n5"]) == ("注意", 1) and t.at["1102", "warn_n5"] == 0
+    assert pd.isna(t.at["1103", "warn_n5"])  # 前一交易日 10/07 比歷史第一天早 → 不填
