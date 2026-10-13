@@ -199,3 +199,55 @@ def test_gzip_csv_deterministic(tmp_path):
     q = tmp_path / "plain.csv"
     df.to_csv(q, index=False)
     assert q.read_text().startswith("date,code,close")       # 一般 CSV 不受影響
+
+
+# ---------------------------------------------------------------- 系統訊號出場：量縮到爆量日一半以下隔天開盤賣，漲停那天不算
+def test_positions_exit_rules(tmp_path, monkeypatch):
+    from screener import positions
+    monkeypatch.setattr(positions, "FILE", tmp_path / "positions.csv")
+    positions.add_signals([{"code": "1111", "name": "甲", "signal_date": "2026-10-01", "alert_price": 100.0},
+                           {"code": "2222", "name": "乙", "signal_date": "2026-10-01", "alert_price": 50.0}])
+    rows = []
+    #            日期          1111 收／量／開          2222 收／量／開
+    for d, a, b in [("2026-09-30", (95, 3000, 95), (45.5, 2000, 45)),
+                    ("2026-10-01", (100, 10000, 96), (50.0, 8000, 46)),
+                    ("2026-10-02", (102, 6000, 101), (55.0, 3000, 51)),     # 乙量縮到 37.5% 但收漲停（50→55）→ 續抱
+                    ("2026-10-05", (105, 4000, 104), (54.0, 3000, 55)),     # 甲 40% → 出場；乙 37.5% → 出場
+                    ("2026-10-06", (99, 5000, 103), (53.0, 3000, 53.5))]:
+        rows += [{"date": d, "code": "1111", "close": a[0], "volume": a[1], "open": a[2]},
+                 {"date": d, "code": "2222", "close": b[0], "volume": b[1], "open": b[2]}]
+    hist = pd.DataFrame(rows)
+    for d in ["2026-10-01", "2026-10-02"]:
+        ex, hold = positions.update(hist, d)
+        assert ex == [] and len(hold) == 2
+    ex, hold = positions.update(hist, "2026-10-05")
+    assert sorted(e["code"] for e in ex) == ["1111", "2222"] and hold == []
+    assert all(e["exit_reason"].startswith("量縮至爆量日") for e in ex)
+    positions.update(hist, "2026-10-06")                                   # 隔天補開盤價、報酬改用開盤價算
+    p = positions.load().set_index("code")
+    assert p.at["1111", "exit_open"] == 103 and p.at["1111", "est_return_pct"] == 3.0
+    assert p.at["2222", "exit_open"] == 53.5 and p.at["2222", "est_return_pct"] == 7.0
+    assert p.at["1111", "close_lu"] == 0 and p.at["2222", "close_lu"] == 1          # 50 是前收 45.5 的漲停價
+
+
+def test_health_run_heal_and_notify(tmp_path, monkeypatch):
+    from zoneinfo import ZoneInfo
+    from screener import notify
+    monkeypatch.setattr(health, "DATA", tmp_path)
+    monkeypatch.setattr(health, "OUT", tmp_path / "health" / "latest.json")
+    monkeypatch.setattr(health, "REF", None)
+    monkeypatch.setattr(health, "twse_days", lambda t: ["2026-10-08", "2026-10-12", "2026-10-13"])
+    monkeypatch.setattr(health, "failed_runs", lambda hours=20: [])
+    sent, mails = [], []
+    monkeypatch.setattr(health, "dispatch", lambda f, D: sent.append((f, D)) or True)
+    monkeypatch.setattr(notify, "send", lambda s, b: mails.append(s))
+    (tmp_path / "extras").mkdir()
+    (tmp_path / "ledger").mkdir()
+    pd.DataFrame({"date": ["2026-10-12"], "code": ["2330"]}).to_csv(tmp_path / "history.csv.gz", index=False)
+    am = dt.datetime(2026, 10, 13, 8, 40, tzinfo=ZoneInfo("Asia/Taipei"))
+    r = health.run("am", heal=True, notify=True, now=am)
+    assert r["trading_day"] == "2026-10-12"
+    assert sorted(f for f, _ in sent) == ["daily", "extras", "us"] and all(d == "2026-10-12" for _, d in sent)
+    assert len(mails) == 1 and "要看" in mails[0]                # 鎖漲停家數、帳本補跑救不了 → 寄一封
+    again = health.run("am", heal=True, notify=True, now=am)    # 同一班不重跑
+    assert again["checked_at"] == r["checked_at"] and len(sent) == 3 and len(mails) == 1
