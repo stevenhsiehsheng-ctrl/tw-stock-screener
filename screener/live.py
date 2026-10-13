@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+import requests
 import yaml
 
 from . import corpact, enrich, fetch, global_mkt, intraday, notify, positions, rules, sentiment, tech
@@ -366,6 +367,55 @@ def save_book(today: str, when: str, q: pd.DataFrame, codes: set[str]) -> None:
     x.to_csv(f, mode="a", header=not f.exists(), index=False)
 
 
+ODD_COLS = ["when", "time", "code", "odd_price", "odd_vol_sh", "odd_bid1", "odd_bid1_sh", "odd_bid5_sh",
+            "odd_ask1", "odd_ask1_sh", "odd_ask5_sh"]
+
+
+def _levels(v) -> list[float]:
+    out = []
+    for x in str(v or "").split("_"):
+        try:
+            out.append(float(x))
+        except ValueError:
+            pass
+    return out
+
+
+def odd_rows(msg: list[dict]) -> list[dict]:
+    """MIS 盤中零股報價（getStockInfo.jsp?odd=1）→ 每檔一列。b／a＝五檔價、g／f＝五檔委買／委賣「股數」、v＝零股累計成交股數。"""
+    out = []
+    for q in msg:
+        b, g, a, f = _levels(q.get("b")), _levels(q.get("g")), _levels(q.get("a")), _levels(q.get("f"))
+        out.append({"time": q.get("t"), "code": q.get("c"), "odd_price": intraday._f(q.get("z")) or intraday._f(q.get("pz")),
+                    "odd_vol_sh": intraday._f(q.get("v")) or 0,
+                    "odd_bid1": b[0] if b else None, "odd_bid1_sh": g[0] if g else None, "odd_bid5_sh": sum(g) if g else 0,
+                    "odd_ask1": a[0] if a else None, "odd_ask1_sh": f[0] if f else None, "odd_ask5_sh": sum(f) if f else 0})
+    return out
+
+
+def save_odd_book(today: str, when: str, stocks: pd.DataFrame) -> None:
+    """盤中零股五檔快照（data/book/odd_日期.csv；本尊 0045-cc-ad）：跟 save_book 同一批股票（13:12 正式訊號＋鎖漲停預警股），
+    13:12 拍一次、收盤後拍一次。整股鎖漲停時零股還有沒有人賣、排隊的有多少股——虛擬帳戶用零股買得到買不到的依據。
+    只是記錄，失敗不影響盤中監控。"""
+    bf = ROOT / "data" / "book" / f"{today}.csv"
+    if not bf.exists():
+        return
+    codes = set(pd.read_csv(bf, dtype={"code": str}).code)
+    st = stocks[stocks.code.isin(codes)]
+    if st.empty:
+        return
+    keys = "|".join(f"{'tse' if m == 'TWSE' else 'otc'}_{c}.tw" for c, m in zip(st.code, st.market))
+    sess = requests.Session()
+    sess.headers.update(fetch.HEADERS | {"Referer": "https://mis.twse.com.tw/stock/index.jsp"})
+    r = sess.get(intraday.MIS, params={"ex_ch": keys, "json": "1", "delay": "0", "odd": "1", "_": int(time.time() * 1000)}, timeout=20)
+    rows = odd_rows(r.json().get("msgArray", []))
+    if not rows:
+        return
+    f = ROOT / "data" / "book" / f"odd_{today}.csv"
+    pd.DataFrame(rows).assign(when=when).reindex(columns=ODD_COLS).to_csv(f, mode="a", header=not f.exists(), index=False)
+    log.info("盤中零股五檔（%s）：%d 檔", when, len(rows))
+
+
 TOUCH_DIR = ROOT / "data" / "touch"
 TOUCH_COLS = ["time", "code", "limit", "price", "at_limit", "bid1", "bid1_lots", "ask1_lots", "vol_lots"]
 
@@ -670,6 +720,10 @@ def main(argv=None) -> int:
                 except Exception as e:  # noqa: BLE001
                     log.warning("委買委賣快照失敗：%s", e)
                 try:
+                    save_odd_book(today, "1312", stocks)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("盤中零股快照失敗：%s", e)
+                try:
                     n_lock = positions.lock_now(q)
                     positions.set_lock_1312(today, n_lock)
                     log.info("13:12 基準母體鎖漲停 %d 家", n_lock)
@@ -745,6 +799,10 @@ def main(argv=None) -> int:
             close_book(today, stocks, _hm(lc.get("close_snapshot", "13:31"), dt.datetime.now(TZ)))
         except Exception as e:  # noqa: BLE001
             log.warning("收盤委買委賣抓取失敗：%s", e)
+        try:
+            save_odd_book(today, "close", stocks)
+        except Exception as e:  # noqa: BLE001
+            log.warning("收盤盤中零股快照失敗：%s", e)
         try:
             close_touch(today, stocks)
         except Exception as e:  # noqa: BLE001
