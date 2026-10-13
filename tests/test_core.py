@@ -935,6 +935,31 @@ def test_surge_frame_definition():
     assert not s.loc[days[:-1]].any().any()
 
 
+def test_ewindex_daily_returns_and_regime(tmp_path, monkeypatch):
+    """等權指數（盤勢主判、回測對照組）：ETF 不算、除權息日還原、|日報酬|>11% 丟掉、停牌跨缺口；
+    線上線下用前一日（不偷看），資料洞那天（檔數少 >2%）不翻。"""
+    from screener import ewindex
+    monkeypatch.setattr(ewindex, "EX", tmp_path)          # 0050 含息檔不存在 → tr_0050 空的，不影響等權
+    d = ["2026-01-05", "2026-01-06", "2026-01-07"]
+    rows = [("1111", [100, 102, 102]), ("2222", [50, 50, 47.5]),   # 2222 1/7 除息 2.5 元：還原後 0%
+            ("3333", [10, 25, 25]),                              # 減資大跳 +150%：丟掉
+            ("4444", [20, None, 22]),                            # 1/6 停牌：1/7 從 1/5 算 +10%
+            ("0050", [100, 200, 200]), ("12345", [1, 9, 9])]     # ETF、5 碼不算
+    df = pd.DataFrame([{"date": x, "code": c, "close": v} for c, vs in rows for x, v in zip(d, vs) if v is not None])
+    ex = pd.DataFrame([{"date": "2026-01-07", "code": "2222", "prev_close": 50, "ref_price": 47.5}])
+    r = ewindex.daily_returns(df, ex).set_index("date")
+    assert r.n_stocks["2026-01-06"] == 2 and abs(r.ew_ret["2026-01-06"] - 1.0) < 1e-9    # 1111 +2%、2222 0%（3333 丟）
+    assert r.n_stocks["2026-01-07"] == 4 and abs(r.ew_ret["2026-01-07"] - 2.5) < 1e-9     # 0%、0%（還原）、0%、+10%（跨缺口）
+
+    days = [str(dt.date(2025, 1, 1) + dt.timedelta(days=i)) for i in range(204)]
+    rets = pd.DataFrame({"date": days, "ew_ret": [0.1] * 201 + [-20.0, -1.0, -1.0], "n_stocks": [1000] * 201 + [900, 1000, 1000]})
+    f = ewindex.finish(rets).set_index("date")
+    assert f.close_above[days[200]] == 1 and f.above[days[201]] == 1
+    assert f.gap[days[201]] == 1 and f.close_above[days[201]] == 0
+    assert f.above[days[202]] == 1      # 前一天是資料洞，不翻，沿用更早的「線上」
+    assert f.above[days[203]] == 0      # 洞之後正常的一天收在線下 → 隔天才翻
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
