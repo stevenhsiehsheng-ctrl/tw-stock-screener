@@ -83,9 +83,10 @@ jobs:
         with:
           path: site
 
-  # 櫃買盤後零股 15:20 常常還沒公布（10/7、10/8、10/12、10/13 上櫃都 0 列），虛擬帳戶 15:47 收盤結算要用。
-  # 抓資料那個 job 推完後另外等：每 3 分鐘重抓一次，抓到就存檔，最晚等到 16:40（再晚交給傍晚補抓／隔天早上體檢）。
-  # 不排進 screener 佇列，不擋盤中監控、補抓、網站部署。log 會印出抓到的時間，用來看櫃買幾點公布。
+  # 櫃買盤後零股 15:20 常常還沒公布（10/7、10/8、10/12、10/13 上櫃都 0 列）。15:20 那班會先用 MIS 補（#311，股票的價量跟官方一樣，
+  # 虛擬帳戶 15:47 結算夠用），這裡再等「官方」的：每 3 分鐘只抓官方（ODD_NO_MIS，不重打 MIS），抓到就換掉 MIS 那份
+  # （官方多了上櫃 ETF）並從 oddlot_mis.json 拿掉，最晚等到 16:40（再晚交給傍晚補抓）。
+  # 不排進 screener 佇列，不擋盤中監控、補抓、網站部署。log 會印出抓到官方的時間，用來看櫃買幾點公布。
   oddtpex:
     needs: screen
     runs-on: ubuntu-latest
@@ -103,11 +104,14 @@ jobs:
         run: |
           D=$(python -c "import pandas as p; print(p.read_csv('data/history.csv.gz', usecols=['date']).date.max())")
           if [ "$D" != "$(TZ=Asia/Taipei date +%F)" ]; then echo "最新資料日 $D 不是今天，不等"; exit 0; fi
-          has() { python -c "import pandas as p, sys; o = p.read_csv('data/extras/oddlot_hist.csv.gz', usecols=['date', 'market']); sys.exit(0 if ((o.date == '$D') & (o.market == 'TPEX')).any() else 1)"; }
-          if has; then echo "櫃買盤後零股 $D 已經有了"; exit 0; fi
+          # odd any：上櫃這天有列（官方或 MIS 補的都算）；odd official：有列、而且不是先用 MIS 補的（data/extras/oddlot_mis.json）
+          odd() { python -c "import json, pathlib, sys, pandas as p; o = p.read_csv('data/extras/oddlot_hist.csv.gz', usecols=['date', 'market']); f = pathlib.Path('data/extras/oddlot_mis.json'); mis = json.loads(f.read_text()) if f.exists() else {}; got = ((o.date == '$D') & (o.market == 'TPEX')).any(); sys.exit(0 if got and ('$1' == 'any' or 'TPEX' not in mis.get('$D', [])) else 1)"; }
+          if odd official; then echo "櫃買盤後零股 $D 官方的已經有了"; exit 0; fi
           while true; do
-            python -m screener.enrich --oddlot-days 1 --date "$D" || true
-            if has; then echo "櫃買盤後零股 $D 到了（台北 $(TZ=Asia/Taipei date +%H:%M) 抓到）"; break; fi
+            # 已經用 MIS 補過就只等官方（ODD_NO_MIS，不重打 MIS）；連 MIS 都沒補到才照常（官方沒有就用 MIS）
+            nomis=""; if odd any; then nomis=1; fi
+            ODD_NO_MIS=$nomis python -m screener.enrich --oddlot-days 1 --date "$D" || true
+            if odd official; then echo "櫃買盤後零股 $D 官方的到了（台北 $(TZ=Asia/Taipei date +%H:%M) 抓到）"; break; fi
             if [ "$(TZ=Asia/Taipei date +%H%M)" -ge 1640 ]; then echo "16:40 還沒公布，交給傍晚補抓"; exit 0; fi
             sleep 180
           done

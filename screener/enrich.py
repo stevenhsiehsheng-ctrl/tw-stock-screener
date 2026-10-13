@@ -11,6 +11,7 @@ import datetime as dt
 import email.utils
 import json
 import logging
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -154,7 +155,9 @@ def oddlot(s, d: dt.date) -> pd.DataFrame:
                             "bid": (_num(r[ib]) or None) if ib is not None else None,
                             "ask": (_num(r[ix]) or None) if ix is not None else None})
             break
-        if len(out) == n0:
+        if len(out) == n0 and os.environ.get("ODD_NO_MIS"):
+            log.info("%s 盤後零股 %s 官方還沒公布（ODD_NO_MIS：只等官方，不用 MIS 補）", mkt, d)
+        elif len(out) == n0:
             try:
                 out += _oddlot_mis(d, mkt)
             except Exception as e:  # noqa: BLE001
