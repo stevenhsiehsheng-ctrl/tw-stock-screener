@@ -1817,3 +1817,49 @@ def test_groups_rs_and_industry_strength():
     assert (a["rank"], a["n"], a["score"], b["score"]) == (1, 5, 100, 50)
     assert a["r5"] == round((30 + 20 + 10) / 5, 1) and b["r1"] == -10.0
     assert a["above"] == 60 and b["above"] == 0  # 甲 3 檔漲上去、2 檔平盤不算站上
+
+
+def test_sitenav_apply(tmp_path):
+    """全站導覽列：沒產生的頁不出現、目前頁反白、子資料夾加 ../、分享預覽標籤只加一次、個股頁不放搜尋框。"""
+    from screener import sitenav
+
+    page = lambda key, extra="": f"<html><head><title>{key} 頁</title></head><body><!--SITENAV:{key}{extra}-->內容</body></html>"  # noqa: E731
+    (tmp_path / "weekly").mkdir()
+    (tmp_path / "index.html").write_text(page("daily"), "utf-8")
+    (tmp_path / "stock.html").write_text(page("stock"), "utf-8")
+    (tmp_path / "weekly" / "index.html").write_text(page("weekly", ":../"), "utf-8")
+    (tmp_path / "plain.html").write_text("<html><title>x</title></html>", "utf-8")
+    sitenav.apply(tmp_path)
+
+    d = (tmp_path / "index.html").read_text("utf-8")
+    assert "<!--SITENAV" not in d and "<a class='on' href='index.html'>📊 每日篩選</a>" in d
+    assert "href='stock.html'>🔎 個股查詢" in d and "weekly/index.html" in d and "gifts.html" not in d  # 沒產生的頁不列
+    assert "action='stock.html'" in d and d.count("og:title") == 1 and "每天收盤後篩選台股" in d
+    s = (tmp_path / "stock.html").read_text("utf-8")
+    assert "action='stock.html'" not in s and "<a class='on' href='stock.html'>" in s
+    w = (tmp_path / "weekly" / "index.html").read_text("utf-8")
+    assert "href='../index.html'" in w and "<a class='on' href='../weekly/index.html'>" in w and "src='../claude_link.js'" in w
+    assert (tmp_path / "plain.html").read_text("utf-8") == "<html><title>x</title></html>"  # 沒標記的頁不動
+    sitenav.apply(tmp_path)  # 重跑不會重複加
+    assert (tmp_path / "index.html").read_text("utf-8") == d
+
+
+def test_global_mkt_snapshot_fallback_and_stale(tmp_path, monkeypatch):
+    """美股隔夜：費半指數抓不到改費半 ETF；個股日 K 比指數晚一天 → 用 us 歷史檔補，補不到標 stale；ADR 溢價＝ADR×匯率÷5÷台股收盤。"""
+    from screener import global_mkt, us
+
+    ix = pd.to_datetime(["2026-10-12", "2026-10-13"])
+    old = pd.to_datetime(["2026-10-09", "2026-10-12"])
+    data = {"SOXX": pd.Series([200.0, 210.0], index=ix), "^IXIC": pd.Series([100.0, 101.0], index=ix),
+            "^GSPC": pd.Series([50.0, 50.5], index=ix), "TSM": pd.Series([300.0, 306.0], index=ix),
+            "NVDA": pd.Series([180.0, 185.0], index=old), "AAPL": pd.Series([250.0, 245.0], index=old),
+            "^VIX": pd.Series([20.0, 18.0], index=ix), "TWD=X": pd.Series([30.0, 32.0], index=ix)}
+    monkeypatch.setattr(global_mkt, "_closes", lambda sym: data.get(sym))  # ^SOX 抓不到
+    pd.DataFrame({"date": ["2026-10-12", "2026-10-13"], "sym": "NVDA", "close": [185.0, 194.25]}).to_csv(tmp_path / "h.csv", index=False)
+    monkeypatch.setattr(us, "HIST", tmp_path / "h.csv")
+    out = global_mkt.snapshot(tw2330_close=1900.0)
+    it = {i["sym"]: i for i in out["items"]}
+    assert "^SOX" not in it and it["SOXX"]["name"] == "費半ETF" and it["SOXX"]["chg"] == 5.0
+    assert (it["NVDA"]["close"], it["NVDA"]["chg"], it["NVDA"]["date"]) == (194.25, 5.0, "10/13") and "stale" not in it["NVDA"]
+    assert it["AAPL"]["stale"] and it["AAPL"]["date"] == "10/12"  # 歷史檔也沒有 → 標出來，不默默用舊的
+    assert "TWD=X" not in it and out["adr_premium"] == round((306 * 32 / 5 / 1900 - 1) * 100, 1)
