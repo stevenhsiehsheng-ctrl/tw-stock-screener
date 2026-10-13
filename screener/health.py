@@ -182,6 +182,38 @@ def dispatch(fix: str, D: str) -> bool:
         return False
 
 
+WF = {"daily": "daily.yml", "extras": "extras_evening.yml", "us": "us.yml"}
+
+
+def wait_dispatched(until: str = "08:55", poll: int = 20, grace: int = 90, now=None, sleep=None) -> list[str]:
+    """早上補跑的工作流程等它跑完再開始盤中監控：live.py 只在啟動時讀一次資料（昨收、法人、當沖），
+    傍晚補抓整晚沒跑的日子（10/13 18:05、21:47 兩班都沒跑）不等的話，盤中頁整天用前天的法人、不掛當沖警示。
+    最多等到台北 until；剛派出去的可能還沒出現在列表，前 grace 秒沒看到也繼續等。回傳等不到的。"""
+    import time
+    now = now or (lambda: dt.datetime.now(TPE))
+    sleep = sleep or time.sleep
+    t0 = now()
+    res = json.loads(OUT.read_text("utf-8")) if OUT.exists() else {}
+    if res.get("date") != t0.date().isoformat():
+        return []
+    left = {WF[f] for f in res.get("dispatched") or [] if f in WF}
+    hh, mm = map(int, until.split(":"))
+    end = t0.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    seen: set[str] = set()
+    while left and now() < end:
+        for w in sorted(left):
+            if _busy(w):
+                seen.add(w)
+            elif w in seen or (now() - t0).total_seconds() >= grace:
+                left.discard(w)
+                log.info("%s 跑完了", w)
+        if left:
+            sleep(poll)
+    if left:
+        log.info("等到 %s 還沒跑完：%s，先用現有資料開始", until, "、".join(sorted(left)))
+    return sorted(left)
+
+
 def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, latest: bool = False) -> dict:
     global REF
     now = now or dt.datetime.now(TPE)
@@ -237,12 +269,18 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     ap = argparse.ArgumentParser(description="系統自我體檢")
-    ap.add_argument("--slot", choices=["am", "pm"], required=True)
+    ap.add_argument("--slot", choices=["am", "pm"])
     ap.add_argument("--heal", action="store_true", help="缺資料就派工補跑")
     ap.add_argument("--notify", action="store_true", help="有救不回來的就寄信")
     ap.add_argument("--latest", action="store_true", help="讀 origin/main 最新的資料檔（先 git fetch）")
+    ap.add_argument("--wait-until", metavar="HH:MM", help="不體檢，等今天早上補跑的工作流程跑完（最晚到台北 HH:MM）")
     a = ap.parse_args()
-    run(a.slot, a.heal, a.notify, latest=a.latest)
+    if a.wait_until:
+        wait_dispatched(a.wait_until)
+    elif a.slot:
+        run(a.slot, a.heal, a.notify, latest=a.latest)
+    else:
+        ap.error("要給 --slot 或 --wait-until")
 
 
 if __name__ == "__main__":

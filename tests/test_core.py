@@ -297,3 +297,27 @@ def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     assert len(mails) == 1 and "要看" in mails[0]                # 鎖漲停家數、帳本補跑救不了 → 寄一封
     again = health.run("am", heal=True, notify=True, now=am)    # 同一班不重跑
     assert again["checked_at"] == r["checked_at"] and len(sent) == 3 and len(mails) == 1
+
+
+def test_health_wait_dispatched(tmp_path, monkeypatch):
+    """早上補跑的等跑完再開始盤中監控：跑完就不等、剛派出去還沒出現在列表的先等一下、最晚等到 08:55。"""
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    out = tmp_path / "latest.json"
+    monkeypatch.setattr(health, "OUT", out)
+    t = [dt.datetime(2026, 10, 14, 8, 41, tzinfo=ZoneInfo("Asia/Taipei"))]
+    clock, nap = (lambda: t[0]), (lambda s: t.__setitem__(0, t[0] + dt.timedelta(seconds=s)))
+    out.write_text(json.dumps({"date": "2026-10-14", "dispatched": ["extras", "us"]}), "utf-8")
+    # 美股 1 分鐘後才出現在列表、3 分鐘跑完；傍晚補抓 5 分鐘跑完
+    busy = {"us.yml": lambda m: 1 <= m < 3, "extras_evening.yml": lambda m: m < 5}
+    monkeypatch.setattr(health, "_busy", lambda w: busy[w]((t[0] - dt.datetime(2026, 10, 14, 8, 41, tzinfo=ZoneInfo("Asia/Taipei"))).total_seconds() / 60))
+    assert health.wait_dispatched("08:55", now=clock, sleep=nap) == []
+    assert dt.time(8, 46) <= t[0].time() < dt.time(8, 47)
+    # 一直沒跑完 → 等到 08:55 就放棄
+    t[0] = dt.datetime(2026, 10, 14, 8, 41, tzinfo=ZoneInfo("Asia/Taipei"))
+    monkeypatch.setattr(health, "_busy", lambda w: True)
+    assert health.wait_dispatched("08:55", now=clock, sleep=nap) == ["extras_evening.yml", "us.yml"]
+    assert t[0].time() >= dt.time(8, 55)
+    # 不是今天的體檢、沒派工 → 不等
+    t[0] = dt.datetime(2026, 10, 15, 8, 41, tzinfo=ZoneInfo("Asia/Taipei"))
+    assert health.wait_dispatched("08:55", now=clock, sleep=nap) == [] and t[0].time() == dt.time(8, 41)
