@@ -1144,6 +1144,20 @@ def test_daytrade_and_pe_parse(monkeypatch):
     assert p.loc["6488"].to_dict() == {"pe": 35.2, "yield": 0.8, "pb": 3.3}
 
 
+def test_mis_price_and_volume_profile():
+    """MIS 報價取價順序（盤中每輪都靠它）：最新成交 z → 最近一筆 pz → 買賣中價 → 只有一邊就用那邊；「-」當沒有。
+    預估全日量用的成交量曲線：開盤前 0.05、13:12 約 0.91、收盤 1，中間線性內插、超出範圍夾住。"""
+    from screener import intraday, live
+    assert intraday._price({"z": "105.5", "pz": "105", "b": "105_", "a": "106_"}) == 105.5
+    assert intraday._price({"z": "-", "pz": "104.5"}) == 104.5
+    assert intraday._price({"z": "-", "b": "100.0_99.5_", "a": "101.0_101.5_"}) == 100.5
+    assert intraday._price({"z": "-", "b": "100.0_", "a": "-"}) == 100.0
+    assert intraday._price({"z": "-"}) is None
+    t = lambda h, m: live.vol_fraction(dt.datetime(2026, 10, 14, h, m))
+    assert t(8, 50) == 0.05 and t(13, 30) == 1.0 and t(14, 0) == 1.0
+    assert abs(t(13, 12) - (0.87 + 12 / 25 * 0.08)) < 1e-9 and abs(t(9, 15) - 0.17) < 1e-9
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
