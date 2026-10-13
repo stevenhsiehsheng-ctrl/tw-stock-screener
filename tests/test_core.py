@@ -2546,3 +2546,37 @@ def test_positions_build_md_and_fill_warn(tmp_path, monkeypatch):
     t = positions.load().set_index("code")
     assert (t.at["1101", "warn"], t.at["1101", "warn_n5"]) == ("注意", 1) and t.at["1102", "warn_n5"] == 0
     assert pd.isna(t.at["1103", "warn_n5"])  # 前一交易日 10/07 比歷史第一天早 → 不填
+
+
+def test_health_dispatch_inputs_match_workflows(monkeypatch):
+    """體檢補跑：gh workflow run 帶的 -f 參數都要是那個 workflow 真的有的 input（改了 yml input 名字，派工會默默失敗）；
+    已經在排隊／跑的不重派。"""
+    import subprocess
+
+    import yaml
+
+    from screener import health
+    from screener.main import ROOT
+
+    calls = []
+
+    class P:
+        stdout = "[]"
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: calls.append(cmd) or P())
+    for fix in ("daily", "extras", "us"):
+        calls.clear()
+        assert health.dispatch(fix, "2026-10-13") is True
+        run = [c for c in calls if c[:3] == ["gh", "workflow", "run"]][0]
+        wf = run[3]
+        assert wf == health.WF[fix] and run[4:6] == ["--ref", "main"]
+        y = yaml.safe_load((ROOT / ".github" / "workflows" / wf).read_text("utf-8"))
+        inputs = set(((y.get(True) or y.get("on"))["workflow_dispatch"] or {}).get("inputs", {}) or {})
+        keys = {run[i + 1].split("=")[0] for i, a in enumerate(run) if a == "-f"}
+        assert keys <= inputs, (wf, keys - inputs)
+        assert fix == "us" or "date=2026-10-13" in run  # 補的是體檢判定的那個交易日
+
+    class Busy:
+        stdout = '[{"status": "in_progress"}]'
+    calls.clear()
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: calls.append(cmd) or Busy())
+    assert health.dispatch("daily", "2026-10-13") is True and not any(c[:3] == ["gh", "workflow", "run"] for c in calls)
