@@ -1545,3 +1545,46 @@ def test_gifts_parse_and_records():
     assert (r["v"], r["vb"], r["fv"]) == (50.0, "面額", 50.0)
     r = by["2330"][0]
     assert (r["v"], r["vb"], r["b1"]) == (8.0, "收購價", 8.0) and r["pd"] == "2026-05-01"
+
+
+def test_valuation_percentile_and_month(tmp_path, monkeypatch):
+    """估值位階：同值算一半的百分位、虧損（本益比 ≤0）不算、不到 24 個月不給、自訂選股表＝個股頁；月檔一個月只補一次。"""
+    from screener import valuation
+
+    ex = tmp_path / "data" / "extras"
+    ex.mkdir(parents=True)
+    monkeypatch.setattr(valuation, "ROOT", tmp_path)
+    monkeypatch.setattr(valuation, "EX", ex)
+    monkeypatch.setattr(valuation, "HIST", ex / "pe_5y.csv.gz")
+    months = [f"{y}-{m:02d}-01" for y in range(2021, 2027) for m in range(1, 13)][8:-2]  # 2021-09～2026-10，62 個月
+    rows = []
+    for i, d in enumerate(months):
+        rows.append({"date": d, "code": "1101", "market": "TWSE", "pe": 10 + i % 10, "pb": 1.0, "yield": 5.0})
+        rows.append({"date": d, "code": "2330", "market": "TWSE", "pe": -3.0 if i % 2 else 20.0, "pb": 5.0, "yield": 2.0})
+        if i >= len(months) - 20:
+            rows.append({"date": d, "code": "6666", "market": "TPEX", "pe": 15.0, "pb": 2.0, "yield": 3.0})  # 才 20 個月
+    pd.DataFrame(rows).to_csv(valuation.HIST, index=False)
+    pd.DataFrame({"code": ["1101", "2330", "6666"], "pe": [12, 20, 15], "pb": [1.0, 5.0, 2.0],
+                  "yield": [6.0, 2.0, 3.0]}).to_csv(ex / "pe.csv", index=False)
+    pd.DataFrame({"code": ["1101", "2330", "6666"], "market": ["TWSE", "TWSE", "TPEX"]}).to_csv(tmp_path / "data" / "stock_list.csv", index=False)
+
+    h, now = valuation.load()
+    assert h.ym.min() == "2021-11" and h.ym.nunique() == 60  # 只看 5 年：2026-10 往回到 2021-11
+    s = valuation.stats(h[h.code == "1101"], now, "1101")
+    v = h[h.code == "1101"].pe
+    assert s["pe"]["pct"] == round(((v < 12).mean() + 0.5 * (v == 12).mean()) * 100) and s["pe"]["n"] == 60
+    assert (s["pe"]["lo"], s["pe"]["hi"], s["pe"]["from"]) == (10, 19, "2021-11")
+    assert s["pb"]["pct"] == 50 and s["yield"]["pct"] == 100  # 全部同值＝50％；比過去都高＝100％
+    s2 = valuation.stats(h[h.code == "2330"], now, "2330")
+    assert s2["pe"]["n"] == 30 and s2["pe"]["pct"] == 50  # 虧損月份不算進去
+    assert valuation.stats(h[h.code == "6666"], now, "6666") == {}  # 不到 24 個月
+    t = valuation.table()
+    assert set(t.index) == {"1101", "2330"} and t.at["1101", "pe_pct"] == s["pe"]["pct"] and t.at["2330", "y_pct"] == 50
+
+    today = pd.DataFrame({"code": ["1101"], "pe": [11.0], "pb": [1.1], "yield": [5.5]})
+    assert valuation.append_month(today, dt.date(2026, 10, 14)) == 62  # 這個月已經有了，不補
+    assert valuation.append_month(today, dt.date(2026, 11, 3)) == 63
+    assert valuation.append_month(today, dt.date(2026, 11, 4)) == 63  # 同月第二次不補
+    h2 = pd.read_csv(valuation.HIST, dtype={"code": str})
+    new = h2[h2.date == "2026-11-03"]
+    assert len(new) == 1 and new.iloc[0].market == "TWSE" and list(h2.columns) == ["date", "code", "market", "pe", "pb", "yield"]
