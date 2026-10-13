@@ -64,6 +64,20 @@ jobs:
               done
             fi
           else echo "不在早上時段，跳過"; fi
+      # 早上補跑的（每日資料、傍晚補抓、美股）等它跑完、拉最新的 main 再開始監控：live.py 只在啟動時讀一次資料，
+      # 不等的話傍晚補抓整晚沒跑的日子（10/13 兩班都沒跑），盤中頁整天用前天的法人、不掛當沖警示。最晚等到 08:55
+      - name: 等早上補跑的資料
+        if: ${{ inputs.test != true }}
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(TZ=Asia/Taipei date +%H%M)" -lt 0855 ]; then
+            python -m screener.health --wait-until 08:55
+            git pull -q --rebase -X theirs || { git rebase --abort 2>/dev/null; true; }
+            git log -1 --format='資料版本 %h %s'
+          else echo "已過 08:55，直接開始"; fi
       - name: 盤中監控
         env:
           SMTP_USER: ${{ secrets.SMTP_USER }}
