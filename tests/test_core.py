@@ -743,6 +743,11 @@ def test_oddlot_mis_fallback(monkeypatch):
                                                               "amount": 9734880, "bid": 1015.0, "ask": 1020.0}] if m == "TPEX" else [])
     df = enrich.oddlot(None, dt.date(2026, 10, 13))
     assert sorted(zip(df.code, df.market)) == [("2330", "TWSE"), ("6488", "TPEX")] and df.set_index("code").price["2330"] == 2500
+    assert df.attrs["mis"] == ["TPEX"]
+    # daily.yml oddtpex 等官方時設 ODD_NO_MIS：官方 0 列就只回上市，不打 MIS
+    monkeypatch.setenv("ODD_NO_MIS", "1")
+    df = enrich.oddlot(None, dt.date(2026, 10, 13))
+    assert list(df.market) == ["TWSE"] and df.attrs["mis"] == []
 
 
 def test_oddlot_mis_replaced_by_official(monkeypatch, tmp_path):

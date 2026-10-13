@@ -11,7 +11,7 @@
 | 12:50 | Cowork 排程 | AI 分析 |
 | 13:12 | 盤中監控 | 正式訊號（呼叫 `intraday.py`）、委買委賣與盤中零股快照（`data/book`） |
 | 13:30 | 盤中監控收工 | **收工後體檢**：還缺就寄信 |
-| 15:20 | `daily.yml` 台股每日篩選（cron-job.org；GitHub 15:20／17:40 備援） | 抓收盤、篩選、網站、revdrift 批次；櫃買盤後零股官方還沒公布就先用 MIS 補（`oddtpex` 再等官方到 16:40，平常會直接結束） |
+| 15:20 | `daily.yml` 台股每日篩選（cron-job.org；GitHub 15:20／17:40 備援） | 抓收盤、篩選、網站、revdrift 批次；櫃買盤後零股官方還沒公布就先用 MIS 補；`oddtpex` 再每 3 分鐘只抓官方的到 16:40，抓到就換掉 MIS 那份（log 印出櫃買幾點公布） |
 | 15:47 | Cowork 排程 | 虛擬帳戶收盤結算 → 協作板 `ledger_daily` |
 | 16:08 | Cowork 排程 | Dennis 持股日報（真實持股，加密，**Claude Code 不碰**） |
 | 16:25 | Claude Code 排程（一～六） | 先看今天是不是交易日（`python -m screener.twcal` 印「交易日／休市」，讀 `data/extras/tw_holidays.json`；休市日只處理留言，不會因為沒有今天的資料就叫每日資料、叫 Dennis 換 token）。交易日：看體檢、把 `ledger_daily` 存成 `data/ledger/日期.json`（先 `python -m screener.ledger_save 匯出檔.json` 檢查，沒錯誤再加 `--write`）、處理協作板留言 |
