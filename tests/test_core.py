@@ -735,3 +735,14 @@ def test_oddlot_mis_fallback(monkeypatch):
                                                               "amount": 9734880, "bid": 1015.0, "ask": 1020.0}] if m == "TPEX" else [])
     df = enrich.oddlot(None, dt.date(2026, 10, 13))
     assert sorted(zip(df.code, df.market)) == [("2330", "TWSE"), ("6488", "TPEX")] and df.set_index("code").price["2330"] == 2500
+
+
+def test_probe_split_arg():
+    """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
+    from tools.probe import split_arg
+    assert split_arg("https://x/y?a=1|成交價") == ("https://x/y?a=1", "成交價")
+    assert split_arg("https://x/y") == ("https://x/y", "")
+    mis = "https://mis.twse.com.tw/stock/api/getOddInfo.jsp?ex_ch=tse_2330.tw|otc_6488.tw&json=1"
+    assert split_arg(mis) == (mis, "")
+    assert split_arg(mis + "|台積電") == (mis, "台積電")
+    assert split_arg("https://m/api?ex_ch=tse_2330.tw|tse_2317.tw") == ("https://m/api?ex_ch=tse_2330.tw|tse_2317.tw", "")
