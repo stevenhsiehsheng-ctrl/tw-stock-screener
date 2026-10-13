@@ -14,6 +14,75 @@
   "win": 43.6,
   "ex_mean": 4.0,
   "ex_med": -8.7,
+  "n_delist": 0,
+  "exits": {
+   "h60": {
+    "name": "抱 60 天",
+    "mean": 6.8,
+    "med": -5.3,
+    "win": 43.6,
+    "big": 11.5,
+    "worst": -29.3,
+    "days": 60.0,
+    "years_neg": 2,
+    "years": 6
+   },
+   "h20": {
+    "name": "抱 20 天",
+    "mean": 0.8,
+    "med": -4.4,
+    "win": 40.1,
+    "big": 4.0,
+    "worst": -22.4,
+    "days": 20.1,
+    "years_neg": 3,
+    "years": 6
+   },
+   "trail15": {
+    "name": "最高收盤回落 15% 賣",
+    "mean": 2.3,
+    "med": -8.0,
+    "win": 35.2,
+    "big": 6.2,
+    "worst": -17.1,
+    "days": 22.9,
+    "years_neg": 2,
+    "years": 6
+   },
+   "stop10": {
+    "name": "跌破進場價 10% 賣",
+    "mean": 3.2,
+    "med": -10.7,
+    "win": 25.2,
+    "big": 8.7,
+    "worst": -15.2,
+    "days": 28.8,
+    "years_neg": 1,
+    "years": 6
+   },
+   "ma20": {
+    "name": "收盤跌破 20 日均線賣",
+    "mean": 0.8,
+    "med": -6.2,
+    "win": 33.9,
+    "big": 3.6,
+    "worst": -16.5,
+    "days": 16.5,
+    "years_neg": 3,
+    "years": 6
+   },
+   "tp30sl10": {
+    "name": "漲 30% 或跌 10% 賣",
+    "mean": 2.1,
+    "med": -10.5,
+    "win": 31.1,
+    "big": 0.9,
+    "worst": -14.8,
+    "days": 19.2,
+    "years_neg": 2,
+    "years": 6
+   }
+  },
   "by_year": {
    "2021": {
     "n": 96,
@@ -55,19 +124,88 @@
  },
  "base": {
   "name": "低檔爆量突破",
-  "n": 1618,
+  "n": 1620,
   "start": "2020-10-05",
   "end": "2026-07-09",
   "dbl": 5.8,
-  "half": 17.1,
+  "half": 17.0,
   "mean": 5.9,
   "med": -4.7,
   "win": 42.8,
   "ex_mean": 2.9,
   "ex_med": -6.8,
+  "n_delist": 2,
+  "exits": {
+   "h60": {
+    "name": "抱 60 天",
+    "mean": 5.9,
+    "med": -4.7,
+    "win": 42.8,
+    "big": 9.6,
+    "worst": -25.4,
+    "days": 60.0,
+    "years_neg": 1,
+    "years": 6
+   },
+   "h20": {
+    "name": "抱 20 天",
+    "mean": 0.6,
+    "med": -4.5,
+    "win": 39.5,
+    "big": 3.5,
+    "worst": -20.6,
+    "days": 20.1,
+    "years_neg": 4,
+    "years": 6
+   },
+   "trail15": {
+    "name": "最高收盤回落 15% 賣",
+    "mean": 2.0,
+    "med": -7.1,
+    "win": 34.8,
+    "big": 5.6,
+    "worst": -16.9,
+    "days": 26.7,
+    "years_neg": 3,
+    "years": 6
+   },
+   "stop10": {
+    "name": "跌破進場價 10% 賣",
+    "mean": 2.7,
+    "med": -10.7,
+    "win": 27.5,
+    "big": 7.3,
+    "worst": -14.5,
+    "days": 30.9,
+    "years_neg": 2,
+    "years": 6
+   },
+   "ma20": {
+    "name": "收盤跌破 20 日均線賣",
+    "mean": 2.0,
+    "med": -5.8,
+    "win": 34.6,
+    "big": 4.6,
+    "worst": -15.5,
+    "days": 17.9,
+    "years_neg": 2,
+    "years": 6
+   },
+   "tp30sl10": {
+    "name": "漲 30% 或跌 10% 賣",
+    "mean": 1.3,
+    "med": -10.6,
+    "win": 31.4,
+    "big": 0.6,
+    "worst": -14.3,
+    "days": 22.1,
+    "years_neg": 2,
+    "years": 6
+   }
+  },
   "by_year": {
    "2021": {
-    "n": 311,
+    "n": 313,
     "dbl": 6.4,
     "mean": 3.0,
     "med": -6.0

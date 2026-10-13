@@ -127,8 +127,25 @@ def _stats_html(s: dict) -> str:
             f"<tr><td>抱 60 天平均</td><td>{r['mean']:+.1f}%</td><td>{s['random']['mean']:+.1f}%</td></tr>"
             f"<tr><td>減同期全市場等權（平均／中位）</td><td>{r['ex_mean']:+.1f}%／{r['ex_med']:+.1f}%</td><td>—</td></tr>"
             f"</table></div><details><summary>每年分開看</summary><div class='tbl'><table>"
-            f"<tr><th>年</th><th>次數</th><th>翻倍</th><th>平均</th><th>中位</th></tr>{yrs}</table></div></details>")
+            f"<tr><th>年</th><th>次數</th><th>翻倍</th><th>平均</th><th>中位</th></tr>{yrs}</table></div></details>"
+            f"{_exits_html(r)}")
     return "".join(out)
+
+
+def _exits_html(r: dict) -> str:
+    """出場方式比較（tools/momo5y.py EXITS，先定好 6 種再跑，全部列出）。"""
+    ex = r.get("exits")
+    if not ex:
+        return ""
+    rows = "".join(f"<tr><td>{x['name']}</td><td>{x['mean']:+.1f}%</td><td>{x['med']:+.1f}%</td><td>{x['win']:.0f}%</td>"
+                   f"<td>{x['big']:.0f}%</td><td>{x['worst']:+.1f}%</td><td>{x['days']:.0f}</td><td>{x['years_neg']}/{x['years']}</td></tr>"
+                   for x in ex.values())
+    return ("<details><summary>什麼時候賣？6 種出場方式比較</summary><div class='tbl'><table>"
+            "<tr><th>出場</th><th>平均</th><th>中位</th><th>賺錢</th><th>賺 ≥50%</th><th>最差 1 成</th><th>抱幾天</th><th>平均虧的年</th></tr>"
+            f"{rows}</table></div><p class='meta'>停損（跌 10% 賣、從高點回落 15% 賣）能把最慘的 1 成從 −25～−30% 壓到 −15% 左右，"
+            "但平均報酬會掉一半以上、賺錢的比例也變低——這類股票賺的是少數幾檔大漲，提早賣就吃不到。"
+            "想控制風險，比較有效的是每檔放小錢、分散多檔，而不是設很緊的停損。"
+            "觸發看收盤、隔天開盤賣；6 種是先定好再跑的，全部列出，沒有挑最好看的。</p></details>")
 
 
 def write(site_dir: Path) -> bool:
