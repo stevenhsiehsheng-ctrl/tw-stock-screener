@@ -19,12 +19,14 @@
 | 06:17（每天） | GitHub `gifts.yml` | 股東紀念品 |
 | 週六 09:52 | Cowork 排程 | 週檢討、週報草稿；Claude Code 16:25 核數字發佈 |
 
-網站：每次推資料都會觸發 `pages.yml` 重畫（`site/`）。
+網站（`site/`）：`daily.yml` 自己部署；美股隔夜、傍晚補抓、盤中監控（早上體檢、13:31 收工）、股東紀念品推完資料會自己叫 `pages.yml` 重畫。
+**GITHUB_TOKEN 推的 commit 不會觸發 `pages.yml`**，新增推資料的流程要記得自己 `gh workflow run pages.yml`（不然網站要等下一次別人叫）。PR 合併改到網頁相關檔案會自動觸發。
 
 ## 出事看哪裡
 
 1. **`data/health/latest.json`**（`screener/health.py`）：上一個交易日的資料有沒有到齊。`bad` 是缺的項目、`failed_runs` 是失敗的工作流程、`dispatched` 是早上自動補跑了什麼。
    檢查項目：收盤價、等權指數、13:12 鎖漲停家數、三大法人、盤後零股（上市／上櫃）、融資融券、當沖、美股、風險燈、虛擬帳戶帳本。
+   法人、融資、當沖「日期到了但筆數不到平常八成」（只抓到櫃買那一半）也算沒到，早上會自動補跑重抓。
    早上另外看 `cron`：cron-job.org 有沒有準時叫（這班盤中監控、上一個交易日 15:20 的每日資料）。
    `repo_mb`：GitHub 統計的 repo 大小（只記錄；10/14 是 520.8 MB，之後每週應該只長幾 MB，一天長幾十 MB 就是有檔案又整份重存）。
 2. **GitHub Actions** 紅色的那一個，點進去看 log。
@@ -44,7 +46,7 @@
 
 ## 改程式的規則
 
-- 分支 → PR → **「程式檢查」**（`ci.yml`：語法錯誤、每支 `screener/` 模組能 import、`tests/` 單元測試、整站重畫一次沒有「產生失敗」）綠了才合併。本機：`python -m pytest -q tests`、`python -m screener.rebuild`（跑完記得 `git checkout -- data site` 還原）。
+- 分支 → PR → **「程式檢查」**（`ci.yml`：語法錯誤、每支 `screener/` 模組能 import、`tests/` 單元測試（含 workflow 檔：YAML、bash -n、inputs 有宣告、live／daily 保留 test 輸入）、整站重畫一次沒有「產生失敗」）綠了才合併。本機：`python -m pytest -q tests`、`python -m screener.rebuild`（跑完記得 `git checkout -- data site` 還原）。
 - `live.yml`、`screener/live.py`、`intraday.py`、`live_page.html`、`positions.py` 影響盤中，**13:30 收盤後**才合併。
 - 改過的網頁用 playwright 實際打開看（手機寬 400px、有沒有 JS 錯誤）。
 - 數字類的改動（回測、統計）先寫好要比什麼再跑，全部列出，不挑好看的。
@@ -60,7 +62,7 @@
 | `data/book/`、`data/touch/` | 13:12／收盤委買委賣、盤中零股五檔、漲停觸及紀錄 |
 | `data/health/latest.json` | 系統體檢 |
 | `site/` | 網站（GitHub Pages） |
-| `backtest-data` 分支 | 5 年回測用日 K（含下市股） |
+| `backtest-data` 分支 | 5 年回測用日 K（含下市股；Yahoo 還原價）。檔尾如果是盤中抓的半天資料（10/06 那份就是），`tools/btsim.py` 讀檔時會自動丟掉 |
 
 `.gz` 資料檔是**不壓縮的 gzip**（壓縮等級 0、檔頭時間 0，`screener/__init__.py` 統一處理）：檔名、讀法照舊，git 才能每天只存多出來的幾行。
 別改回一般壓縮，否則 repo 每週多長 100 多 MB（10/6～10/13 實測 130 MB，不壓縮只要 3 MB）；超過 45 MB 的檔會自動改回壓縮（GitHub 單檔上限）。
