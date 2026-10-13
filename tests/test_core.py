@@ -489,6 +489,27 @@ def test_exdiv_parse_and_exact_factor():
     assert f["5536"] == round(100 / 95, 8)                                         # 有現增：維持參考價
 
 
+def test_revenue_and_warnings_parse(monkeypatch):
+    """月營收（openapi t187ap05）：年增、月增、累計年增各取對欄（「累計」那欄也有「增減」兩字，不能抓錯）；
+    注意／處置股：只收 4 碼普通股，同一檔兩種都有只留處置（盤中頁 ⛔、13:12 提醒備註用）。"""
+    from screener import enrich
+    tw = [{"出表日期": "1151012", "資料年月": "11509", "公司代號": "2330", "公司名稱": "台積電",
+           "營業收入-當月營收": "1", "營業收入-上月營收": "1", "營業收入-去年當月營收": "1",
+           "營業收入-上月比較增減(%)": "-3.2", "營業收入-去年同月增減(%)": "36.4",
+           "累計營業收入-當月累計營收": "1", "累計營業收入-去年累計營收": "1", "累計營業收入-前期比較增減(%)": "39.5"}]
+    tp = [{"資料年月": "11509", "公司代號": "6488", "營業收入-上月比較增減(%)": "1.0", "營業收入-去年同月增減(%)": "-5.5",
+           "累計營業收入-前期比較增減(%)": "-2.0"}]
+    replies = {"t187ap05_L": tw, "mopsfin_t187ap05_O": tp,
+               "punish": [{"Code": "3105", "Name": "穩懋"}], "notice": [{"Code": "3105"}, {"Code": "2330"}, {"Code": "00631L"}],
+               "tpex_disposal_information": [{"SecuritiesCompanyCode": "6488"}], "tpex_trading_warning_information": [{"SecuritiesCompanyCode": "70001"}]}
+    monkeypatch.setattr(enrich, "_json", lambda s, url, params=None: replies[url.split("/")[-1]])
+    r = enrich.revenue(None).set_index("code")
+    assert r.loc["2330"].to_dict() == {"rev_yoy": 36.4, "rev_mom": -3.2, "rev_cum_yoy": 39.5, "rev_month": "11509"}
+    assert r.rev_yoy["6488"] == -5.5 and r.rev_cum_yoy["6488"] == -2.0
+    w = enrich.warnings_list(None).set_index("code").flag.to_dict()
+    assert w == {"3105": "處置", "6488": "處置", "2330": "注意"}                       # 3105 兩種都有只留處置；ETF、權證不收
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify

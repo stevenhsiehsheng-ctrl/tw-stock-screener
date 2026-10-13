@@ -57,7 +57,8 @@
   - 網站、回測、13:12 正式訊號是同一套：`config.yaml` intraday 門檻＝`tools/btsim` 預設值；btsim 出場＝`positions.update`；
     btsim 進場＝`tech.surge_frame`＋三道門檻（≥500 張、≤10.5%、≥10 元）。
   - 13:12 正式訊號寫進 positions（`intraday.main`）、盤中判斷（`live.scan`）、盤中持股狀態（`holdings_view`）、MIS 取價、成交量曲線。
-  - 資料解析：每日收盤行情、三大法人、融資融券、當沖、本益比、盤後零股（含 MIS 備援與換回官方）、減資接價、等權指數、休市日。
+  - 資料解析：每日收盤行情、三大法人、融資融券、當沖、本益比、月營收、注意／處置、除權息（含 factor 精算）、盤後零股（含 MIS 備援與換回官方）、減資接價、等權指數、休市日。
+  - 大盤風險燈（R2／R1／R3、變色才通知）；研究用配對安慰劑（同流動性五分位）、月 t（月份聚類）。
   - revdrift 抽 6 檔（同批次日一定同一組）、首頁系統訊號合計與虛擬帳戶組成、通知走 GitHub Issue、workflow（YAML、bash、gh 權杖、test 輸入）。
 
 ## 跑回測（研究題）
