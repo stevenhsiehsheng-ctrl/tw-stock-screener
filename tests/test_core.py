@@ -788,6 +788,32 @@ def test_oddlot_mis_replaced_by_official(monkeypatch, tmp_path):
     assert calls == []
 
 
+def test_live_scan_hits(monkeypatch):
+    """盤中訊號判斷（live.scan）：爆量突破、一字鎖漲停放行、量不夠／沒過前高／漲太多不算、這輪沒價沿用上一輪、同族群家數。"""
+    from screener import live
+
+    monkeypatch.setattr(live, "_LAST_PX", {"5555": 53.0})
+    monkeypatch.setattr(live, "_TPL_REF", None)
+    now = dt.datetime(2026, 10, 14, 13, 12, tzinfo=live.TZ)
+    base = {"yclose": 50.0, "price": 53.0, "open": 50.5, "high": 53.5, "low": 50.2, "vol_lots": 3000.0}
+    rows = {"1111": {},                                                                    # 爆量突破 +6%
+            "2222": {"price": 55.0, "open": 55.0, "high": 55.0, "low": 55.0, "vol_lots": 400.0},   # 一字鎖：現價＝開盤也要算
+            "3333": {"vol_lots": 200.0},                                                   # 量 < 300 張
+            "4444": {},                                                                    # 沒過 60 日高
+            "5555": {"price": float("nan")},                                               # 這輪沒成交價 → 沿用 53
+            "6666": {"price": 55.6, "high": 55.6}}                                         # +11.2% 超過 10.5
+    q = pd.DataFrame([{"code": c, "name": c} | base | r for c, r in rows.items()])
+    ref = pd.DataFrame({"avg5": [500_000.0, 100_000.0, 500_000.0, 500_000.0, 500_000.0, 500_000.0],
+                        "hi": [52.0, 54.0, 52.0, 60.0, 52.0, 52.0]}, index=list(rows))
+    stocks = pd.DataFrame({"code": list(rows), "industry": ["半導體", "光電", "半導體", "半導體", "半導體", "光電"],
+                           "market": ["TWSE"] * 6})
+    out = live.scan(q, ref, stocks, {}, now, {"4444"}).set_index("code")
+    assert out.hit.to_dict() == {"1111": True, "2222": True, "3333": False, "4444": False, "5555": True, "6666": False}
+    assert out.locked["2222"] and not out.locked["1111"]
+    assert out.price["5555"] == 53.0 and out.watch["4444"] and not out.watch["1111"]
+    assert out.peers["1111"] == 2   # 同產業另外兩檔（4444、5555）也是預估爆量＋漲 3% 以上；3333 量不夠不算
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
