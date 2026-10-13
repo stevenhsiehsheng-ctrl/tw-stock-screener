@@ -1863,3 +1863,27 @@ def test_global_mkt_snapshot_fallback_and_stale(tmp_path, monkeypatch):
     assert (it["NVDA"]["close"], it["NVDA"]["chg"], it["NVDA"]["date"]) == (194.25, 5.0, "10/13") and "stale" not in it["NVDA"]
     assert it["AAPL"]["stale"] and it["AAPL"]["date"] == "10/12"  # 歷史檔也沒有 → 標出來，不默默用舊的
     assert "TWD=X" not in it and out["adr_premium"] == round((306 * 32 / 5 / 1900 - 1) * 100, 1)
+
+
+def test_ledger_band_definition():
+    """首頁雜訊帶（tools/ledger_band）：假開帳日 s 到第 k 天，已出場用實際報酬、基準算到出場訊號日；
+    還抱著的按 d 收盤估；d 當天進場的算 −0.38；都減同期 0050 含息。跟首頁合計同一套。"""
+    from tools import ledger_band
+
+    dates = [f"2026-09-{i:02d}" for i in range(1, 11)]
+    cf = pd.DataFrame({"A": [100, 100, 100, 104, 110, 110, 110, 110, 110, 110]}, index=dates, dtype=float)
+    tr = pd.Series([100.0 + i for i in range(10)], index=dates)
+    P = {"dates": dates, "close": cf, "cf": cf, "ew": pd.DataFrame({"tr_0050": tr})}
+    T = pd.DataFrame({"date": [dates[0], dates[2]], "exit_date": [dates[3], dates[9]], "code": "A",
+                      "entry": [100.0, 100.0], "gross": [5.0, 10.0], "censored": [False, False]})
+    B = ledger_band.band(P, T, ks=(3, 5)).set_index(["s", "k"])
+    c = ledger_band.COST
+    # s＝9/01、k＝3（d＝9/03）：第一筆還沒出場按收盤 100 估、第二筆 d 當天進場 → 都是 −0.38
+    assert B.at[(dates[0], 3), "n"] == 2
+    assert abs(B.at[(dates[0], 3), "ex"] - ((-c - (102 / 100 - 1) * 100) + (-c - 0)) / 2) < 1e-9
+    # s＝9/01、k＝5（d＝9/05）：第一筆 9/04 開盤已賣 → 實際 5−0.38、0050 算到出場訊號日 9/03；第二筆按 110 估
+    want = ((5 - c - (102 / 100 - 1) * 100) + ((110 / 100 - 1) * 100 - c - (104 / 102 - 1) * 100)) / 2
+    assert abs(B.at[(dates[0], 5), "ex"] - want) < 1e-9
+    assert B.at[(dates[3], 3), "n"] == 0  # 9/04 之後沒有新訊號
+    S = ledger_band.summarize(B.reset_index())
+    assert set(S) == {3, 5} and S[5]["starts"] == len(B.xs(5, level="k").dropna())
