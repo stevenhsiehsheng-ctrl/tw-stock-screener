@@ -164,6 +164,8 @@ def build() -> dict:
         except Exception as e:  # noqa: BLE001
             log.warning("雜訊帶讀不到：%s", e)
     out.update({"hold": hold, "exits": exits, "today_sig": today_sig})
+    if today_sig:
+        out["sig_day"] = sig_day   # 13:31 收工後 history 還是昨天：13:12 訊號那行的日期要寫訊號那天，不是 tw_date
     # Cowork 虛擬帳戶（協作板 ledger_daily → 本尊 16:25 commit 成 data/ledger/YYYY-MM-DD.json，Cowork 0027 格式）
     lf = sorted((DATA / "ledger").glob("20??-??-??.json")) if (DATA / "ledger").exists() else []
     if lf:
@@ -278,7 +280,7 @@ if(mode==='live'){fetch(`https://raw.githubusercontent.com/${repo}/live/live.jso
   eventsLine();draw(`盤中・${fresh?J.updated.slice(11,16)+' 更新':'盤中監控還沒有今天的資料'}`)}).catch(()=>{regime();holdLine(T.hold,T.tw_date);eventsLine();draw('盤中・讀不到即時資料')});return}
 regime();overnight();
 if(mode==='pre'){ledgerLine('pre');exitsLine('今天');holdLine(T.hold,T.tw_date);eventsLine();draw('盤前')}
-else if(mode==='post'){sigLine(T.today_sig,T.tw_date);ledgerLine('post');holdLine(T.hold,T.tw_date);exitsLine('明天');eventsLine();draw(T.tw_date===iso?'盤後':'盤後・今天的收盤資料還沒進來')}
+else if(mode==='post'){sigLine(T.today_sig,T.sig_day||T.tw_date);ledgerLine('post');holdLine(T.hold,T.tw_date);exitsLine('明天');eventsLine();draw(T.tw_date===iso?'盤後':'盤後・今天的收盤資料還沒進來')}
 else{ledgerLine('post');holdLine(T.hold,T.tw_date);eventsLine();draw('週末')}
 })();
 """
