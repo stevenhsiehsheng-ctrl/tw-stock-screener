@@ -442,6 +442,30 @@ def test_btstats_month_t():
     assert one["月數"] == 1 and math.isnan(one["月t"])     # 只有一個月算不了 t
 
 
+def test_macro_regime_light(tmp_path, monkeypatch):
+    """大盤風險燈：R2 主燈＝加權距 250 日高 ≤ −10% 亮紅；R1＝跌破 200 日線連 3 天；R3＝費半 < 200 日線。
+    燈號變色才通知 Dennis（第一次產生不通知），通知寫上一段維持了幾天。"""
+    from screener import macro, notify
+    days = [str(d.date()) for d in pd.bdate_range("2024-01-01", periods=300)]
+    tw = [100.0 + i * 0.1 for i in range(297)] + [118.0, 117.0, 116.0]          # 最高 129.6 → 116 跌 10.5%
+    sox = [200.0] * 290 + [150.0] * 10
+    long = pd.DataFrame([{"date": d, "sym": "^TWII", "close": c} for d, c in zip(days, tw)]
+                        + [{"date": d, "sym": "^SOX", "close": c} for d, c in zip(days, sox)])
+    r = macro.regime(long)
+    assert r["light"] == "red" and r["r2"] and r["dd52"] <= -10 and r["date"] == days[-1]
+    assert r["r1"] and r["r3"]                                                   # 最後 3 天都在 200 日線下；費半也在線下
+    monkeypatch.setattr(macro, "LONG", tmp_path / "long.csv")
+    monkeypatch.setattr(macro, "REGIME", tmp_path / "regime.json")
+    sent = []
+    monkeypatch.setattr(notify, "send", lambda t, b: sent.append((t, b)))
+    long.to_csv(tmp_path / "long.csv", index=False)
+    macro.update_regime()
+    assert sent == []                                                            # 第一次產生不通知
+    (tmp_path / "regime.json").write_text(json.dumps({"light": "green", "light_since": days[0]}), "utf-8")
+    r = macro.update_regime()
+    assert r["changed"] and r["prev_light"] == "green" and "轉紅" in sent[0][0] and "維持了" in sent[0][1]
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify
