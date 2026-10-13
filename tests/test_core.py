@@ -1158,6 +1158,28 @@ def test_mis_price_and_volume_profile():
     assert abs(t(13, 12) - (0.87 + 12 / 25 * 0.08)) < 1e-9 and abs(t(9, 15) - 0.17) < 1e-9
 
 
+def test_live_holdings_view(monkeypatch):
+    """盤中頁「持股」：預估全日量 < 爆量日一半 → 可能量縮出場；在漲停價上 → 漲停續抱（量縮不算，跟收盤規則一致）；
+    跌超過 8% 標警示；剩幾天到 20 天上限；今天才進的、已出場的不列。"""
+    from screener import live, positions
+    pos = pd.DataFrame([
+        {"code": "A", "name": "甲", "signal_date": "2026-10-08", "status": "open", "entry_price": 100.0, "alert_price": 99.0, "surge_volume": 3e6, "days_held": 3},
+        {"code": "B", "name": "乙", "signal_date": "2026-10-08", "status": "open", "entry_price": 100.0, "alert_price": 99.0, "surge_volume": 3e6, "days_held": 3},
+        {"code": "C", "name": "丙", "signal_date": "2026-09-15", "status": "open", "entry_price": None, "alert_price": 100.0, "surge_volume": 3e6, "days_held": 19},
+        {"code": "D", "name": "丁", "signal_date": "2026-10-14", "status": "open", "entry_price": None, "alert_price": 50.0, "surge_volume": 3e6, "days_held": None},
+        {"code": "E", "name": "戊", "signal_date": "2026-10-01", "status": "closed", "entry_price": 100.0, "alert_price": 99.0, "surge_volume": 3e6, "days_held": 5}])
+    monkeypatch.setattr(positions, "load", lambda: pos)
+    q = pd.DataFrame({"code": list("ABCDE"), "price": [95.0, 110.0, 90.0, 52.0, 120.0], "vol_lots": [1000, 1000, 2000, 5000, 5000],
+                      "yclose": [96.0, 100.0, 91.0, 50.0, 110.0], "chg": [-1.0, 10.0, -1.1, 4.0, 9.1]})
+    out = live.holdings_view(q, dt.datetime(2026, 10, 14, 13, 12), shrink=0.5, drop_pct=8)
+    by = {r["code"]: r for r in out}
+    assert set(by) == {"A", "B", "C"} and [r["code"] for r in out] == ["C", "A", "B"]   # 照報酬由低到高
+    assert by["A"]["status"] == "可能量縮出場" and by["A"]["ret"] == -5 and not by["A"]["drop_alert"]
+    assert by["B"]["status"] == "漲停續抱（量縮不算）"
+    assert by["C"]["status"] == "量能維持" and by["C"]["drop_alert"] and by["C"]["days_left"] == 0 and by["C"]["entry"] == 100
+    assert by["A"]["days_left"] == 16 and by["A"]["shrink_lots"] == 1500
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
