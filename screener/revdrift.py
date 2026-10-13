@@ -46,13 +46,23 @@ def baskets(rev: pd.DataFrame) -> dict[str, list[str]]:
     return {ym: list(ok.columns[ok.loc[ym].fillna(False).to_numpy()]) for ym in ok.index}
 
 
-def _batch_day(ym: str, days: list[str]) -> int | None:
+def _next_month(ym: str) -> tuple[int, int]:
     y, m = map(int, ym.split("-"))
-    y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return (y + 1, 1) if m == 12 else (y, m + 1)
+
+
+def _deadline(ym: str, days: list[str]) -> int | None:
+    """法定申報期限：下個月 10 日，遇假日順延到下一個上班日（用交易日近似）。回傳在 days 裡的位置。"""
+    y, m = _next_month(ym)
+    return next((k for k, d in enumerate(days) if d >= f"{y}-{m:02d}-10"), None)
+
+
+def _batch_day(ym: str, days: list[str]) -> int | None:
+    y, m = _next_month(ym)
     ann = f"{y}-{m:02d}-11"
     i = next((k for k, d in enumerate(days) if d > ann), None)
-    # 法定期限 10 日遇假日順延到下一個上班日（用交易日近似），期限當天公告的要隔天開盤才進得去
-    dl = next((k for k, d in enumerate(days) if d >= f"{y}-{m:02d}-10"), None)
+    # 期限當天公告的要隔天開盤才進得去
+    dl = _deadline(ym, days)
     j = dl + 1 if dl is not None and dl + 1 < len(days) else None
     return None if i is None or j is None else max(i, j)
 
@@ -186,8 +196,10 @@ NEXT = ROOT / "data" / "extras" / "revdrift_next.json"
 
 def preview(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, fetch_cal: bool = True) -> dict | None:
     """最新營收月份的批次日還沒到時，先用到今天為止的資料把籃子和 6 檔算出來（跟 compute 同一支抽籤）。
-    exact＝批次日就是下一個交易日：前一天收盤、前 5 日零股都齊了，名單應該就是明天正式那份
-    （批次日當天停牌、沒有開盤價的會被正式版排除）；不是的話只是試算，零股量和股價還會變。"""
+    exact＝批次日就是下一個交易日，而且申報期限過後營收抓過一次（settled）：前一天收盤、前 5 日零股、營收都齊了，
+    名單應該就是明天正式那份（批次日當天停牌、沒有開盤價的會被正式版排除）；不是的話只是試算。
+    settled 看 ann_date（第一次看到的日期）有沒有晚於期限的：10/12 期限當晚還有 71 家公布，
+    10/12 晚上的預告少了其中 7 檔籃子股，6 檔只對 1 檔（10/13 Cowork 1554）。"""
     hist = hist if hist is not None else pd.read_csv(HIST, dtype={"code": str})
     rev = rev if rev is not None else pd.read_csv(REV, dtype={"code": str})
     hist = hist[hist.code.str.fullmatch(r"[1-9]\d{3}")]
@@ -217,7 +229,12 @@ def preview(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, f
     except Exception:  # noqa: BLE001
         odd = None
     pick6, n_pool = _pick6(b, px, odd, days[-5:], e)
-    return {"rev_month": ym, "batch_date": e, "asof": days[-1], "exact": i == len(days), "cal_approx": approx,
+    dl = _deadline(ym, days + fut)
+    deadline = (days + fut)[dl] if dl is not None else None
+    seen = rev.loc[rev.ym == ym, "ann_date"].dropna().astype(str) if "ann_date" in rev else pd.Series(dtype=str)
+    settled = deadline is not None and bool((seen > deadline).any())
+    return {"rev_month": ym, "batch_date": e, "asof": days[-1], "exact": i == len(days) and settled,
+            "next_day": i == len(days), "deadline": deadline, "settled": settled, "cal_approx": approx,
             "n": len(b), "n_pool": n_pool, "pick6": pick6 if cov_ok else [], "cov_ok": cov_ok, "n_twse": nt, "n_tpex": np_}
 
 
@@ -257,7 +274,12 @@ def write(site_dir: Path) -> bool:
         for r in df.iloc[::-1].itertuples())
     nx = ""
     if nxt:
-        label = "明天開盤前名單" if nxt["exact"] else f"試算（資料到 {nxt['asof']}，批次日前一晚才準）"
+        if nxt["exact"]:
+            label = "明天開盤前名單"
+        elif nxt.get("next_day"):
+            label = f"試算：營收申報期限 {nxt['deadline']} 當晚還有公司在公布，半夜補抓營收後才準"
+        else:
+            label = f"試算（資料到 {nxt['asof']}，批次日前一晚、申報期限過後才準）"
         picks = links(" ".join(nxt["pick6"])) if nxt["cov_ok"] else "⚠️ 營收資料有缺，這批不抽"
         nx = (f"<div class='card'><b>下一批 {nxt['rev_month']}：批次日 {nxt['batch_date']}{'（約）' if nxt['cal_approx'] else ''}・{label}</b><br>"
               f"籃子 {nxt['n']} 檔、池子 {nxt['n_pool'] if nxt['n_pool'] is not None else '—'} 檔，抽 6 檔：{picks}"

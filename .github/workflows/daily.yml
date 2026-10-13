@@ -82,6 +82,44 @@ jobs:
         with:
           path: site
 
+  # 櫃買盤後零股 15:20 常常還沒公布（10/7、10/8、10/12、10/13 上櫃都 0 列），虛擬帳戶 15:47 收盤結算要用。
+  # 抓資料那個 job 推完後另外等：每 3 分鐘重抓一次，抓到就存檔，最晚等到 16:40（再晚交給傍晚補抓／隔天早上體檢）。
+  # 不排進 screener 佇列，不擋盤中監控、補抓、網站部署。log 會印出抓到的時間，用來看櫃買幾點公布。
+  oddtpex:
+    needs: screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 等櫃買盤後零股
+        run: |
+          D=$(python -c "import pandas as p; print(p.read_csv('data/history.csv.gz', usecols=['date']).date.max())")
+          if [ "$D" != "$(TZ=Asia/Taipei date +%F)" ]; then echo "最新資料日 $D 不是今天，不等"; exit 0; fi
+          has() { python -c "import pandas as p, sys; o = p.read_csv('data/extras/oddlot_hist.csv.gz', usecols=['date', 'market']); sys.exit(0 if ((o.date == '$D') & (o.market == 'TPEX')).any() else 1)"; }
+          if has; then echo "櫃買盤後零股 $D 已經有了"; exit 0; fi
+          while true; do
+            python -m screener.enrich --oddlot-days 1 --date "$D" || true
+            if has; then echo "櫃買盤後零股 $D 到了（台北 $(TZ=Asia/Taipei date +%H:%M) 抓到）"; break; fi
+            if [ "$(TZ=Asia/Taipei date +%H%M)" -ge 1640 ]; then echo "16:40 還沒公布，交給傍晚補抓"; exit 0; fi
+            sleep 180
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/extras/oddlot_hist.csv.gz
+          if git diff --cached --quiet; then echo "沒有變更"; exit 0; fi
+          git commit -m "櫃買盤後零股 $D（跑於 $(TZ=Asia/Taipei date '+%m-%d %H:%M')）"
+          ok=0; for i in 1 2 3; do
+            if git pull --rebase -X theirs && git push; then ok=1; break; fi
+            git rebase --abort 2>/dev/null || true; sleep 5
+          done; [ "$ok" = 1 ]
+
   deploy:
     needs: screen
     runs-on: ubuntu-latest

@@ -49,7 +49,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: |
-          if [ "$(TZ=Asia/Taipei date +%H)" -lt 11 ]; then python -m screener.health --slot am --heal --notify; else echo "不在早上時段，跳過"; fi
+          if [ "$(TZ=Asia/Taipei date +%H)" -lt 11 ]; then python -m screener.health --slot am --heal --notify --latest; else echo "不在早上時段，跳過"; fi
       - name: 盤中監控
         env:
           SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -72,7 +72,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: |
-          if [ "$(TZ=Asia/Taipei date +%H)" -ge 13 ]; then python -m screener.health --slot pm --notify; else echo "還沒收盤（休市日或提早結束），不複查"; fi
+          if [ "$(TZ=Asia/Taipei date +%H)" -ge 13 ]; then python -m screener.health --slot pm --notify --latest; else echo "還沒收盤（休市日或提早結束），不複查"; fi
       - name: 記錄提醒過的股票
         if: always()
         run: |
