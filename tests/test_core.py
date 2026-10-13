@@ -638,6 +638,7 @@ def test_daily_evening_dispatch(tmp_path):
     隔天半夜才到的備援班不叫、21:50 那段過午夜才開始不等到隔天。"""
     import datetime as dt
     import os
+    import shutil
     import subprocess
 
     import yaml
@@ -646,11 +647,9 @@ def test_daily_evening_dispatch(tmp_path):
     clock = tmp_path / "clock"
     b = tmp_path / "bin"
     b.mkdir()
-    (b / "date").write_text("#!/usr/bin/env python3\nimport sys, os, datetime as d\n"
-                            "t = d.datetime.fromtimestamp(float(open(os.environ['CLOCK']).read()), d.timezone(d.timedelta(hours=8)))\n"
-                            "print(t.strftime(sys.argv[-1][1:]))\n")
-    (b / "sleep").write_text("#!/usr/bin/env python3\nimport sys, os\nf = os.environ['CLOCK']\n"
-                             "t = float(open(f).read()) + float(sys.argv[1])\nopen(f, 'w').write(str(t))\n")
+    # 假時鐘（整數秒）：date 用系統的 GNU date 印假時間（TZ 照 workflow 給的）、sleep 只把時鐘往前撥；用 bash 不開 Python，快
+    (b / "date").write_text(f'#!/usr/bin/env bash\nexec {shutil.which("date")} -d "@$(cat "$CLOCK")" "${{@: -1}}"\n')
+    (b / "sleep").write_text('#!/usr/bin/env bash\nt=$(cat "$CLOCK"); echo $(( t + ${1%.*} )) > "$CLOCK"\n')
     (b / "gh").write_text('#!/usr/bin/env bash\necho "$*" >> "$GHLOG"\ncase "$1 $2" in\n'
                           '  "api repos/"*) printf \'{"last_done": "%s"}\' "$LAST_DONE" | base64 ;;\n'
                           '  "run list") echo "$RUNS" ;;\nesac\n')
@@ -665,7 +664,7 @@ def test_daily_evening_dispatch(tmp_path):
         return dt.datetime.strptime(s, "%Y-%m-%d %H:%M").replace(tzinfo=tz).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def run(job, start, last_done, runs=()):
-        clock.write_text(str(dt.datetime.strptime(start, "%Y-%m-%d %H:%M").replace(tzinfo=tz).timestamp()))
+        clock.write_text(str(int(dt.datetime.strptime(start, "%Y-%m-%d %H:%M").replace(tzinfo=tz).timestamp())))
         out, log = tmp_path / "out", tmp_path / "gh.log"
         out.write_text("")
         log.write_text("")
