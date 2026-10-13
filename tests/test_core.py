@@ -872,6 +872,19 @@ def test_config_matches_backtest():
     assert ic["exit_shrink_ratio"] == tr["shrink"] and ic["max_hold_days"] == tr["max_hold"]
 
 
+def test_daystatus_fmt_runs():
+    """tools/daystatus：失敗的標 ❌ 附連結、跑到一半標 ⏳、事件翻成中文。"""
+    from tools.daystatus import fmt_runs
+    rows = [{"time": "08:40", "name": "盤中連續監控", "event": "workflow_dispatch", "status": "completed", "conclusion": "success", "url": "u1"},
+            {"time": "15:20", "name": "台股每日篩選", "event": "schedule", "status": "completed", "conclusion": "failure", "url": "u2"},
+            {"time": "18:05", "name": "傍晚補抓消息面", "event": "workflow_dispatch", "status": "in_progress", "conclusion": None, "url": "u3"}]
+    out = fmt_runs(rows)
+    assert out[0] == "  ✅ 08:40 盤中連續監控（派工叫的）"
+    assert out[1].startswith("  ❌ 15:20 台股每日篩選（GitHub 排程）") and out[1].endswith("u2")
+    assert out[2].startswith("  ⏳ 18:05") and "u3" not in out[2]
+    assert fmt_runs([]) == ["  （沒有）"]
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
