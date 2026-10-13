@@ -153,8 +153,52 @@ def oddlot(s, d: dt.date) -> pd.DataFrame:
                             "ask": (_num(r[ix]) or None) if ix is not None else None})
             break
         if len(out) == n0:
-            log.warning("⚠️ %s 盤後零股 %s 沒有資料", mkt, d)
+            try:
+                out += _oddlot_mis(d, mkt)
+            except Exception as e:  # noqa: BLE001
+                log.warning("%s 盤後零股 %s 用 MIS 補失敗：%s", mkt, d, e)
+            if len(out) == n0:
+                log.warning("⚠️ %s 盤後零股 %s 沒有資料", mkt, d)
+            else:
+                log.info("%s 盤後零股 %s 官方還沒公布，用 MIS 補 %d 檔（之後傍晚補抓抓到官方的會換掉）", mkt, d, len(out) - n0)
     return pd.DataFrame(out, columns=ODD_COLS[1:])
+
+
+def _oddlot_mis(d: dt.date, market: str, batch: int = 50) -> list[dict]:
+    """官方盤後零股還沒公布時的備援（櫃買常常當天 0 列，Cowork 15:47 上櫃零股就只能隔天補結算）：
+    MIS 一般報價裡的 oz／ov／ob／oa 就是當天盤後零股 14:30 撮合的成交價／股數／買價／賣價
+    （10/14 比過 2330、6488 跟官方檔一模一樣）。只有 MIS 最新一個交易日有：資料日期不是 d 就不收，
+    第一批就對不上直接放棄。只補股票清單裡的（ETF、債券 ETF 等清單外的等官方）。"""
+    from . import fetch, intraday
+    st = fetch.load_stock_list([market])
+    pre = "tse" if market == "TWSE" else "otc"
+    keys = [f"{pre}_{c}.tw" for c in st.code]
+    sess = requests.Session()
+    sess.headers.update(HEADERS | {"Referer": "https://mis.twse.com.tw/stock/index.jsp"})
+    try:
+        sess.get("https://mis.twse.com.tw/stock/index.jsp", timeout=20)
+    except requests.RequestException:
+        pass
+    want, out = d.strftime("%Y%m%d"), []
+    for i in range(0, len(keys), batch):
+        try:
+            msg = sess.get(intraday.MIS, params={"ex_ch": "|".join(keys[i:i + batch]), "json": "1", "delay": "0",
+                                                 "_": int(time.time() * 1000)}, timeout=20).json().get("msgArray", [])
+        except Exception as e:  # noqa: BLE001
+            log.warning("MIS 盤後零股第 %d 批失敗：%s", i // batch + 1, e)
+            continue
+        hit = [q for q in msg if q.get("d") == want]
+        if i == 0 and msg and not hit:
+            log.info("MIS 現在是 %s 的資料，不是 %s，不用 MIS 補", msg[0].get("d"), want)
+            return []
+        for q in hit:
+            px, sh = intraday._f(q.get("oz")), intraday._f(q.get("ov"))
+            bid, ask = intraday._f(q.get("ob")), intraday._f(q.get("oa"))
+            if px or bid or ask:
+                out.append({"code": str(q.get("c")), "market": market, "price": px, "shares": (sh or 0) if px else 0,
+                            "amount": round(px * sh) if px and sh else 0, "bid": bid, "ask": ask})
+        time.sleep(0.5)
+    return out
 
 
 def update_oddlot_history(df: pd.DataFrame, d: dt.date) -> int:

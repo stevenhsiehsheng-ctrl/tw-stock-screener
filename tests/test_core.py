@@ -691,3 +691,47 @@ def test_daily_evening_dispatch(tmp_path):
     assert run("evening2", f"{T} 23:06", T, [f"{T} 21:50"])[2] == 0                  # 已有一班
     assert run("evening2", f"{T} 21:40", T, [f"{T} 21:47"])[2] == 0                  # GitHub 21:47 排程準時跑了
     assert run("evening2", "2026-10-15 00:01", T) == ("00:01", "", 0)                # 過午夜不等到隔天
+
+
+def test_oddlot_mis_fallback(monkeypatch):
+    """櫃買盤後零股官方 0 列時用 MIS 的 oz／ov／ob／oa 補（10/13 樣本：環球晶 1020／9544 股，跟官方一樣）；
+    MIS 已經是別天的資料就不收；官方有資料就不碰 MIS。"""
+    from screener import enrich, fetch
+
+    def q(code, d, oz, ov, ob, oa):
+        return {"c": code, "d": d, "oz": oz, "ov": ov, "ob": ob, "oa": oa, "z": "999"}
+
+    pages = [[q("6488", "20261013", "1020.0000", "9544", "1015.0000", "1020.0000"),
+              q("8069", "20261013", "-", "0", "200.5000", "201.0000")],              # 沒成交、有掛價
+             [q("5347", "20261013", "-", "0", "-", "-"),                              # 什麼都沒有 → 不收
+              q("3105", "20261009", "300.0000", "50", "299.0000", "300.0000")]]       # 停牌、別天 → 不收
+    calls = []
+
+    class S:
+        headers = {}
+
+        def get(self, url, params=None, timeout=None):
+            if not params:
+                return None
+            calls.append(params["ex_ch"])
+            return type("R", (), {"json": lambda self, m=pages[len(calls) - 1]: {"msgArray": m}})()
+
+    monkeypatch.setattr(enrich.requests, "Session", S)
+    monkeypatch.setattr(enrich.time, "sleep", lambda s: None)
+    monkeypatch.setattr(fetch, "load_stock_list", lambda m: pd.DataFrame({"code": ["6488", "8069", "5347", "3105"]}))
+    rows = enrich._oddlot_mis(dt.date(2026, 10, 13), "TPEX", batch=2)
+    assert calls == ["otc_6488.tw|otc_8069.tw", "otc_5347.tw|otc_3105.tw"]
+    assert rows == [{"code": "6488", "market": "TPEX", "price": 1020.0, "shares": 9544.0, "amount": 9734880, "bid": 1015.0, "ask": 1020.0},
+                    {"code": "8069", "market": "TPEX", "price": None, "shares": 0, "amount": 0, "bid": 200.5, "ask": 201.0}]
+    calls.clear()
+    assert enrich._oddlot_mis(dt.date(2026, 10, 14), "TPEX", batch=2) == [] and len(calls) == 1   # MIS 還是 10/13 → 第一批就放棄
+
+    # oddlot()：上市官方有、上櫃官方 0 列 → 上櫃用 MIS
+    twse = {"fields": ["證券代號", "證券名稱", "成交股數", "成交筆數", "成交金額", "成交價", "最後揭示買價", "最後揭示賣價"],
+            "data": [["2330", "台積電", "92,010", "1", "230,025,000", "2,500.00", "2,500.00", "2,505.00"]]}
+    monkeypatch.setattr(enrich, "_json", lambda s, url, params: {"tables": [twse]} if "twse" in url else {"tables": [{"fields": [], "data": []}]})
+    monkeypatch.setattr(enrich, "_tables", lambda j: j.get("tables") or [])
+    monkeypatch.setattr(enrich, "_oddlot_mis", lambda d, m: [{"code": "6488", "market": m, "price": 1020.0, "shares": 9544.0,
+                                                              "amount": 9734880, "bid": 1015.0, "ask": 1020.0}] if m == "TPEX" else [])
+    df = enrich.oddlot(None, dt.date(2026, 10, 13))
+    assert sorted(zip(df.code, df.market)) == [("2330", "TWSE"), ("6488", "TPEX")] and df.set_index("code").price["2330"] == 2500
