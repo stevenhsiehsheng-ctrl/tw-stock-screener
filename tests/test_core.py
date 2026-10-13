@@ -2135,3 +2135,43 @@ def test_momo_events_definition():
     assert ev["cont"].loc[last].to_dict() == {"1101": True, "1102": False, "1103": False}
     assert ev["base"].loc[last].to_dict() == {"1101": False, "1102": False, "1103": True}
     assert not ev["cont"].iloc[:-1].any().any() and not ev["base"].iloc[:-1].any().any()
+
+
+def test_exdiv_upcoming_and_fill_details(monkeypatch):
+    """除權息預告（證交所／櫃買 openapi）只留有日期的股票／ETF 代號；證交所「權」「權息」沒拆開的：
+    先沿用舊檔、純「息」直接用息值、剩下才逐檔查明細（現金股利、每千股配股、現增認購）。"""
+    from screener import exdiv
+
+    tw = [{"Date": "1151020", "Code": "2330 ", "Exdividend": "除息", "CashDividend": "5.0", "StockDividendRatio": ""},
+          {"Date": "", "Code": "1101", "Exdividend": "除權息", "CashDividend": "1", "StockDividendRatio": "0.05"},
+          {"Date": "1151021", "Code": "公司", "Exdividend": "除息", "CashDividend": "1", "StockDividendRatio": ""}]
+    tp = [{"ExRrightsExDividendDate": "115/10/22", "SecuritiesCompanyCode": "6488", "ExRrightsExDividend": "權息",
+           "CashDividend": "3", "StockDividendRatio": "0.02"}]
+    monkeypatch.setattr(exdiv, "_openapi_rows", lambda s, url: tw if "twse" in url else tp)
+    up = exdiv.fetch_upcoming(None)
+    assert up[["date", "code", "market", "kind"]].values.tolist() == [["2026-10-20", "2330", "TWSE", "息"],
+                                                                       ["2026-10-22", "6488", "TPEX", "權息"]]
+
+    df = pd.DataFrame([{"date": "2026-09-17", "code": "2330", "market": "TWSE", "kind": "息", "value": 4.5},
+                       {"date": "2026-09-18", "code": "2454", "market": "TWSE", "kind": "權息", "value": 3.0},
+                       {"date": "2026-09-19", "code": "1101", "market": "TWSE", "kind": "權息", "value": 2.0},
+                       {"date": "2026-09-19", "code": "6488", "market": "TPEX", "kind": "權息", "value": 1.0}])
+    old = pd.DataFrame([{"date": "2026-09-18", "code": "2454", "cash_div": 2.5, "stock_ratio": 0.05, "rights_ratio": 0.0, "rights_price": 0.0}])
+    asked, real_detail = [], exdiv.fetch_detail
+
+    def detail(s, code, date):
+        asked.append(code)
+        return {"cash_div": 1.5, "stock_ratio": 0.03, "rights_ratio": 0.0, "rights_price": 0.0}
+    monkeypatch.setattr(exdiv, "fetch_detail", detail)
+    monkeypatch.setattr(exdiv.time, "sleep", lambda s: None)
+    exdiv.fill_details(None, df, old)
+    t = df.set_index("code")
+    assert asked == ["1101"]  # 2330 純息、2454 舊檔有、6488 櫃買不查
+    assert t.at["2330", "cash_div"] == 4.5 and t.at["2330", "stock_ratio"] == 0.0
+    assert (t.at["2454", "cash_div"], t.at["2454", "stock_ratio"]) == (2.5, 0.05)
+    assert (t.at["1101", "cash_div"], t.at["1101", "stock_ratio"]) == (1.5, 0.03) and pd.isna(t.at["6488", "cash_div"])
+
+    j = {"fields": ["股票代號", "現金股利", "每千股無償配股", "現金增資認購金額", "每千股認購"],
+         "data": [["2330", "4.0 元", "50.0", "0", "0"]]}
+    monkeypatch.setattr(exdiv, "_json", lambda s, url, params=None: j)
+    assert real_detail(None, "2330", "2026-09-17") == {"cash_div": 4.0, "stock_ratio": 0.05, "rights_ratio": 0.0, "rights_price": 0.0}
