@@ -53,6 +53,12 @@
 - `live.yml`、`screener/live.py`、`intraday.py`、`live_page.html`、`positions.py` 影響盤中，**13:30 收盤後**才合併。
 - 改過的網頁用 playwright 實際打開看（手機寬 400px、有沒有 JS 錯誤）。
 - 數字類的改動（回測、統計）先寫好要比什麼再跑，全部列出，不挑好看的。
+- **測試鎖住的規則**（`tests/test_core.py`，改了這些地方測試會紅，要改就連測試一起改、寫清楚為什麼）：
+  - 網站、回測、13:12 正式訊號是同一套：`config.yaml` intraday 門檻＝`tools/btsim` 預設值；btsim 出場＝`positions.update`；
+    btsim 進場＝`tech.surge_frame`＋三道門檻（≥500 張、≤10.5%、≥10 元）。
+  - 13:12 正式訊號寫進 positions（`intraday.main`）、盤中判斷（`live.scan`）、盤中持股狀態（`holdings_view`）、MIS 取價、成交量曲線。
+  - 資料解析：每日收盤行情、三大法人、當沖、本益比、盤後零股（含 MIS 備援與換回官方）、減資接價、等權指數、休市日。
+  - revdrift 抽 6 檔（同批次日一定同一組）、首頁虛擬帳戶組成、通知走 GitHub Issue、workflow（YAML、bash、gh 權杖、test 輸入）。
 
 ## 跑回測（研究題）
 
