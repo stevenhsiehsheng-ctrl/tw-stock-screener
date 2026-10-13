@@ -360,6 +360,28 @@ def test_btsim_signals_vs_surge_frame(tmp_path, monkeypatch):
     assert list(zip(sig.date, sig.code)) == [(days[-1], "1111")]       # 2222 量 400 張 < 500；3333 漲 11% > 10.5%
 
 
+def test_margin_parse(monkeypatch):
+    """融資融券解析（證交所 MI_MARGN 固定欄位位置、櫃買 margin/balance 欄名開頭）：餘額、增減、券餘額、使用率；
+    證交所欄位位置對不上就整張不收（寧可沒有也不要抓錯欄，體檢會發現缺）。"""
+    from screener import chips
+    monkeypatch.setattr(chips.time, "sleep", lambda s: None)
+    tw_f = ["代號", "名稱", "買進", "賣出", "現金償還", "前日餘額", "今日餘額", "限額",
+            "買進", "賣出", "現券償還", "前日餘額", "今日餘額", "限額", "資券互抵", "註記"]
+    tw_row = ["2330", "台積電", "3,000", "1,000", "0", "10,000", "12,000", "100,000", "0", "0", "0", "400", "500", "100,000", "0", ""]
+    tp_f = ["代號", "名稱", "前資餘額(張)", "資買", "資賣", "現償", "資餘額", "資屬證金", "資使用率(%)", "資限額",
+            "前券餘額(張)", "券賣", "券買", "券償", "券餘額", "券屬證金", "券使用率(%)", "券限額", "資券相抵(張)", "備註"]
+    tp_row = ["6488", "環球晶", "1,000", "300", "100", "0", "1,200", "0", "3.50", "34,000", "40", "10", "0", "0", "50", "0", "0.1", "34,000", "0", ""]
+    replies = {"MI_MARGN": {"stat": "OK", "tables": [{"fields": tw_f, "data": [tw_row, ["0050", "元大台灣50"] + tw_row[2:]]}]},
+               "balance": {"tables": [{"fields": tp_f, "data": [tp_row]}]}}
+    monkeypatch.setattr(chips, "_json", lambda s, url, params=None: replies[url.split("/")[-1]])
+    m = chips.margin(None, dt.date(2026, 10, 13)).set_index("code")
+    assert list(m.index) == ["2330", "6488"]                                          # ETF 不收
+    assert m.loc["2330"].to_dict() == {"margin_bal": 12000, "margin_chg": 2000, "short_bal": 500, "util": 12.0}
+    assert m.loc["6488"].to_dict() == {"margin_bal": 1200, "margin_chg": 200, "short_bal": 50, "util": 3.5}
+    replies["MI_MARGN"]["tables"][0]["fields"] = tw_f[:5] + ["今日餘額", "前日餘額"] + tw_f[7:]   # 欄位換位置
+    assert list(chips.margin(None, dt.date(2026, 10, 13)).code) == ["6488"]
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify
