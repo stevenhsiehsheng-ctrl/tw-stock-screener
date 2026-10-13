@@ -1180,6 +1180,21 @@ def test_live_holdings_view(monkeypatch):
     assert by["A"]["days_left"] == 16 and by["A"]["shrink_lots"] == 1500
 
 
+def test_today_ledger_mix():
+    """首頁 🧾 虛擬帳戶組成：照 role 分桶（0050 一律算底倉），題材、0050 底倉固定列（沒部位也列 0），其他桶有部位才列，加現金 %。"""
+    from screener import today
+    lg = {"equity": 100000, "cash": 10000, "positions": [
+        {"code": "2330", "role": "core", "mv": 20000}, {"code": "2317", "role": "core", "mv": 10000},
+        {"code": "0050", "role": None, "mv": 50000}, {"code": "3711", "role": "revdrift", "mv": 10000}]}
+    m = today.ledger_mix(lg)
+    assert m["parts"] == [{"name": "題材", "n": 2, "pct": 30.0}, {"name": "revdrift", "n": 1, "pct": 10.0},
+                          {"name": "0050 底倉", "n": 1, "pct": 50.0}]
+    assert m["cash_pct"] == 10.0
+    m = today.ledger_mix({"equity": 100000, "cash": 100000, "positions": [{"code": "6488", "role": "satellite", "mv": 1}]})
+    assert [x["name"] for x in m["parts"]] == ["題材", "衛星", "0050 底倉"] and m["parts"][0]["n"] == 0
+    assert today.ledger_mix({"equity": 100000, "positions": []}) is None
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
