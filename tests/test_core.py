@@ -745,3 +745,27 @@ def test_probe_split_arg():
     assert split_arg(mis) == (mis, "")
     assert split_arg(mis + "|台積電") == (mis, "台積電")
     assert split_arg("https://m/api?ex_ch=tse_2330.tw|tse_2317.tw") == ("https://m/api?ex_ch=tse_2330.tw|tse_2317.tw", "")
+
+
+def test_not_json_reason_maintenance(monkeypatch):
+    """證交所半夜維護回「網站維護中」HTML：log 寫維護中，不要誤寫成被封鎖（10/14 04:00 實測）。"""
+    import pytest
+
+    from screener import fetch
+
+    page = "<!DOCTYPE html><html><head><title>網站維護中 - 臺灣證券交易所</title></head><body>系統維護中</body></html>"
+
+    class R:
+        status_code, text = 200, page
+
+        def json(self):
+            raise ValueError("not json")
+
+    class S:
+        def get(self, *a, **k):
+            return R()
+
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
+    with pytest.raises(fetch.SourceUnavailable, match="網站維護中"):
+        fetch._get_json(S(), "https://www.twse.com.tw/x", {})
+    assert "封鎖" in fetch.not_json_reason("<html><body>Forbidden</body></html>")

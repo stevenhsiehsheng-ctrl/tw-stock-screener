@@ -53,7 +53,8 @@ def _json(s, url, params=None):
     try:
         return r.json()
     except ValueError:
-        log.warning("%s 不是 JSON：%r", url, r.text[:100])
+        from .fetch import not_json_reason
+        log.warning("%s %s：%r", url, not_json_reason(r.text), r.text[:100])
         return None
 
 
