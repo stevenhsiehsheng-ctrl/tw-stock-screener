@@ -29,6 +29,7 @@ on:
       - screener/sitenav.py
       - screener/today.py
       - screener/ledger_nav.py
+      - screener/ledgerpage.py
       - data/ledger/**
       - screener/ewindex.py
       - data/us/**
