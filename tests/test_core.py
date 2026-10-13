@@ -1887,3 +1887,45 @@ def test_ledger_band_definition():
     assert B.at[(dates[3], 3), "n"] == 0  # 9/04 之後沒有新訊號
     S = ledger_band.summarize(B.reset_index())
     assert set(S) == {3, 5} and S[5]["starts"] == len(B.xs(5, level="k").dropna())
+
+
+def test_enrich_streak_shares_warn_inst(tmp_path, monkeypatch):
+    """法人連買連賣天數、股數月檔（第一次往回填、按公司更新）、開盤前已知的注意／處置、法人只抓到一半的日子要重抓。"""
+    import numpy as np
+
+    from screener import enrich, fetch
+
+    st = enrich._streak
+    assert (st(pd.Series([1, 2, 3])), st(pd.Series([-1, -2, 1])), st(pd.Series([5, -1, -2])), st(pd.Series([1, 0])),
+            st(pd.Series([np.nan, 1, 1])), st(pd.Series([], dtype=float))) == (3, 1, -2, 0, 2, 0)
+
+    monkeypatch.setattr(enrich, "SHARES_HIST", tmp_path / "shares.csv")
+    monkeypatch.setattr(enrich, "SHARES_FROM", "2026-07")
+    n = enrich.update_shares_history(pd.DataFrame({"code": ["1101", "2330"], "shares": [100, 200]}), dt.date(2026, 10, 2))
+    h = pd.read_csv(tmp_path / "shares.csv", dtype=str)
+    assert n == 4 and sorted(h[h.src == "backfill"].ym.unique()) == ["2026-07", "2026-08", "2026-09"]
+    enrich.update_shares_history(pd.DataFrame({"code": ["2330"], "shares": [210]}), dt.date(2026, 10, 3))  # 1101 這次沒抓到
+    h = pd.read_csv(tmp_path / "shares.csv", dtype={"code": str}).query("ym == '2026-10'").set_index("code").shares
+    assert h.to_dict() == {"1101": 100, "2330": 210}  # 沒抓到的公司保留舊列
+
+    w = pd.DataFrame([{"date": "2026-10-01", "code": "1101", "flag": "注意", "start": "", "end": ""},
+                      {"date": "2026-10-05", "code": "1101", "flag": "注意", "start": "", "end": ""},
+                      {"date": "2026-10-05", "code": "2330", "flag": "處置", "start": "2026-10-06", "end": "2026-10-19"}])
+    assert enrich.warn_at("1101", "2026-10-06", w) == ("注意", 2)  # 前一個交易日公告注意；前 7 天 2 次
+    assert enrich.warn_at("1101", "2026-10-09", w, prev_day="2026-10-08") == ("", 1)  # 10/01 已經超過 7 天、前一天沒公告
+    assert enrich.warn_at("1101", "2026-10-05", w) == ("注意", 1)  # 當天公告的開盤前不知道
+    assert enrich.warn_at("2330", "2026-10-19", w)[0] == "處置" and enrich.warn_at("2330", "2026-10-20", w)[0] == ""
+    assert enrich.warn_at("9999", "2026-10-06", w) == ("", 0)
+
+    monkeypatch.setattr(enrich, "INST_HIST", tmp_path / "inst.csv")
+    row = lambda d, c: {"date": d, "code": c, "foreign": 1, "trust": 0, "dealer": 0, "inst_total": 1}  # noqa: E731
+    codes = [f"{1000 + i}" for i in range(10)]
+    old = [row(d, c) for d in ("2026-10-01", "2026-10-02") for c in codes] + [row("2026-10-05", c) for c in codes[:3]]  # 10/05 只抓到 3 檔
+    pd.DataFrame(old).to_csv(tmp_path / "inst.csv", index=False)
+    monkeypatch.setattr(fetch, "load_history", lambda: pd.DataFrame({"date": ["2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06"]}))
+    asked = []
+    monkeypatch.setattr(enrich, "institutional", lambda s, d: asked.append(d.isoformat()) or pd.DataFrame([row("", c) for c in codes]).drop(columns="date"))
+    monkeypatch.setattr(enrich.time, "sleep", lambda s: None)
+    n = enrich.update_inst_history(None, dt.date(2026, 10, 6), pd.DataFrame([row("", c) for c in codes]).drop(columns="date"))
+    h = pd.read_csv(tmp_path / "inst.csv", dtype={"code": str})
+    assert asked == ["2026-10-05"] and n == 4 and h.groupby("date").code.count().tolist() == [10, 10, 10, 10]
