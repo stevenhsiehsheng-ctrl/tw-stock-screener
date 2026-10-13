@@ -544,3 +544,22 @@ def test_live_main_supervised(monkeypatch):
         raise AssertionError("測試模式不包")
     except KeyError:
         pass
+
+
+def test_live_restore_state(tmp_path, monkeypatch):
+    """重啟（main_supervised、備援班）接續今天的預警紀錄，不重複通知；昨天的紀錄不能沿用。"""
+    from screener import live
+    f = tmp_path / "live_state.json"
+    monkeypatch.setattr(live, "STATE_F", f)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)   # 不去抓 live 分支
+    assert live.restore_state("2026-10-14")["alerts"] == {}            # 沒有檔：空白
+    f.write_text(json.dumps({"date": "2026-10-14", "alerts": {"2330": {"first_time": "09:31"}},
+                             "hold_alerted": ["3041"], "last_notify": 123}), "utf-8")
+    s = live.restore_state("2026-10-14")
+    assert s["alerts"] == {"2330": {"first_time": "09:31"}} and s["hold_alerted"] == ["3041"] and s["last_notify"] == 123
+    assert s["pending"] == [] and s["official"] is None                # 舊檔沒有的欄位補預設
+    f.write_text(json.dumps({"state": {"date": "2026-10-14", "alerts": {"2454": {}}}}), "utf-8")   # live.json 包一層 state
+    assert list(live.restore_state("2026-10-14")["alerts"]) == ["2454"]
+    assert live.restore_state("2026-10-15")["alerts"] == {}            # 隔天不沿用
+    f.write_text("{壞掉", "utf-8")
+    assert live.restore_state("2026-10-14")["alerts"] == {}            # 檔案壞掉也不會讓盤中監控起不來
