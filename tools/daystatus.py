@@ -110,7 +110,14 @@ def main(argv: list[str]) -> int:
     state = json.loads(_read("data/state.json") or b"{}")
     mis = json.loads(_read("data/extras/oddlot_mis.json") or b"{}")
     ledgers = sorted(p.split("/")[-1][:10] for p in (_git("ls-tree", "--name-only", "origin/main", "data/ledger/") or b"").decode().split())
-    rows = [("每日資料 state.last_done", state.get("last_done", "—")),
+    live = json.loads(_read("data/live_state.json") or b"{}")
+    off = live.get("official") or {}
+    pos = _read("data/positions.csv")
+    n_sig = int((pd.read_csv(io.BytesIO(pos), usecols=["signal_date"]).signal_date == day).sum()) if pos else 0
+    rows = [("盤中監控（live_state）", f"{live.get('date')} 最後一輪 {live.get('last_scan')}，今日預警 {len(live.get('alerts') or {})} 檔"
+             if live.get("date") == day else f"沒有今天的（最後 {live.get('date')}）"),
+            ("13:12 正式訊號", f"{off.get('count', '—')} 檔（{off.get('time', '—')}），positions 記了 {n_sig} 筆" if live.get("date") == day else "—"),
+            ("每日資料 state.last_done", state.get("last_done", "—")),
             ("收盤價 history", _max_date("data/history.csv.gz")),
             ("三大法人", _max_date("data/extras/inst_hist.csv.gz")),
             ("融資融券", _max_date("data/extras/margin_hist.csv.gz")),
