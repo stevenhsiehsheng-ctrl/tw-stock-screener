@@ -290,6 +290,7 @@ def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from screener import notify
     monkeypatch.setattr(health, "DATA", tmp_path)
     monkeypatch.setattr(health, "OUT", tmp_path / "health" / "latest.json")
+    monkeypatch.setattr(health, "HIST", tmp_path / "health" / "history.jsonl")
     monkeypatch.setattr(health, "REF", None)
     monkeypatch.setattr(health, "twse_days", lambda t: ["2026-10-08", "2026-10-12", "2026-10-13"])
     monkeypatch.setattr(health, "failed_runs", lambda hours=20: [])
@@ -308,6 +309,8 @@ def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     assert len(mails) == 1 and "要看" in mails[0]                # 鎖漲停家數、帳本補跑救不了 → 寄一封
     again = health.run("am", heal=True, notify=True, now=am)    # 同一班不重跑
     assert again["checked_at"] == r["checked_at"] and len(sent) == 3 and len(mails) == 1
+    hist = [json.loads(x) for x in (tmp_path / "health" / "history.jsonl").read_text("utf-8").splitlines()]
+    assert len(hist) == 1 and hist[0]["slot"] == "am" and "13:12 鎖漲停家數" in hist[0]["bad"]   # 跳過的那次不寫
 
 
 def test_health_wait_dispatched(tmp_path, monkeypatch):
@@ -358,6 +361,7 @@ def test_health_cron_check(tmp_path, monkeypatch):
     # 寄信：第一次沒叫到不寄、連兩天才寄
     monkeypatch.setattr(health, "DATA", tmp_path)
     monkeypatch.setattr(health, "OUT", tmp_path / "health" / "latest.json")
+    monkeypatch.setattr(health, "HIST", tmp_path / "health" / "history.jsonl")
     monkeypatch.setattr(health, "REF", None)
     monkeypatch.setattr(health, "checks", lambda D, u: [])
     monkeypatch.setattr(health, "failed_runs", lambda hours=20: [])

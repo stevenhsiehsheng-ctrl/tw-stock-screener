@@ -29,6 +29,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 OUT = DATA / "health" / "latest.json"
+HIST = DATA / "health" / "history.jsonl"   # 每次體檢一行，看哪一項常缺、repo 大小趨勢（留最近 120 次）
 TPE = ZoneInfo("Asia/Taipei")
 log = logging.getLogger(__name__)
 
@@ -307,6 +308,13 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
            "repo_mb": repo_mb() if slot == "am" else prev.get("repo_mb") if done else None}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", "utf-8")
+    try:
+        line = {k: res[k] for k in ("checked_at", "slot", "trading_day", "bad", "dispatched", "cron", "repo_mb")}
+        line["failed_runs"] = [f["name"] for f in fails]
+        old = HIST.read_text("utf-8").splitlines() if HIST.exists() else []
+        HIST.write_text("\n".join((old + [json.dumps(line, ensure_ascii=False)])[-120:]) + "\n", "utf-8")
+    except Exception as e:  # noqa: BLE001
+        log.warning("體檢紀錄寫不進 history.jsonl：%s", e)
     log.info("體檢 %s：交易日 %s，缺 %s，失敗 %d 個，補跑 %s", slot, D, res["bad"] or "無", len(fails), sent or "無")
 
     # 早上補跑救得到的先不吵；救不到的（沒有補跑方法、派工失敗、工作流程失敗）才寄。下午還缺就寄。
