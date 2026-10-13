@@ -1479,3 +1479,69 @@ def test_weekly_stats_numbers(tmp_path):
     r = subprocess.run([sys.executable, str(root / "tools" / "weekly_stats.py"), str(tmp_path)], capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     assert "0050 含息 NA" in r.stdout
+
+
+def test_gifts_parse_and_records():
+    """股東紀念品：禮券面額估值、股代地址→地區、最後買進日跨年、HiStock 表格解析、合併與重複場次。"""
+    import numpy as np
+
+    from screener import gifts
+
+    fv = gifts.face_value
+    assert fv("7-11 35元商品卡") == 35 and fv("7-1135元商品卡") == 35  # 「7-11」的 11 不是金額
+    assert fv("全家禮物卡50元二張") == 100 and fv("50元商品卡x2") == 100 and fv("三百元禮券") == 300
+    assert fv("統一超商商品卡$100") == 100
+    for g in ("購物金100元", "全聯禮物卡100元(滿500可用)", "環保餐具組", "悠遊卡"):  # 有條件、不是禮券、沒面額
+        assert fv(g) is None, g
+    assert gifts.region("（106）臺北市大安區信義路三段") == "台北市大安區"
+    assert gifts.region("新竹縣竹北市光明六路") == "新竹縣竹北市" and gifts.region("高雄巿前鎮區") == "高雄市前鎮區"
+    assert gifts.region("某某飯店") == ""
+    m = dt.date(2026, 1, 20)
+    assert gifts._before("12/18", m, 2026) == "2025-12-18" and gifts._before("01/05", m, 2026) == "2026-01-05"
+    assert gifts._before("", m, 2026) == ""
+
+    th = "".join(f"<th>{c}</th>" for c in ("代號", "名稱", "股價", "性質", "股東會日期", "最後買進日", "股東會紀念品",
+                                           "開會地點", "零股寄單", "股代", "股代電話"))
+    row = lambda *v: "<tr>" + "".join(f"<td>{x}</td>" for x in v) + "</tr>"  # noqa: E731
+    page = (f"<html><head><title>2026年(115)股東會紀念品一覽</title></head><body><table><tr>{th}</tr>"
+            + row(2330, "台積電", 1450, "常會", "06/10", "04/09", "無", "新竹市", "否", "中信", "02-1")
+            + row(1101, "台泥 ", 25.5, "臨時會", "01/20", "12/18", "全家禮物卡50元 參考圖", "台北市", "是", "台泥股務", "02-2")
+            + row(1101, "台泥 ", 25.5, "臨時會", "01/20", "12/18", "全家禮物卡50元 參考圖", "台北市", "是", "台泥股務", "02-2")
+            + f"<tr>{th}</tr></table></body></html>")  # 重複的表頭列、重複的場次都要丟
+    year, hi = gifts.parse_histock(page)
+    assert year == 2026 and list(hi.code) == ["2330", "1101"]
+    t = hi.set_index("code")
+    assert t.at["1101", "name"] == "台泥" and t.at["1101", "kind"] == "臨時" and t.at["1101", "gift"] == "全家禮物卡50元"
+    assert t.at["1101", "last_buy"] == "2025-12-18" and t.at["2330", "meeting"] == "2026-06-10"
+
+    # 股代網：台積電 HiStock 寫「無」→ 用股代網的品項；另有一場 HiStock 還沒有的；官方股代覆蓋股代名稱
+    go = pd.DataFrame([{"code": "2330", "meeting": "2026-06-10", "name": "台積電", "gift": "環保袋", "kind": "常會",
+                        "price": np.nan, "last_buy": "", "buy_min": 5.0, "buy_max": 8.0, "proxy_deadline": "2026-05-01",
+                        "agent_g": "", "agent_tel_g": ""},
+                       {"code": "2603", "meeting": "2026-06-20", "name": "長榮", "gift": "", "kind": "常會",
+                        "price": 200.0, "last_buy": "2026-04-20", "buy_min": np.nan, "buy_max": np.nan,
+                        "proxy_deadline": "", "agent_g": "長榮股代", "agent_tel_g": "02-3"}])
+    ag = pd.DataFrame([{"code": "1101", "agent_o": "中國信託", "agent_tel_o": "02-9", "agent_addr": "台北市中正區重慶南路"}])
+    df = gifts.merge(hi, go, ag, {"1101": 0.012})
+    assert list(df.columns) == gifts.COLS and list(df.code) == ["1101", "2330", "2603"]
+    t = df.set_index("code")
+    assert t.at["2330", "gift"] == "環保袋" and t.at["2330", "src"] == "HG" and t.at["2603", "src"] == "G"
+    assert t.at["1101", "agent"] == "中國信託" and t.at["1101", "region"] == "台北市中正區" and t.at["1101", "sd"] == 0.012
+    assert t.at["2603", "agent"] == "長榮股代"
+
+    # 網頁列：沒禮物又沒買進日的丟掉、取消的丟掉；同一家同禮物 3 天內兩場只留常會；會議日空白不會整頁失敗
+    extra = pd.DataFrame([{**{c: "" for c in gifts.COLS}, "code": "6116", "gift": "全家禮物卡50元", "kind": k, "meeting": md,
+                           "last_buy": "2026-05-01", "price": 10.0, "buy_min": np.nan, "buy_max": np.nan, "sd": np.nan}
+                          for k, md in (("臨時", "2026-06-29"), ("常會", "2026-06-30"), ("常會", ""))]
+                         + [{**{c: "" for c in gifts.COLS}, "code": "9999", "gift": "取消發放", "meeting": "2026-06-01",
+                             "price": np.nan, "buy_min": np.nan, "buy_max": np.nan, "sd": np.nan}])
+    rec = gifts.records(pd.concat([df, extra], ignore_index=True))
+    by = {}
+    for r in rec:
+        by.setdefault(r["c"], []).append(r)
+    assert "9999" not in by and "2603" in by  # 長榮沒禮物但有最後買進日 → 留著
+    assert sorted((r["k"], r["m"]) for r in by["6116"]) == [("常會", ""), ("常會", "2026-06-30")]
+    r = by["1101"][0]
+    assert (r["v"], r["vb"], r["fv"]) == (50.0, "面額", 50.0)
+    r = by["2330"][0]
+    assert (r["v"], r["vb"], r["b1"]) == (8.0, "收購價", 8.0) and r["pd"] == "2026-05-01"
