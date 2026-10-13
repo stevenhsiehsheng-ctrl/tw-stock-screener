@@ -1713,3 +1713,46 @@ def test_backfill_fill_holes_scale(monkeypatch):
     got = out[(out.date == d[2])].set_index("code").close.round(4).to_dict()
     assert got == {"A": 90.0, "B": 95.0, "D": 10.0}  # A 因子 0.9；B 除息在洞後 → 用洞前 0.95；C 因子不同又沒除息 → 不補
     assert (out.date == d[2]).sum() == 3 and len(out) == len(df) + 2  # D 原本就有、E 附近沒出現 → 不加
+
+
+def test_etfw_weights_and_ex_tsmc(tmp_path, monkeypatch):
+    """0050 權重：MoneyDJ 頁解析、殘缺頁不存、只換日期權重全同不另存；0050 除台積電＝(r0050 − w×r2330)÷(1−w)，
+    權重跟著台積電／0050 含息相對漲幅飄，比第一份快照早的日子標 back。"""
+    from screener import etfw
+
+    ex = tmp_path / "data" / "extras"
+    ex.mkdir(parents=True)
+    monkeypatch.setattr(etfw, "DIR", ex)
+    monkeypatch.setattr(etfw, "ROOT", tmp_path)
+    monkeypatch.setattr(etfw, "W_FILE", ex / "etf0050_w.csv")
+    monkeypatch.setattr(etfw, "EX_FILE", ex / "ex_tsmc.csv")
+
+    cell = lambda n, w: f'<td class="col05"> {n} </td><td class="col06">x</td><td class="col07">{w}</td>'  # noqa: E731
+    page = "資料日期：2026/09/30<table><tr>" + cell("台積電", "57.12") + "</tr><tr>" + cell("鴻海", "4.5") + "</tr></table>"
+    w = etfw.parse(page, {"台積電": "2330", "鴻海": "2317"})
+    assert w.to_dict("records") == [{"asof": "2026-09-30", "code": "2330", "name": "台積電", "weight": 57.12},
+                                    {"asof": "2026-09-30", "code": "2317", "name": "鴻海", "weight": 4.5}]
+    assert etfw.parse("改版了", {}).empty
+
+    snap = lambda asof, w30: pd.DataFrame({"asof": asof, "code": ["2330", "2317"], "name": ["台積電", "鴻海"],  # noqa: E731
+                                           "weight": [w30, 100 - w30]})
+    feed = [snap("2026-09-30", 50.0).head(1), snap("2026-10-01", 50.0), snap("2026-10-02", 50.0), snap("2026-10-05", 49.0)]
+    monkeypatch.setattr(etfw, "fetch_weights", lambda s: feed.pop(0))
+    assert etfw.update_weights(None) == 0 and not etfw.W_FILE.exists()  # 合計 50％ 殘缺 → 不存
+    assert etfw.update_weights(None) == 1
+    assert etfw.update_weights(None) == 1  # 只換日期、權重全同 → 不另存
+    assert etfw.update_weights(None) == 2
+    assert sorted(pd.read_csv(etfw.W_FILE)["asof"].unique()) == ["2026-10-01", "2026-10-05"]
+
+    d = ["2026-09-30", "2026-10-01", "2026-10-02"]
+    pd.DataFrame({"date": d, "code": "0050", "tr": [100.0, 101.0, 102.0]}).to_csv(ex / "bench.csv", index=False)
+    pd.DataFrame({"date": d, "code": "2330", "close": [1000.0, 1020.0, 1020.0]}).to_csv(tmp_path / "data" / "history.csv.gz", index=False)
+    pd.DataFrame(columns=["date", "code", "factor"]).to_csv(ex / "exdiv.csv", index=False)
+    assert etfw.update_ex_tsmc() == 2
+    t = pd.read_csv(etfw.EX_FILE).set_index("date")
+    rel0, rel1 = 1000 / 100, 1020 / 101
+    w1 = 0.5 * rel0 / rel1  # 10/01：快照 10/01 還沒到（前一天 9/30 收盤）→ 用第一份往回推
+    assert t.at["2026-10-01", "src"] == "back" and t.at["2026-10-01", "w2330"] == round(w1 * 100, 2)
+    assert t.at["2026-10-01", "ex_tsmc"] == round((0.01 - w1 * 0.02) / (1 - w1) * 100, 4)
+    assert t.at["2026-10-02", "src"] == "snap" and t.at["2026-10-02", "w2330"] == 50.0  # 前一天就是快照日
+    assert t.at["2026-10-02", "r2330"] == 0 and t.at["2026-10-02", "ex_tsmc"] == round((102 / 101 - 1) / 0.5 * 100, 4)
