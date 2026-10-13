@@ -736,6 +736,58 @@ def test_oddlot_mis_fallback(monkeypatch):
     assert sorted(zip(df.code, df.market)) == [("2330", "TWSE"), ("6488", "TPEX")] and df.set_index("code").price["2330"] == 2500
 
 
+def test_oddlot_mis_replaced_by_official(monkeypatch, tmp_path):
+    """先用 MIS 補的上櫃那天要登記，傍晚／隔天補抓再抓官方的換掉（官方多了 ETF）；換成官方的就不再重抓。"""
+    import json
+
+    from screener import enrich, fetch
+
+    monkeypatch.setattr(enrich, "ODD_HIST", tmp_path / "oddlot_hist.csv.gz")
+    monkeypatch.setattr(enrich, "ODD_MIS", tmp_path / "oddlot_mis.json")
+    monkeypatch.setattr(enrich.time, "sleep", lambda s: None)
+    monkeypatch.setattr(fetch, "load_history", lambda: pd.DataFrame({"date": ["2026-10-12", "2026-10-13"]}))
+    f = ["證券代號", "證券名稱", "成交股數", "成交筆數", "成交金額", "成交價", "最後揭示買價", "最後揭示賣價"]
+    twse = {"fields": f, "data": [["2330", "台積電", "92,010", "1", "230,025,000", "2,500.00", "2,500.00", "2,505.00"]]}
+    tpex = {"fields": f, "data": [["6488", "環球晶", "9,544", "1", "9,734,880", "1,020.00", "1,015.00", "1,020.00"],
+                                  ["00679B", "元大美債20年", "5,000", "1", "135,000", "27.00", "26.99", "27.00"]]}
+    official_tpex, calls = [False], []
+
+    def fake_json(s, url, params):
+        calls.append(url)
+        if "twse" in url:
+            return {"tables": [twse]}
+        return {"tables": [tpex if official_tpex[0] else {"fields": [], "data": []}]}
+
+    monkeypatch.setattr(enrich, "_json", fake_json)
+    monkeypatch.setattr(enrich, "_tables", lambda j: j.get("tables") or [])
+    monkeypatch.setattr(enrich, "_oddlot_mis", lambda d, m: [{"code": "6488", "market": m, "price": 1020.0, "shares": 9544.0,
+                                                              "amount": 9734880, "bid": 1015.0, "ask": 1020.0}] if m == "TPEX" else [])
+    # 10/12 官方兩邊都有，10/13 上櫃官方還沒有 → MIS 補、登記
+    official_tpex[0] = True
+    enrich.update_oddlot_history(enrich.oddlot(None, dt.date(2026, 10, 12)), dt.date(2026, 10, 12))
+    official_tpex[0] = False
+    enrich.backfill_oddlot(None, dt.date(2026, 10, 13), 5)
+    assert json.loads((tmp_path / "oddlot_mis.json").read_text()) == {"2026-10-13": ["TPEX"]}
+    h = pd.read_csv(tmp_path / "oddlot_hist.csv.gz", dtype={"code": str})
+    assert sorted(h[h.date == "2026-10-13"].code) == ["2330", "6488"]
+
+    # 傍晚：官方還沒有 → 照樣 MIS、登記留著；10/12 已經是官方的，不重抓
+    calls.clear()
+    enrich.backfill_oddlot(None, dt.date(2026, 10, 13), 5)
+    assert json.loads((tmp_path / "oddlot_mis.json").read_text()) == {"2026-10-13": ["TPEX"]}
+    assert len(calls) == 3   # 只抓 10/13：上市 1 次、上櫃 0 列重抓 2 次
+
+    # 隔天：官方公布了 → 換成官方的（多了 ETF），登記拿掉，之後不再重抓
+    official_tpex[0] = True
+    enrich.backfill_oddlot(None, dt.date(2026, 10, 13), 5)
+    h = pd.read_csv(tmp_path / "oddlot_hist.csv.gz", dtype={"code": str})
+    assert sorted(h[h.date == "2026-10-13"].code) == ["00679B", "2330", "6488"]
+    assert json.loads((tmp_path / "oddlot_mis.json").read_text()) == {}
+    calls.clear()
+    enrich.backfill_oddlot(None, dt.date(2026, 10, 13), 5)
+    assert calls == []
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg

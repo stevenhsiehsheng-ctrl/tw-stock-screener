@@ -37,7 +37,7 @@
 | 狀況 | 處理 |
 |---|---|
 | 某天資料沒到 | 早上體檢會自動補跑；要手動就到 Actions → 該工作流程 → Run workflow，`date` 填那天（YYYY-MM-DD） |
-| 櫃買盤後零股 0 列 | 官方當天常常還沒公布：15:20 起會先用 MIS 補（log「官方還沒公布，用 MIS 補 N 檔」），傍晚補抓抓到官方的會換掉。MIS 也沒有（隔天早上 MIS 已換新的一天）就跑 `extras_evening.yml`，`date`＝那天、`oddlot_days`＝5 |
+| 櫃買盤後零股 0 列 | 官方當天常常還沒公布：15:20 起會先用 MIS 補（log「官方還沒公布，用 MIS 補 N 檔」），哪天是 MIS 補的記在 `data/extras/oddlot_mis.json`，傍晚／隔天補抓會再抓官方的換掉（官方多了 ETF），換好就從檔裡拿掉。MIS 也沒有（隔天早上 MIS 已換新的一天）就跑 `extras_evening.yml`，`date`＝那天、`oddlot_days`＝5 |
 | 美股沒到 | Run `us.yml` |
 | 虛擬帳戶帳本沒存 | 看協作板 `ledger_daily/日期` 有沒有；沒有就是 Cowork 15:47 沒跑成（fire 它一次）；有就照 16:25 排程的檢查存檔 |
 | GitHub 排程沒跑／晚跑 | 正常現象，都有備援班＋隔天早上體檢 |
