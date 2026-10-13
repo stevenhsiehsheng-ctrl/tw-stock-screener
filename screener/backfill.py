@@ -314,7 +314,10 @@ def main():
         start = dt.date.fromisoformat(df.date.min())
     elif a.source == "yahoo":
         try:
-            df = yahoo_adjusted(stocks, start)
+            # 台北 14:30 前跑的話今天那根 K 是盤中的（10/6 那份回測檔最後一天就是這樣，量只有官方 73%）：end 給今天（不含）
+            from zoneinfo import ZoneInfo
+            now = dt.datetime.now(ZoneInfo("Asia/Taipei"))
+            df = yahoo_adjusted(stocks, start, now.date() if now.time() < dt.time(14, 30) else None)
             df["adjusted"] = 1
         except Exception as e:  # noqa: BLE001
             log.warning("Yahoo 失敗，改用官方資料：%s", e)
