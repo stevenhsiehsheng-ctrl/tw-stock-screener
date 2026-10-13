@@ -103,6 +103,8 @@ jobs:
           if [ "$(TZ=Asia/Taipei date +%H)" -ge 13 ]; then python -m screener.health --slot pm --notify --latest; else echo "還沒收盤（休市日或提早結束），不複查"; fi
       - name: 記錄提醒過的股票
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -114,4 +116,6 @@ jobs:
               if git pull --rebase -X theirs && git push; then ok=1; break; fi
               git rebase --abort 2>/dev/null || true; sleep 5
             done; [ "$ok" = 1 ]
+            # 首頁收盤後那段（13:12 訊號、收工後體檢）要重畫才看得到，不然要等 15:20 每日資料（bot 推的 commit 不會觸發 pages.yml）
+            if [ "${{ inputs.test }}" != "true" ]; then gh workflow run pages.yml --ref main || echo "叫網站重畫失敗（不影響資料）"; fi
           fi
