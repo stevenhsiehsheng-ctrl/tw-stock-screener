@@ -85,6 +85,45 @@ def _by_code(df: pd.DataFrame | None) -> dict:
     return {} if df is None or df.empty else dict(tuple(df.groupby("code")))
 
 
+def system_tags() -> dict[str, list[dict]]:
+    """{代號: [{text, href}]}：這檔現在跟系統的關係，個股頁標題下面的標籤（10/14 加）。
+    虛擬帳戶持有（最新一份 data/ledger）、營收漂移最新一批籃子／抽中、強勢續攻最近 10 個交易日訊號（momo.write 存的名單）。"""
+    tags: dict[str, list[dict]] = {}
+    add = lambda c, text, href: tags.setdefault(str(c), []).append({"text": text, "href": href})   # noqa: E731
+    lf = sorted((DATA / "ledger").glob("20??-??-??.json")) if (DATA / "ledger").exists() else []
+    if lf:
+        try:
+            lg = json.loads(lf[-1].read_text("utf-8"))
+            names = {"core": "題材", "revdrift": "revdrift", "satellite": "衛星", "breakout": "突破", "etf": "0050 底倉"}
+            for p in lg.get("positions") or []:
+                add(p["code"], f"🧾 虛擬帳戶持有 {p.get('shares')} 股（{names.get(p.get('role'), p.get('role'))}，"
+                               f"{str(p.get('opened') or '')[5:].replace('-', '/')} 買）", "ledger.html")
+            for q in lg.get("pending") or []:
+                add(q["code"], f"🧾 虛擬帳戶待{'買' if q.get('side') == 'buy' else '賣'}", "ledger.html")
+        except Exception as e:  # noqa: BLE001
+            log.warning("帳本標籤失敗：%s", e)
+    try:
+        from . import revdrift
+        b = pd.read_csv(revdrift.OUT, dtype=str)
+        if len(b):
+            last = b.sort_values("batch_date").iloc[-1]
+            basket = revdrift.baskets(pd.read_csv(revdrift.REV, dtype={"code": str})).get(last.rev_month, [])
+            pick = set(str(last.pick6).split()) if isinstance(last.pick6, str) else set()
+            for c in basket:
+                add(c, f"📈 營收漂移 {last.rev_month} 批籃子{'・抽中 6 檔' if c in pick else ''}", "revdrift.html")
+    except Exception as e:  # noqa: BLE001
+        log.warning("營收漂移標籤失敗：%s", e)
+    try:
+        from . import momo
+        if momo.RECENT.exists():
+            m = pd.read_csv(momo.RECENT, dtype={"code": str})
+            for r in m.itertuples():
+                add(r.code, f"🚀 {momo.RULES.get(r.rule, r.rule)} {str(r.date)[5:].replace('-', '/')}", "momo.html")
+    except Exception as e:  # noqa: BLE001
+        log.warning("強勢續攻標籤失敗：%s", e)
+    return tags
+
+
 def build(out_dir: Path) -> int:
     """產生 out_dir/stocks/*.json，回傳檔數。"""
     lc = (yaml.safe_load((ROOT / "config.yaml").read_text("utf-8")) or {}).get("live", {})
@@ -179,6 +218,12 @@ def build(out_dir: Path) -> int:
     pdf = pdf[pdf.ind.notna() & pdf.mcap.notna()]
     peer_groups = {i: g.sort_values("mcap", ascending=False) for i, g in pdf.groupby("ind")}
 
+    try:
+        TAGS = system_tags()
+    except Exception as e:  # noqa: BLE001
+        log.warning("個股頁系統標籤失敗：%s", e)
+        TAGS = {}
+
     sd = out_dir / "stocks"
     sd.mkdir(parents=True, exist_ok=True)
     for old in sd.glob("*.json"):
@@ -214,6 +259,8 @@ def build(out_dir: Path) -> int:
                         for x in cols if x in row}
         if c in W50:
             o["w0050"] = [_r(W50[c][0]), W50[c][1]]
+        if c in TAGS:
+            o["tags"] = TAGS[c]
         if val_g and (v := valuation.stats(val_g.get(c), val_now, c, series=True)):
             o["val"] = v
         if c in one["warn"].index:

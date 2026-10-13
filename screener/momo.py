@@ -148,8 +148,15 @@ def _exits_html(r: dict) -> str:
             "觸發看收盤、隔天開盤賣；6 種是先定好再跑的，全部列出，沒有挑最好看的。</p></details>")
 
 
+RECENT = EX / "momo_recent.csv"   # 最近 10 個交易日的訊號（個股頁標籤讀）
+
+
 def write(site_dir: Path) -> bool:
     df = recent()
+    try:
+        df.reindex(columns=["rule", "date", "code", "sig_close"]).to_csv(RECENT, index=False)
+    except Exception as e:  # noqa: BLE001
+        log.warning("強勢續攻名單存檔失敗：%s", e)
     stats = json.loads(STATS.read_text("utf-8")) if STATS.exists() else {}
     def link(c):
         return f"<a href='stock.html?code={html.escape(c)}'>{html.escape(c)}</a>"
