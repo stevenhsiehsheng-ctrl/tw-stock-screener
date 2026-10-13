@@ -26,8 +26,11 @@ jobs:
         run: |
           python - <<'PY'
           import importlib, pkgutil, screener
+          SKIP = {"claude_link"}   # 手動換密碼用的工具，要另外裝 cryptography，不在每天的流程裡
           bad = []
           for m in pkgutil.iter_modules(screener.__path__):
+              if m.name in SKIP:
+                  continue
               try:
                   importlib.import_module(f"screener.{m.name}")
               except Exception as e:
