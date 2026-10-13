@@ -1021,6 +1021,38 @@ def test_revdrift_pick6():
     assert revdrift._pick6(b, px, odd, days[1:], "2026-10-13")[1] is None    # 不滿 5 天零股資料：不用零股門檻
 
 
+def test_notify_falls_back_to_issue(monkeypatch):
+    """沒設 Gmail（現在就是這樣）→ 開 GitHub Issue 通知 Dennis；body 太長截到 65,000 字（GitHub 上限 65,536）。
+    有設 Gmail → 寄信、不開 Issue。"""
+    import requests
+
+    from screener import notify
+    calls = []
+
+    class R:
+        status_code = 201
+
+        def json(self):
+            return {"html_url": "https://github.com/o/r/issues/1"}
+
+    monkeypatch.setattr(requests, "post", lambda url, headers=None, data=None, timeout=None: calls.append((url, headers, json.loads(data))) or R())
+    for k in ("SMTP_USER", "SMTP_PASSWORD"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    notify.send("⚠️ 台股系統體檢", "x" * 70000)
+    url, headers, data = calls[0]
+    assert url == "https://api.github.com/repos/o/r/issues" and headers["Authorization"] == "Bearer t"
+    assert data["title"] == "⚠️ 台股系統體檢" and len(data["body"]) == 65000
+
+    sent = []
+    monkeypatch.setenv("SMTP_USER", "a@b")
+    monkeypatch.setenv("SMTP_PASSWORD", "p")
+    monkeypatch.setattr(notify, "send_email", lambda subject, body: sent.append(subject))
+    notify.send("盤中預警", "| a |\n|---|\n| 1 |")
+    assert sent == ["盤中預警"] and len(calls) == 1
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
