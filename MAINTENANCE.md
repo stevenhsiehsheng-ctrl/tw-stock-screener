@@ -60,7 +60,7 @@
 | `data/ledger/日期.json` | 虛擬帳戶每天收盤帳本（**只有虛擬帳戶**） |
 | `data/positions.csv` | 13:12 系統訊號與出場追蹤 |
 | `data/book/`、`data/touch/` | 13:12／收盤委買委賣、盤中零股五檔、漲停觸及紀錄 |
-| `data/health/latest.json` | 系統體檢 |
+| `data/health/latest.json` | 系統體檢（最新一次）；`history.jsonl` 每次一行（缺什麼、補跑什麼、cron、repo 大小），看哪一項常缺 |
 | `site/` | 網站（GitHub Pages） |
 | `backtest-data` 分支 | 5 年回測用日 K（含下市股；Yahoo 還原價）。檔尾如果是盤中抓的半天資料（10/06 那份就是），`tools/btsim.py` 讀檔時會自動丟掉 |
 
