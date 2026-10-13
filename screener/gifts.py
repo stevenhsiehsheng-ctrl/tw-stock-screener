@@ -373,9 +373,11 @@ def records(df: pd.DataFrame) -> list[dict]:
     keep, seen = [], {}
     for x in out:
         k = (x["c"], x["g"])
-        if x["g"] and k in seen and abs((dt.date.fromisoformat(x["m"]) - dt.date.fromisoformat(seen[k])).days) <= 3:
+        if x["g"] and x["m"] and seen.get(k) and \
+                abs((dt.date.fromisoformat(x["m"]) - dt.date.fromisoformat(seen[k])).days) <= 3:
             continue
-        seen.setdefault(k, x["m"])
+        if x["m"]:   # 會議日空白（來源還沒公布）的不拿來比，也不會讓整頁 fromisoformat 失敗
+            seen.setdefault(k, x["m"])
         keep.append(x)
     return keep
 
