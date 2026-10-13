@@ -1627,3 +1627,37 @@ def test_longterm_tracking(tmp_path, monkeypatch):
 
     top["asof"] = "2026-10-06"  # 起點日 0050 還沒收盤資料 → 不給成績
     assert longterm.tracking(top) is None
+
+
+def test_usx_cut_last_and_signal_modifiers():
+    """美股：最後一天到的檔數不到前 20 天中位數 9 成就往前切；篩選條件的 days_ago／within／not、停用策略、基本門檻。"""
+    from screener import usx
+
+    days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2026-09-01", periods=25)]
+    h = pd.DataFrame([{"date": d, "code": f"S{i:02d}"} for d in days for i in range(20)])
+    assert usx.cut_last(h).date.max() == days[-1]
+    part = pd.concat([h, pd.DataFrame([{"date": "2026-10-06", "code": f"S{i:02d}"} for i in range(10)])])  # 只到一半
+    assert usx.cut_last(part).date.max() == days[-1]
+    ok = pd.concat([h, pd.DataFrame([{"date": "2026-10-06", "code": f"S{i:02d}"} for i in range(18)])])  # 18/20 ≥ 9 成
+    assert usx.cut_last(ok).date.max() == "2026-10-06"
+
+    days = [f"2026-10-0{i}" for i in range(1, 8)]
+    rows = []
+    for i, d in enumerate(days):
+        for code, px in (("AAA", 10 if i == 0 else 10.5), ("BBB", 3 if i == 0 else 3.15)):  # 兩檔都在 10/02 漲 5％
+            rows.append({"date": d, "code": code, "open": px, "high": px, "low": px, "close": px, "volume": 1e6})
+    jump = {"type": "change_pct", "min": 3}
+    cfg = {"base_filter": [{"type": "price", "min": 5}],  # BBB 股價 <5 → 永遠不出現
+           "strategies": [{"name": "jump", "conditions": [jump]},
+                          {"name": "ago2", "conditions": [{**jump, "days_ago": 2}]},
+                          {"name": "within3", "conditions": [{**jump, "within": 3}]},
+                          {"name": "nojump", "conditions": [{**jump, "not": True}]},
+                          {"name": "off", "enabled": False, "conditions": []}]}
+    _, sig = usx.signal_matrix(pd.DataFrame(rows), cfg)
+    assert list(sig) == ["jump", "ago2", "within3", "nojump"]
+    a = {k: m["AAA"].astype(int).tolist() for k, m in sig.items()}
+    assert a["jump"] == [0, 1, 0, 0, 0, 0, 0]
+    assert a["ago2"] == [0, 0, 0, 1, 0, 0, 0]
+    assert a["within3"] == [0, 1, 1, 1, 0, 0, 0]
+    assert a["nojump"] == [1, 0, 1, 1, 1, 1, 1]
+    assert not any(m["BBB"].any() for m in sig.values())
