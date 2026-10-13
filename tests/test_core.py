@@ -398,3 +398,37 @@ def test_margin_history_refetch_partial(tmp_path, monkeypatch):
     t2 = pd.read_csv(chips.DT_HIST, dtype={"code": str})
     assert m2.groupby("date").size().to_dict() == {d: 100 for d in days}       # 10/13 補齊；10/12 抓到 70 筆比舊的少、不換
     assert t2.groupby("date").size().to_dict() == {d: 100 for d in days}       # 當沖 10/12、10/13 補上
+
+
+# ---------------------------------------------------------------- 篩選規則引擎（每天選股的核心）
+def test_rules_engine_basic_strategies():
+    """假資料 70 天：1111 一路跌到季線下、最後一天爆量長紅站上季線；2222 平盤；3333 一路在季線上、最後一天收漲停（20 → 22）。"""
+    from screener import rules
+    days = pd.bdate_range("2026-07-01", periods=70).strftime("%Y-%m-%d")
+    rows = []
+    for i, d in enumerate(days):
+        last = i == len(days) - 1
+        c1 = 60 - i * 0.05 if not last else round((60 - (i - 1) * 0.05) * 1.08, 2)   # 最後一天 +8%（沒到漲停）
+        rows.append((d, "1111", c1 * (0.97 if last else 1), c1 * 1.01, c1 * 0.96, c1, 3_000_000 if last else 800_000))
+        rows.append((d, "2222", 30, 30.2, 29.8, 30, 900_000))
+        c3 = 22.0 if last else round(18 + i * 2 / 68, 2)        # 一路在季線上（不是「突破」），最後一天 20 → 22 漲停
+        rows.append((d, "3333", 20.5 if last else c3, c3, c3 * 0.99, c3, 1_500_000 if last else 700_000))
+    hist = pd.DataFrame(rows, columns=["date", "code", "open", "high", "low", "close", "volume"])
+    p = rules.Panel(hist)
+    strategies = [
+        {"name": "爆量突破季線", "conditions": [{"type": "volume_vs_prev", "min": 2}, {"type": "cross_above_ma", "period": 60}]},
+        {"name": "漲停", "conditions": [{"type": "limit_up"}]},
+        {"name": "爆量長紅", "conditions": [{"type": "volume_vs_avg", "days": 5, "min": 3}, {"type": "change_pct", "min": 5},
+                                          {"type": "red_candle"}]},
+        {"name": "停用的", "enabled": False, "conditions": []},
+    ]
+    hits = rules.run_strategies(p, strategies, [{"type": "volume", "min": 500}, {"type": "price", "min": 10}])
+    assert hits["爆量突破季線"] == ["1111"]
+    assert hits["漲停"] == ["3333"]
+    assert hits["爆量長紅"] == ["1111"]
+    assert "停用的" not in hits
+    # 門檻：量 < 500 張的被 base_filter 擋掉
+    hits = rules.run_strategies(p, strategies, [{"type": "volume", "min": 2000}])
+    assert hits["爆量突破季線"] == ["1111"] and hits["漲停"] == []
+    # not／days_ago：昨天沒有漲停、今天有
+    assert bool(rules.evaluate(p, {"type": "limit_up", "days_ago": 1, "not": True})["3333"])
