@@ -425,6 +425,23 @@ def test_lottery_placebo_liquidity_match():
     assert set(np.round(pl2["median"], 9)) == {round(lo, 9)}                                          # 低流動性那筆只抽到 0%
 
 
+def test_btstats_month_t():
+    """研究判準的「月 t」：同一個月進場的先平均，再對月平均序列做 t（月份聚類，不是對每一筆）；N、平均、中位、勝率、月數。"""
+    import math
+
+    from tools.btstats import stats
+    r = pd.Series([1.0, 3.0, -1.0, 2.0, 4.0, 0.0])
+    d = pd.Series(["2026-01-05", "2026-01-20", "2026-02-03", "2026-02-10", "2026-03-02", "2026-03-30"])
+    s = stats(r, d)
+    m = [2.0, 0.5, 2.0]                                   # 三個月的月平均
+    sd = pd.Series(m).std(ddof=1)
+    assert s["N"] == 6 and s["月數"] == 3 and s["平均"] == 1.5 and s["中位"] == 1.5
+    assert abs(s["勝率"] - 4 / 6 * 100) < 1e-9
+    assert abs(s["月t"] - (sum(m) / 3) / (sd / math.sqrt(3))) < 1e-9
+    one = stats(pd.Series([1.0, 2.0]), pd.Series(["2026-01-05", "2026-01-06"]))
+    assert one["月數"] == 1 and math.isnan(one["月t"])     # 只有一個月算不了 t
+
+
 def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     from zoneinfo import ZoneInfo
     from screener import notify
