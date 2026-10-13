@@ -2175,3 +2175,38 @@ def test_exdiv_upcoming_and_fill_details(monkeypatch):
          "data": [["2330", "4.0 元", "50.0", "0", "0"]]}
     monkeypatch.setattr(exdiv, "_json", lambda s, url, params=None: j)
     assert real_detail(None, "2330", "2026-09-17") == {"cash_div": 4.0, "stock_ratio": 0.05, "rights_ratio": 0.0, "rights_price": 0.0}
+
+
+def test_stockpage_system_tags(tmp_path, monkeypatch):
+    """個股頁標題下的系統標籤：虛擬帳戶最新一份帳本的持股／待買賣、營收漂移最新一批籃子（抽中的另外標）、強勢續攻近 10 日訊號；
+    哪一份資料壞掉只少那種標籤，不影響其他。"""
+    import json as _json
+
+    from screener import momo, revdrift
+    from screener import stockpage as sp
+
+    (tmp_path / "ledger").mkdir()
+    (tmp_path / "ledger" / "2026-10-12.json").write_text(_json.dumps({"positions": [{"code": "9999", "shares": 1}]}), "utf-8")
+    (tmp_path / "ledger" / "2026-10-13.json").write_text(_json.dumps(
+        {"positions": [{"code": "2330", "shares": 3, "role": "revdrift", "opened": "2026-10-13"}],
+         "pending": [{"code": "1101", "side": "sell"}]}), "utf-8")
+    monkeypatch.setattr(sp, "DATA", tmp_path)
+    yms = [f"2025-{m:02d}" for m in range(10, 13)] + [f"2026-{m:02d}" for m in range(1, 10)]
+    pd.DataFrame([{"ym": ym, "code": c, "revenue": 200 if ym == yms[-1] else 100, "yoy": 50 if ym == yms[-1] else 0}
+                  for c in ("2330", "2454") for ym in yms]).to_csv(tmp_path / "rev.csv", index=False)
+    pd.DataFrame([{"rev_month": "2026-08", "batch_date": "2026-09-11", "pick6": "1101"},
+                  {"rev_month": "2026-09", "batch_date": "2026-10-13", "pick6": "2330"}]).to_csv(tmp_path / "rb.csv", index=False)
+    monkeypatch.setattr(revdrift, "REV", tmp_path / "rev.csv")
+    monkeypatch.setattr(revdrift, "OUT", tmp_path / "rb.csv")
+    monkeypatch.setattr(momo, "RECENT", tmp_path / "momo_missing.csv")  # 沒有這份 → 只少強勢續攻標籤
+
+    t = {c: [x["text"] for x in v] for c, v in sp.system_tags().items()}
+    assert "9999" not in t  # 只看最新一份帳本
+    assert t["2330"] == ["🧾 虛擬帳戶持有 3 股（revdrift，10/13 買）", "📈 營收漂移 2026-09 批籃子・抽中 6 檔"]
+    assert t["2454"] == ["📈 營收漂移 2026-09 批籃子"] and t["1101"] == ["🧾 虛擬帳戶待賣"]
+
+    pd.DataFrame([{"rule": "cont", "date": "2026-10-09", "code": "3441"}]).to_csv(tmp_path / "m.csv", index=False)
+    monkeypatch.setattr(momo, "RECENT", tmp_path / "m.csv")
+    (tmp_path / "rb.csv").write_text("壞掉", "utf-8")
+    t = {c: [x["text"] for x in v] for c, v in sp.system_tags().items()}
+    assert t["3441"] == ["🚀 強勢續攻 10/09"] and "2454" not in t and "2330" in t
