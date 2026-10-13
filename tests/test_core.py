@@ -885,6 +885,37 @@ def test_daystatus_fmt_runs():
     assert fmt_runs([]) == ["  （沒有）"]
 
 
+def test_corpact_adjust(tmp_path, monkeypatch):
+    """減資／變更面額接價（盤中、每日篩選都靠它）：官方事件往回 ÷factor、量 ×factor；事件當天股價沒跳的不調（假事件）；
+    停牌後恢復買賣大跳、又沒有公告的用推估。"""
+    from screener import corpact
+    days = [f"2026-09-{d:02d}" for d in range(1, 13)]
+    rows = []
+    for code in ("1111", "2222", "3333"):
+        for i, d in enumerate(days):
+            if code == "3333" and d in ("2026-09-09", "2026-09-10"):
+                continue                                           # 停牌兩天
+            px = 100.0
+            if d == "2026-09-11":
+                px = {"1111": 202.0, "2222": 101.0, "3333": 50.0}[code]
+            if d == "2026-09-12":
+                px = {"1111": 204.0, "2222": 102.0, "3333": 51.0}[code]
+            rows.append({"date": d, "code": code, "open": px, "high": px, "low": px, "close": px, "volume": 1000.0})
+    hist = pd.DataFrame(rows)
+    cf = tmp_path / "corp_actions.csv"
+    pd.DataFrame([{"date": "2026-09-11", "code": "1111", "factor": 0.5, "src": "TWTAUU"},
+                  {"date": "2026-09-11", "code": "2222", "factor": 0.7, "src": "TWTAUU"}]).to_csv(cf, index=False)
+    monkeypatch.setattr(corpact, "CORP_F", cf)
+    monkeypatch.setattr(corpact, "EXDIV", tmp_path / "none.csv")
+    ev = corpact.events(hist).set_index("code")
+    assert set(ev.index) == {"1111", "3333"}                      # 2222 的假事件被合理性檢查擋掉
+    assert ev.factor["1111"] == 0.5 and ev.src["3333"] == "推估" and abs(ev.factor["3333"] - 2.0) < 1e-9
+    h = corpact.adjust(hist).set_index(["code", "date"])
+    assert h.close["1111", "2026-09-10"] == 200 and h.volume["1111", "2026-09-10"] == 500 and h.close["1111", "2026-09-11"] == 202
+    assert h.close["2222", "2026-09-10"] == 100
+    assert h.close["3333", "2026-09-08"] == 50 and h.volume["3333", "2026-09-08"] == 2000 and h.close["3333", "2026-09-11"] == 50
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
