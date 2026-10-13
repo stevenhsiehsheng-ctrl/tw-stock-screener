@@ -2302,3 +2302,29 @@ def test_chips_mops_revenue_history(tmp_path, monkeypatch):
     assert h.at[("2026-09", "2330"), "revenue"] == 5.0 and h.at[("2026-09", "2330"), "ann_date"] == "2026-10-08"  # 沒抓到 → 保留
     assert h.at[("2026-09", "1101"), "ann_date"] == "2026-10-14" and h.at[("2026-08", "2330"), "ann_date"] == "2026-10-14"
     assert pd.isna(h.at[("2026-06", "1101"), "ann_date"])  # 往回補的舊月份不知道公告日
+
+
+def test_live_group_heat_mainline():
+    """盤中族群熱度：發動＝預估爆量漲 3%↑ 或漲 9.4%↑；第一次 ≥5 家且 ≥成員 5% 的時間記進 state（重啟接得上），
+    10:00 前達到標「主線」；發動不到 2 家又沒達標過的不列；題材跟產業分開算。"""
+    from screener import live
+
+    rows = [{"code": f"A{i}", "name": f"甲{i}", "industry": "半導體業", "price": 10.0, "chg": 9.5 if i < 5 else 1.0,
+             "surge": False, "locked": i < 3} for i in range(20)]                       # 5/20 漲停
+    rows += [{"code": f"B{i}", "name": f"乙{i}", "industry": "電子零組件業", "price": 10.0, "chg": 4.0 if i < 5 else 0.5,
+              "surge": i < 5, "locked": False} for i in range(200)]                     # 5/200＝2.5% → 比例不夠
+    rows += [{"code": "C0", "name": "丙", "industry": "水泥工業", "price": 10.0, "chg": 9.6, "surge": False, "locked": True}]
+    q = pd.DataFrame(rows)
+    st = {}
+    heat = {h["name"]: h for h in live.group_heat(q, st, "09:45", {"AI": ["A0", "A1", "B0"]})}
+    a = heat["半導體業"]
+    assert (a["active"], a["limit"], a["first5"], a["main"]) == (5, 5, "09:45", True)
+    assert [m[0] for m in a["members"]][:5] == ["A0", "A1", "A2", "A3", "A4"] and a["members"][0][3] is True
+    assert heat["電子零組件業"]["first5"] is None and heat["電子零組件業"]["main"] is False
+    assert "水泥工業" not in heat  # 只有 1 家發動
+    assert heat["AI"]["kind"] == "題材" and heat["AI"]["active"] == 3
+    q.loc[q.code.str.startswith("A"), "chg"] = 1.0  # 之後熄火、10:30 再掃：主線時間留著
+    heat2 = {h["name"]: h for h in live.group_heat(q, st, "10:30", {})}
+    assert heat2["半導體業"]["first5"] == "09:45" and heat2["半導體業"]["main"] is True and heat2["半導體業"]["active"] == 0
+    assert live.lock_minutes({"last_scan": "13:24", "lock_since": {"A0": "13:00", "A1": "13:24"}}) == {"A0": 24, "A1": 0}
+    assert live.lock_minutes({}) == {}
