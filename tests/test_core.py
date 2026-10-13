@@ -294,6 +294,7 @@ def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     monkeypatch.setattr(health, "twse_days", lambda t: ["2026-10-08", "2026-10-12", "2026-10-13"])
     monkeypatch.setattr(health, "failed_runs", lambda hours=20: [])
     monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)   # 不在 Actions 裡 → 不看 cron-job.org
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)   # 也不查 repo 大小
     sent, mails = [], []
     monkeypatch.setattr(health, "dispatch", lambda f, D: sent.append((f, D)) or True)
     monkeypatch.setattr(notify, "send", lambda s, b: mails.append(s))
@@ -363,11 +364,13 @@ def test_health_cron_check(tmp_path, monkeypatch):
     mails = []
     monkeypatch.setattr(notify, "send", lambda s, b: mails.append((s, b)))
     monkeypatch.setattr(health, "cron_check", lambda D, n: ["每日資料 X 15:20 那班沒叫到"])
+    monkeypatch.setattr(health, "repo_mb", lambda: 520.8)
     monkeypatch.setattr(health, "twse_days", lambda t: ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"])
     health.run("am", heal=False, notify=True, now=now)
     assert mails == []
     r = health.run("pm", heal=False, notify=True, now=now.replace(hour=13, minute=31))
     assert r["cron"] == ["每日資料 X 15:20 那班沒叫到"] and mails == []      # 下午沿用早上的結果、不寄
+    assert r["repo_mb"] == 520.8
     health.run("am", heal=False, notify=True, now=now + dt.timedelta(days=1))
     assert len(mails) == 1 and "token" in mails[0][1] and "1 項" in mails[0][0]
 
