@@ -37,13 +37,13 @@
 | 狀況 | 處理 |
 |---|---|
 | 某天資料沒到 | 早上體檢會自動補跑；要手動就到 Actions → 該工作流程 → Run workflow，`date` 填那天（YYYY-MM-DD） |
-| 櫃買盤後零股 0 列 | `extras_evening.yml`，`date`＝那天、`oddlot_days`＝5 |
+| 櫃買盤後零股 0 列 | 官方當天常常還沒公布：15:20 起會先用 MIS 補（log「官方還沒公布，用 MIS 補 N 檔」），傍晚補抓抓到官方的會換掉。MIS 也沒有（隔天早上 MIS 已換新的一天）就跑 `extras_evening.yml`，`date`＝那天、`oddlot_days`＝5 |
 | 美股沒到 | Run `us.yml` |
 | 虛擬帳戶帳本沒存 | 看協作板 `ledger_daily/日期` 有沒有；沒有就是 Cowork 15:47 沒跑成（fire 它一次）；有就照 16:25 排程的檢查存檔 |
 | GitHub 排程沒跑／晚跑 | 正常現象，都有備援班＋隔天早上體檢 |
 | 盤中頁整個上午沒更新 | 看 Actions「盤中連續監控」的 log。單輪出錯會自己重啟（log 有「盤中監控出錯（第 N 次）」，最多 5 次，狀態從 `live_state.json` 接續、不重複通知）；5 次都失敗才會停。修好後 Run workflow（**取消勾選 test**）就會接續當天 |
 | 首頁 🩺 或體檢信說「cron-job.org 沒準時叫」 | 08:40 盤中監控、15:20 每日資料是 Dennis 的 cron-job.org 叫的（用 GitHub token）。到 cron-job.org 看執行紀錄：401／403 就是 token 過期，GitHub 重新產生一個（權限 Actions: write）貼回去。連兩天沒叫到才會寄信 |
-| 證交所／櫃買格式變了 | 用 `probe.yml` 從 GitHub 抓原始回應看格式（Claude Code 的沙盒連不到證交所） |
+| 證交所／櫃買格式變了 | 用 `probe.yml` 從 GitHub 抓原始回應看格式（Claude Code 的沙盒連不到證交所）。網址裡不要有 `|`（probe 拿它分隔關鍵字），MIS 多檔要一檔一個網址 |
 
 ## 改程式的規則
 
@@ -51,6 +51,13 @@
 - `live.yml`、`screener/live.py`、`intraday.py`、`live_page.html`、`positions.py` 影響盤中，**13:30 收盤後**才合併。
 - 改過的網頁用 playwright 實際打開看（手機寬 400px、有沒有 JS 錯誤）。
 - 數字類的改動（回測、統計）先寫好要比什麼再跑，全部列出，不挑好看的。
+
+## MIS（證交所即時報價）幾個容易搞錯的
+
+- `getStockInfo.jsp`：整股。量是**張**、委買委賣是張數。加 `odd=1` **沒有用**（回的一模一樣，#269 踩過）。
+  收盤後裡面的 `oz／ov／ob／oa／ot` 是當天**盤後零股** 14:30 撮合的成交價／股數／買價／賣價（跟官方檔一樣，#311 拿來補櫃買）。
+- `getOddInfo.jsp`：**盤中零股**。量和委買委賣都是**股數**（`data/book/odd_日期.csv`）。
+- 只有最新一個交易日的資料，收盤後到隔天開盤前都還查得到前一天的；偶爾回非 JSON，`fetch_quotes` 會整批再抓一次。
 
 ## 資料在哪
 
