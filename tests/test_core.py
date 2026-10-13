@@ -224,6 +224,24 @@ def test_gzip_csv_deterministic(tmp_path):
     s = tmp_path / "s.csv.gz"
     df.set_index("code")["close"].to_csv(s)                   # Series 也一樣
     assert s.read_bytes()[4:8] == b"\0\0\0\0"                 # gzip 檔頭第 4～7 byte 是時間
+    # 預設不壓縮（git 才能存差異）：原文直接看得到；自己指定 compresslevel 的照它的
+    df.to_csv(p, index=False)
+    assert b"2330,2490" in p.read_bytes()
+    df.to_csv(p, index=False, compression={"method": "gzip", "compresslevel": 9})
+    assert b"2330,2490" not in p.read_bytes()
+    # 寫完太大的（5 年檔）改回一般壓縮
+    big = pd.concat([df] * 2000, ignore_index=True)
+    big.to_csv(p, index=False)
+    raw = p.stat().st_size
+    import screener as sc
+    old = sc.BIG
+    try:
+        sc.BIG = raw // 2
+        big.to_csv(p, index=False)
+        assert p.stat().st_size < raw // 5
+        assert pd.read_csv(p).shape == big.shape
+    finally:
+        sc.BIG = old
     q = tmp_path / "plain.csv"
     df.to_csv(q, index=False)
     assert q.read_text().startswith("date,code,close")       # 一般 CSV 不受影響
