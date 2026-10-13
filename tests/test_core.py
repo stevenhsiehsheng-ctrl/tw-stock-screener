@@ -2269,3 +2269,36 @@ def test_lottery_surge_trades_match_kline_marks():
     assert t[["entry", "exit", "code", "hold"]].values.tolist() == [[days[62], days[65], "1101", 3]]
     eq = ((107 / 104 - 1) + 0) / 2   # 同段全市場等權：1101 和 1102（平盤）
     assert abs(t.ret.iloc[0] - (((107 / 104 - 1) - eq) * 100 - 0.38)) < 1e-9 and not t.lu.iloc[0]
+
+
+def test_chips_mops_revenue_history(tmp_path, monkeypatch):
+    """月營收歷史（公開資訊觀測站）：表格解析；最近兩個月每天重抓、其他缺的才補；
+    ann_date＝第一次看到的日期（已有的保留、往回補的舊月份留空）；這次沒抓到的公司保留舊列（10/7 上櫃只回 1 列事件）。"""
+    from screener import chips
+
+    page = ("<table><tr><td>2330</td><td>台積電</td><td>3,000,000</td><td>2,900,000</td><td>2,000,000</td>"
+            "<td>3.45</td><td>50.00</td></tr><tr><td>公司</td><td>x</td></tr>"
+            "<tr><td> 1101 </td><td>台泥</td><td>10,000</td><td>11,000</td><td>9,000</td><td>-9.09</td><td>11.11</td></tr></table>")
+    r = chips.parse_mops_revenue(page)
+    assert r.values.tolist() == [["2330", 3000000.0, 50.0, 3.45], ["1101", 10000.0, 11.11, -9.09]]
+
+    monkeypatch.setattr(chips, "REV_HIST", tmp_path / "rev.csv")
+    monkeypatch.setattr(chips, "REV_MONTHS", 4)
+    monkeypatch.setattr(chips, "DIR", tmp_path)
+    got = {"2026-09": ["1101"], "2026-08": ["1101", "2330"], "2026-07": ["1101", "2330"], "2026-06": ["1101", "2330"]}
+    calls = []
+
+    def fake(s, y, m):
+        ym = f"{y}-{m:02d}"
+        calls.append(ym)
+        return pd.DataFrame({"code": got.get(ym, []), "revenue": 1.0, "yoy": 1.0, "mom": 1.0}).assign(ym=ym)
+    monkeypatch.setattr(chips, "revenue_month", fake)
+    old = pd.DataFrame([{"code": "2330", "ym": "2026-09", "revenue": 5.0, "yoy": 5.0, "mom": 5.0, "ann_date": "2026-10-08"},
+                        {"code": "1101", "ym": "2026-07", "revenue": 7.0, "yoy": 7.0, "mom": 7.0, "ann_date": ""}])
+    old.to_csv(chips.REV_HIST, index=False)
+    assert chips.update_revenue_history(None, dt.date(2026, 10, 14)) == 4
+    assert calls == ["2026-09", "2026-08", "2026-06"]  # 最近兩個月重抓；07 已有不重抓
+    h = pd.read_csv(chips.REV_HIST, dtype={"code": str, "ann_date": str}).set_index(["ym", "code"])
+    assert h.at[("2026-09", "2330"), "revenue"] == 5.0 and h.at[("2026-09", "2330"), "ann_date"] == "2026-10-08"  # 沒抓到 → 保留
+    assert h.at[("2026-09", "1101"), "ann_date"] == "2026-10-14" and h.at[("2026-08", "2330"), "ann_date"] == "2026-10-14"
+    assert pd.isna(h.at[("2026-06", "1101"), "ann_date"])  # 往回補的舊月份不知道公告日
