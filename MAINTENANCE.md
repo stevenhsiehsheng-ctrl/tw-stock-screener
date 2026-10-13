@@ -26,6 +26,7 @@
 1. **`data/health/latest.json`**（`screener/health.py`）：上一個交易日的資料有沒有到齊。`bad` 是缺的項目、`failed_runs` 是失敗的工作流程、`dispatched` 是早上自動補跑了什麼。
    檢查項目：收盤價、等權指數、13:12 鎖漲停家數、三大法人、盤後零股（上市／上櫃）、融資融券、當沖、美股、風險燈、虛擬帳戶帳本。
    早上另外看 `cron`：cron-job.org 有沒有準時叫（這班盤中監控、上一個交易日 15:20 的每日資料）。
+   `repo_mb`：GitHub 統計的 repo 大小（只記錄；10/14 是 520.8 MB，之後每週應該只長幾 MB，一天長幾十 MB 就是有檔案又整份重存）。
 2. **GitHub Actions** 紅色的那一個，點進去看 log。
 3. **協作板**（Cowork 和 Claude Code 交接用）：`status/claude_code`、`messages`。
 

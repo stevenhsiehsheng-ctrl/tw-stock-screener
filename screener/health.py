@@ -174,6 +174,19 @@ def failed_runs(hours=20) -> list[dict]:
 FIX_NAME = {"daily": "每日資料", "extras": "傍晚補抓", "us": "美股隔夜"}
 
 
+def repo_mb() -> float | None:
+    """GitHub 統計的 repo 大小（MB，GitHub 會延遲幾小時更新）。只記錄看趨勢：10/14 02:17 是 520.8 MB，
+    #279／#284 之後應該每週只長幾 MB；突然一天長幾十 MB 就是又有檔案整份重存。不在 Actions 裡回 None。"""
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not repo:
+        return None
+    try:
+        r = subprocess.run(["gh", "api", f"repos/{repo}", "--jq", ".size"], capture_output=True, text=True, timeout=60, check=True)
+        return round(int(r.stdout.strip()) / 1024, 1)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def cron_check(D: str, now: dt.datetime) -> list[str] | None:
     """cron-job.org 有沒有準時叫（08:40 盤中監控、15:20 每日資料）。它用 Dennis 的 GitHub token，token 過期就默默不叫了，
     只剩常晚好幾小時的 GitHub 排程（每日資料拖到晚上，Cowork 15:47 結算就沒資料）。只在早上體檢（Actions 裡）看：
@@ -290,7 +303,8 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
            "calendar": "twse" if days else "history", "us_day": us_day, "items": items,
            "bad": [i["name"] for i in bad], "failed_runs": fails, "dispatched": sent,
            "dispatched_am": (prev.get("dispatched") or []) if done == ["am"] else [],
-           "cron": cron_check(D, now) if slot == "am" else prev.get("cron") if done else None}
+           "cron": cron_check(D, now) if slot == "am" else prev.get("cron") if done else None,
+           "repo_mb": repo_mb() if slot == "am" else prev.get("repo_mb") if done else None}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", "utf-8")
     log.info("體檢 %s：交易日 %s，缺 %s，失敗 %d 個，補跑 %s", slot, D, res["bad"] or "無", len(fails), sent or "無")
