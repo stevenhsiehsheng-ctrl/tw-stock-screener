@@ -960,6 +960,49 @@ def test_ewindex_daily_returns_and_regime(tmp_path, monkeypatch):
     assert f.above[days[203]] == 0      # 洞之後正常的一天收在線下 → 隔天才翻
 
 
+def test_intraday_official_signal(tmp_path, monkeypatch):
+    """13:12 正式訊號（虛擬帳戶照這個下單）：預估全日量 3 倍、漲 3～10.5%、紅K、過 60 日高才進 positions.csv；
+    同一天第二次叫不重複記。"""
+    import shutil
+    import types
+
+    from screener import corpact, enrich, fetch, intraday, positions
+
+    class FakeDT(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2026, 10, 14, 13, 12, tzinfo=intraday.TZ)
+
+    monkeypatch.setattr(intraday, "dt", types.SimpleNamespace(datetime=FakeDT, date=dt.date, timedelta=dt.timedelta))
+    shutil.copy("config.yaml", tmp_path / "config.yaml")
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    monkeypatch.setattr(positions, "FILE", tmp_path / "data" / "positions.csv")
+    codes = ["1111", "2222", "3333", "4444"]
+    monkeypatch.setattr(fetch, "load_stock_list", lambda m: pd.DataFrame(
+        {"code": codes, "name": ["甲", "乙", "丙", "丁"], "market": "TWSE", "industry": "電子"}))
+    days = [str(dt.date(2026, 7, 1) + dt.timedelta(days=i)) for i in range(70)]
+    monkeypatch.setattr(fetch, "load_history", lambda: pd.DataFrame(
+        [{"date": d, "code": c, "open": 100, "high": 101, "low": 99, "close": 100, "volume": 1_000_000} for d in days for c in codes]))
+    monkeypatch.setattr(corpact, "adjust", lambda h, upto=None: h)
+    monkeypatch.setattr(enrich, "load", lambda: pd.DataFrame())
+    q = pd.DataFrame([  # 5 日均量 1000 張；13:12 約成交全天 9 成，3000 張 → 預估 3.3 倍
+        {"code": "1111", "price": 104, "open": 101, "vol_lots": 3000},   # 符合
+        {"code": "2222", "price": 104, "open": 101, "vol_lots": 2000},   # 量不夠
+        {"code": "3333", "price": 104, "open": 105, "vol_lots": 3000},   # 黑 K
+        {"code": "4444", "price": 100.5, "open": 100, "vol_lots": 3000}])  # 沒過前高、漲不到 3%
+    q = q.assign(name="x", high=q.price, low=q.open, yclose=100.0, time="13:12:00", date="20261014",
+                 bid1=q.price, ask1=None, bid1_lots=10, ask1_lots=None)
+    monkeypatch.setattr(intraday, "QUOTES", (q, "20261014"))
+    assert intraday.main(["--no-notify"]) == 0
+    p = pd.read_csv(tmp_path / "data" / "positions.csv", dtype={"code": str})
+    assert list(p.code) == ["1111"] and p.signal_date[0] == "2026-10-14" and p.signal_time[0] == "13:12"
+    assert p.alert_price[0] == 104 and p.surge_volume[0] == 3_000_000 and p.status[0] == "open"
+    assert json.loads((tmp_path / "data" / "intraday_state.json").read_text())["last_run"] == "2026-10-14"
+    assert intraday.main(["--no-notify"]) == 0      # 同一天再叫：已經掃描過，略過
+    assert len(pd.read_csv(tmp_path / "data" / "positions.csv")) == 1
+
+
 def test_probe_split_arg():
     """probe.yml：『網址|關鍵字』，但 MIS 多檔的 ex_ch=a|b 是網址的一部分（10/14 踩過，查錯成單檔）。"""
     from tools.probe import split_arg
