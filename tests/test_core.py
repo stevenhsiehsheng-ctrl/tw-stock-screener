@@ -2455,3 +2455,30 @@ def test_health_failed_runs_filter(monkeypatch):
     from screener.main import ROOT
     names = {yaml.safe_load(f.read_text("utf-8")).get("name") for f in (ROOT / ".github" / "workflows").glob("*.yml")}
     assert health.WATCH <= names, health.WATCH - names
+
+
+def test_live_stock_row_and_sell_open(tmp_path, monkeypatch):
+    """盤中頁每一列：Series／itertuples 都吃（Series 的 .name 是索引不能用屬性取）、沒成交價標 noprice、
+    處置股標 split（分盤撮合）、周轉率＝量÷股數、從第一次預警到現在漲多少；開盤要賣的＝已出場訊號還沒開盤價。"""
+    import numpy as np
+
+    from screener import live, positions
+
+    monkeypatch.setattr(live, "_EXT", {"1101": {"pe": 12.345, "flag": "處置", "shares": 5_000_000, "dt_ratio": 33.3}})
+    monkeypatch.setattr(live, "_TECH", {"1101": {"rs": 87.4}})
+    monkeypatch.setattr(live, "_GRANK", {"水泥工業": 3})
+    base = {"code": "1101", "name": "台泥", "industry": "水泥工業", "market": "TWSE", "price": 33.0, "chg": 3.13,
+            "vol_lots": 2500.0, "vol_x": 3.04, "proj_x": 4.55, "watch": True, "hit": False, "locked": False}
+    a = live.stock_row(pd.Series(base), {"time": "09:30", "price": 32.0})
+    b = live.stock_row(next(pd.DataFrame([base]).itertuples(index=False)))
+    assert a["name"] == "台泥" and b["name"] == "台泥" and a["split"] is True and a["noprice"] is False
+    assert (a["turnover"], a["pe"], a["rs"], a["group_rank"], a["dt"]) == (50.0, 12.3, 87, 3, 33)
+    assert (a["first_time"], a["since"]) == ("09:30", round((33 / 32 - 1) * 100, 2))
+    c = live.stock_row(pd.Series({**base, "code": "9999", "price": np.nan}))
+    assert c["noprice"] is True and c["split"] is False and "pe" not in c
+
+    monkeypatch.setattr(positions, "FILE", tmp_path / "positions.csv")
+    positions.save(pd.DataFrame([{"code": "1101", "status": "closed", "exit_signal_date": "2026-10-13"},
+                                 {"code": "1102", "status": "closed", "exit_signal_date": "2026-10-10", "exit_open": 20.5},
+                                 {"code": "1103", "status": "open"}]).reindex(columns=positions.COLS))
+    assert live.sell_open_codes() == {"1101"}
