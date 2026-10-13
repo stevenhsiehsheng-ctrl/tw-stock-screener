@@ -128,3 +128,17 @@ def future_days(after: str, n: int, fetch: bool = True) -> tuple[list[str], bool
         if d.weekday() < 5 and d.isoformat() not in hol:
             out.append(d.isoformat())
     return out, any(int(x[:4]) in rough for x in out)
+
+
+def is_trading_day(day: str | None = None, fetch: bool = False) -> bool:
+    """day（YYYY-MM-DD，預設台北今天）是不是交易日：平日、不在休市表。fetch=False 只讀快取＋推定休市日（不連網）。"""
+    if day is None:
+        day = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date().isoformat()
+    d = dt.date.fromisoformat(day)
+    return d.weekday() < 5 and day not in holidays([d.year], fetch)[0]
+
+
+if __name__ == "__main__":
+    # python -m screener.twcal [YYYY-MM-DD]：印「交易日」或「休市」（16:25 排程先看這個，休市日不做體檢、帳本）
+    import sys
+    print("交易日" if is_trading_day(sys.argv[1] if len(sys.argv) > 1 else None) else "休市")

@@ -41,6 +41,15 @@ def test_twcal_future_days_fallback(tmp_path, monkeypatch):
     assert not approx and days[-1] == "2026-11-11"
 
 
+def test_twcal_is_trading_day(tmp_path, monkeypatch):
+    """16:25 排程先看今天是不是交易日：休市日（補假、週末）不做體檢、不叫每日資料、不叫 Dennis 換 token。"""
+    monkeypatch.setattr(twcal, "CACHE", tmp_path / "tw_holidays.json")
+    (tmp_path / "tw_holidays.json").write_text(json.dumps({"years": {"2026": ["2026-10-09", "2026-10-26"]}}), "utf-8")
+    assert twcal.is_trading_day("2026-10-14") and twcal.is_trading_day("2026-10-27")
+    assert not twcal.is_trading_day("2026-10-26") and not twcal.is_trading_day("2026-10-09")
+    assert not twcal.is_trading_day("2026-10-17")   # 週六
+
+
 def test_twcal_fetch_next_year_not_published(monkeypatch):
     """明年的表還沒公布：只問 rwd 一次（openapi 只有今年、不問），同一次執行不重抓。"""
     import requests
