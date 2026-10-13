@@ -2044,3 +2044,29 @@ def test_chips_revenue_and_margin_metrics(tmp_path, monkeypatch):
     m = chips.margin_metrics().loc["1101"]
     assert (m.margin_bal, m.margin_chg, m.margin_streak, m.margin_days, m.margin_date) == (1060, 10, 6, 7, days[-1])
     assert m.short_ratio == round(50 / 1060 * 100, 2) and m.margin_5d_pct == round((1060 / 1010 - 1) * 100, 2) and m.dt_ratio == 12.5
+
+
+def test_positions_lock_count_close_vs_1312():
+    """「今天幾家鎖漲停」：收盤版（lock_counts，config base_filter）跟 13:12 盤中版（lock_now）是同一個母體、同一條鎖漲停近似
+    （漲 9.5～10.5% 且價＝最高）；4 碼普通股、≥500 張、≥10 元，前一天也要有成交。"""
+    import yaml
+
+    from screener import positions
+    from screener.main import ROOT
+    from screener.rules import Panel
+
+    base = yaml.safe_load((ROOT / "config.yaml").read_text("utf-8"))["base_filter"]
+    d0, d1 = "2026-10-12", "2026-10-13"
+    # (前一天收, 今天開/高/收, 張數)
+    case = {"1101": (100, 110, 110, 110, 600), "1102": (100, 111, 112, 110, 600),   # 鎖／打開（收≠高）
+            "1103": (100, 110, 110, 110, 400), "1104": (9, 9.9, 9.9, 9.9, 900),      # 量不夠／價不到 10 元
+            "1105": (100, 108, 108, 108, 900), "00631L": (100, 110, 110, 110, 900),  # 漲不夠／ETF
+            "1106": (None, 110, 110, 110, 900)}                                       # 昨天沒成交
+    rows, q = [], []
+    for c, (y, o, h, cl, lots) in case.items():
+        if y is not None:
+            rows.append({"date": d0, "code": c, "open": y, "high": y, "low": y, "close": y, "volume": lots * 1000})
+        rows.append({"date": d1, "code": c, "open": o, "high": h, "low": o, "close": cl, "volume": lots * 1000})
+        q.append({"code": c, "price": cl, "yclose": y or 0, "high": h, "vol_lots": lots})
+    n_close = positions.lock_counts(Panel(pd.DataFrame(rows)), base)
+    assert n_close[d1] == 1 and positions.lock_now(pd.DataFrame(q)) == 1
