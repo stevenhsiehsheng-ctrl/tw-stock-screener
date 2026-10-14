@@ -402,6 +402,8 @@ def test_real_site_notice_is_not_a_result():
     assert M.classify_page_change(caution) is None
     assert M.classify_page_change("請輸入OTP驗證碼完成報名：\n報名 取消此次報名") is None
     assert M.classify_page_change("預約成功\n" + caution) == "success"
+    assert M.QUERY_EMPTY_RX.search("該條件查詢不到符合的考試場次，敬請重新選擇")
+    assert not M.QUERY_REJECT_RX.search("該條件查詢不到符合的考試場次，敬請重新選擇")
 
 
 # ---------------------------------------------------------------- 第二輪審查

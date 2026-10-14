@@ -1,6 +1,7 @@
 """主流程：一直查場次，有符合的空位就報名。"""
 from __future__ import annotations
 
+import datetime as dt
 import random
 import re
 import time
@@ -10,7 +11,7 @@ from playwright.sync_api import sync_playwright
 
 from . import matching as M
 from .browser import CANCEL_PATH, Booker, Busy, Fatal, Outcome, Rejected
-from .config import date_range, mask_id
+from .config import LATEST_DAYS_AHEAD, TW, date_range, mask_id
 from .schedule import MIN_DELAY_S, DateCursor, next_delay
 from .util import Log, load_state, new_run_dir, now_tw, save_state
 from .notify import Notifier
@@ -33,14 +34,28 @@ def wait_exit(log: Log, msg: str = "瀏覽器會保持開啟。處理完之後�
         pass
 
 
+def opens_on(cfg: dict, today: dt.date) -> dt.date | None:
+    """設定的最早日期還沒開放預約（網站只開放 30 天內的場次）：回傳開始可以預約的那一天，否則 None。"""
+    f = cfg["target"]["date_from"]
+    if f and f > today + dt.timedelta(days=LATEST_DAYS_AHEAD):
+        return f - dt.timedelta(days=LATEST_DAYS_AHEAD)
+    return None
+
+
 def describe_target(cfg: dict) -> str:
     t, a = cfg["target"], cfg["applicant"]
-    start, end = date_range(cfg, now_tw().date())
+    today = now_tw().date()
+    start, end = date_range(cfg, today)
+    opens = opens_on(cfg, today)
+    if opens:
+        when = f"{t['date_from']} ～ {t['date_to'] or '（開放後 30 天內）'}（{opens} 08:00 才開放預約，程式會等到那時候再開始查）"
+    else:
+        when = f"{start} ～ {end}"
     wd = "" if len(t["weekdays"]) == 7 else "，只要星期" + "、".join("一二三四五六日"[d - 1] for d in t["weekdays"])
     lines = [
         f"模式：{'自動送出報名（book）' if cfg['mode'] == 'book' else '測試模式，只填不送出（dry_run）'}",
         f"照類：{t['license_label']}｜地點：{t['office_label']} {t.get('station_label') or ''}",
-        f"日期：{start} ～ {end}{wd}{'，只查週末假日' if t.get('weekend_only') else ''}",
+        f"日期：{when}{wd}{'，只查週末假日' if t.get('weekend_only') else ''}",
         f"組別：包含「{t.get('group_include') or '不限'}」，排除「{t.get('group_exclude') or '無'}」",
         f"報名人：{mask_id(a['id_no'])}，生日 {a['birth']}",
     ]
@@ -107,6 +122,14 @@ def _loop(cfg: dict, b: Booker, n: Notifier, log: Log) -> int:
         today = now_tw().date()
         start, end = date_range(cfg, today)
         qdate = cursor.next_query_date(cfg, today)
+        if qdate is None and (opens := opens_on(cfg, today)) is not None:
+            # 想考的日期還沒開放預約：等到開放那天 08:00 前再開始查（不是「日期已經過了」）
+            if "opens" not in warned:
+                warned.add("opens")
+                log.info(f"你設定的日期還沒開放預約：{opens:%Y-%m-%d} 08:00 開放，程式會等到那時候再開始查（不用關掉程式）。")
+            wake = dt.datetime.combine(opens, dt.time(7, 55), tzinfo=TW)
+            b.idle(max(60.0, min(3600.0, (wake - now_tw()).total_seconds())))
+            continue
         if qdate is None:
             n.alert("日期範圍已經過了", "config.yaml 的 date_to 已經過了（或範圍內沒有可預約的日子），請修改後重新執行。", email=True)
             return 1

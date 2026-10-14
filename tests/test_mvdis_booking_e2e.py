@@ -470,3 +470,27 @@ def test_in_page_notice_is_accepted(pw, env):
     assert out.kind == "dry_run_ready", out
     assert mock.submissions == []
 
+
+# ---------------------------------------------------------------- 想考的日期還沒開放預約
+def test_waits_until_booking_window_opens(env):
+    """date_from 在 30 天以後：要等到開放那天，不能當成「日期已經過了」而結束。"""
+    cfg = make_cfg("http://127.0.0.1", env, target={"date_from": (TODAY + dt.timedelta(days=45)).isoformat()})
+    assert runner.opens_on(cfg, TODAY) == TODAY + dt.timedelta(days=15)
+    assert "08:00 才開放預約" in runner.describe_target(cfg)
+
+    class Stop(Exception):
+        pass
+    slept = []
+
+    class B:
+        def idle(self, seconds):
+            slept.append(seconds)
+            raise Stop
+
+    n = FakeNotifier()
+    with pytest.raises(Stop):
+        runner._loop(cfg, B(), n, util.Log(env / "log.txt"))
+    assert n.alerts == [] and 60 <= slept[0] <= 3600
+    assert "還沒開放預約" in (env / "log.txt").read_text(encoding="utf-8")
+    cfg["target"]["date_from"] = None
+    assert runner.opens_on(cfg, TODAY) is None
