@@ -1,10 +1,11 @@
 {
  "date": "2026-10-14",
  "slots": [
-  "am"
+  "am",
+  "pm"
  ],
- "checked_at": "2026-10-14T08:40:37+0800",
- "slot": "am",
+ "checked_at": "2026-10-14T13:31:11+0800",
+ "slot": "pm",
  "trading_day": "2026-10-13",
  "source": "origin/main",
  "calendar": "twse",
@@ -68,16 +69,16 @@
   },
   {
    "name": "美股隔夜（費半）",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-13",
-   "ok": false,
+   "ok": true,
    "fix": "us"
   },
   {
    "name": "風險燈（大環境）",
-   "have": "2026-10-12",
+   "have": "2026-10-13",
    "want": "2026-10-13",
-   "ok": false,
+   "ok": true,
    "fix": "us"
   },
   {
@@ -88,15 +89,12 @@
    "fix": null
   }
  ],
- "bad": [
-  "美股隔夜（費半）",
-  "風險燈（大環境）"
- ],
+ "bad": [],
  "failed_runs": [],
- "dispatched": [
+ "dispatched": [],
+ "dispatched_am": [
   "us"
  ],
- "dispatched_am": [],
  "cron": [],
  "repo_mb": 480.7
 }
