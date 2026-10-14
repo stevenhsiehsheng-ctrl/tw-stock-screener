@@ -2654,3 +2654,35 @@ def test_streak_same_across_pages():
     for _ in range(300):
         a = rng.choice([-3.0, -1.0, 0.0, 1.0, 2.0, np.nan], size=int(rng.integers(0, 9)))
         assert chipspage._streak(a) == enrich._streak(pd.Series(a, dtype=float)), a
+
+
+def test_mappage_us_rows(tmp_path, monkeypatch):
+    """市場地圖美股：市值取 fund.csv（沒市值的不畫）、20 日平均成交值（十億美元）、1／5／20／250 日報酬；
+    中文名優先、產業翻中文；某天沒成交用前一天收盤算報酬。"""
+    from pathlib import Path
+
+    from screener import mappage
+
+    root = tmp_path / "data" / "usx"
+    root.mkdir(parents=True)
+    days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2025-09-01", periods=260)]
+    rows = []
+    for i, d in enumerate(days):
+        rows.append({"date": d, "code": "AAPL", "close": 100.0 + i, "volume": 1e7})
+        rows.append({"date": d, "code": "MSFT", "close": 300.0, "volume": 2e7})
+        rows.append({"date": d, "code": "NOCAP", "close": 10.0, "volume": 1e6})
+    pd.DataFrame(rows).to_csv(root / "history.csv.gz", index=False)
+    pd.DataFrame({"code": ["AAPL", "MSFT", "NOCAP"], "name": ["Apple", "Microsoft", "X"], "name_zh": ["蘋果", "", ""],
+                  "sector": ["Technology", "Technology", "Energy"], "group": ["SP500", "NDX", "SP500"]}).to_csv(root / "universe.csv", index=False)
+    pd.DataFrame({"code": ["AAPL", "MSFT", "NOCAP"], "mcap": [3500.04, 3000.0, None]}).to_csv(root / "fund.csv", index=False)
+    real = Path(mappage.__file__).resolve()
+    monkeypatch.setattr(mappage, "__file__", str(tmp_path / "screener" / real.name))
+    d = mappage.us_rows()
+    rows = {r[0]: r for r in d["rows"]}
+    assert d["date"] == days[-1] and set(rows) == {"AAPL", "MSFT"}  # NOCAP 沒市值
+    a = rows["AAPL"]
+    last = 100.0 + 259
+    assert a[1] == "蘋果" and rows["MSFT"][1] == "Microsoft" and a[2] == "SP500" and a[4] == 3500.0
+    assert a[5] == round(sum((100.0 + i) * 1e7 for i in range(240, 260)) / 20 / 1e9, 2)
+    assert (a[6], a[7], a[8], a[9]) == tuple(round((last / (last - k) - 1) * 100, 2) for k in (1, 5, 20, 250))
+    assert rows["MSFT"][6:] == [0.0, 0.0, 0.0, 0.0]
