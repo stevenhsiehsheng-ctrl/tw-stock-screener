@@ -2822,8 +2822,11 @@ def test_daystatus_main_rows(monkeypatch, capsys):
     monkeypatch.setattr(daystatus, "runs", lambda day, repo: [])
     assert daystatus.main(["2026-10-14"]) == 0
     out = capsys.readouterr().out
-    assert "還在跑：live 分支 09:34 第 12 輪" in out
+    assert "還在跑：live 分支 09:34 第 12 輪" in out and "13:12 正式訊號：—" in out
     assert "美股隔夜 費半／台積電 ADR：2026-10-13／2026-10-12（ADR 晚一天" in out and "虛擬帳戶帳本：2026-10-13" in out
+    live.update(updated="2026-10-14 13:15:02", scans=60, official={"time": "13:12", "count": 3, "stocks": []})
+    daystatus.main(["2026-10-14"])   # 13:12～13:31：正式訊號先從 live 分支看
+    assert "13:12 正式訊號：3 檔（13:12）（live 分支；positions 收工 13:31 才提交）" in capsys.readouterr().out
     live["date"] = "2026-10-13"   # live 分支也不是今天 → 沒跑
     daystatus.main(["2026-10-14"])
     assert "沒有今天的（最後 2026-10-13）" in capsys.readouterr().out
