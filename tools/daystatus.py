@@ -119,14 +119,17 @@ def main(argv: list[str]) -> int:
             pub = json.loads(_git("show", "origin/live:live.json") or b"{}")
         except ValueError:
             pub = {}
-    off = live.get("official") or {}
+    today_live = live.get("date") == day
+    # 13:12 正式訊號：收工前 live_state 還沒提交，改看 live 分支那輪發佈的 official
+    off = (live.get("official") if today_live else pub.get("official") if pub.get("date") == day else None) or {}
     pos = _read("data/positions.csv")
     n_sig = int((pd.read_csv(io.BytesIO(pos), usecols=["signal_date"]).signal_date == day).sum()) if pos else 0
     rows = [("盤中監控（live_state）", f"{live.get('date')} 最後一輪 {live.get('last_scan')}，今日預警 {len(live.get('alerts') or {})} 檔"
-             if live.get("date") == day else
+             if today_live else
              f"還在跑：live 分支 {str(pub.get('updated'))[11:16]} 第 {pub.get('scans')} 輪（收工 13:31 才提交 live_state）"
              if pub.get("date") == day else f"沒有今天的（最後 {live.get('date')}）"),
-            ("13:12 正式訊號", f"{off.get('count', '—')} 檔（{off.get('time', '—')}），positions 記了 {n_sig} 筆" if live.get("date") == day else "—"),
+            ("13:12 正式訊號", (f"{off.get('count', '—')} 檔（{off.get('time', '—')}）"
+                               + (f"，positions 記了 {n_sig} 筆" if today_live else "（live 分支；positions 收工 13:31 才提交）")) if off else "—"),
             ("每日資料 state.last_done", state.get("last_done", "—")),
             ("收盤價 history", _max_date("data/history.csv.gz")),
             ("三大法人", _max_date("data/extras/inst_hist.csv.gz")),
