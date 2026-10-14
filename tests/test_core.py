@@ -2615,3 +2615,29 @@ def test_macro_tw_flows(tmp_path):
     (ex / "margin_hist.csv.gz").write_text("壞掉", "utf-8")
     names = [x["name"] for x in macro.tw_flows(tmp_path)]
     assert "站上 20 日線的股票比例" in names
+
+
+def test_exdiv_fill_days_and_etf_kind():
+    """除權息頁填息天數：除息當天收回前一天收盤＝1 天、沒填完是空的、離填息還差幾 %；中位數把沒填的當無限大
+    （不然只是「有填的那批」的中位），中位落在沒填那半就不給。ETF 分類：債券／槓桿反向／主動／商品期貨／股票。"""
+    import numpy as np
+
+    from screener import etfpage, exdivpage
+
+    days = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]
+    C = pd.DataFrame({"1101": [95.0, 98.0, 100.0, 101.0], "2330": [990.0, 995.0, 992.0, 996.0], "2454": [52.0, 51.0, 50.0, 50.5]},
+                     index=days)
+    done = pd.DataFrame([{"date": days[0], "code": "1101", "prev_close": 100.0},
+                         {"date": days[0], "code": "2330", "prev_close": 1000.0},
+                         {"date": days[0], "code": "2454", "prev_close": 51.0},
+                         {"date": "2026-08-01", "code": "1101", "prev_close": 1.0},   # 不在價格表裡 → 略過
+                         {"date": days[1], "code": "9999", "prev_close": 10.0}])
+    f = exdivpage.fill_days(done, C).set_index("code")
+    assert f.at["1101", "fill"] == 3 and f.at["2454", "fill"] == 1 and np.isnan(f.at["2330", "fill"])
+    assert f.at["2330", "age"] == 4 and abs(f.at["2330", "gap"] - (996 / 1000 - 1) * 100) < 1e-9 and len(f) == 3
+    assert exdivpage._med(pd.Series([1, 3, np.nan])) == 3 and exdivpage._med(pd.Series([1, np.nan, np.nan])) is None
+
+    k = etfpage._kind
+    assert (k("00679B", "元大美債20年"), k("00631L", "元大台灣50正2"), k("00632R", "元大台灣50反1"),
+            k("00981A", "主動統一台股增長"), k("00635U", "期元大S&P黃金"), k("0050", "元大台灣50")) == \
+           ("債券", "槓桿反向", "槓桿反向", "主動", "商品期貨", "股票")
