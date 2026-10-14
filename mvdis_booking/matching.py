@@ -25,18 +25,27 @@ class OptionError(Exception):
     pass
 
 
+def _name_part(text: str) -> str:
+    """監理服務網的選項後面帶地址／轄區，例如「花蓮監理站(花蓮縣吉安鄉…)」：只取括號前的名稱。"""
+    return re.sub(r"\s*[(（].*$", "", text)
+
+
 def choose_option(options: list, wanted: str) -> str:
-    """從 [[value, text], ...] 挑出文字符合 wanted 的那個 value。完全相同優先，其次唯一的部分相符。"""
+    """從 [[value, text], ...] 挑出文字符合 wanted 的那個 value。
+    完全相同優先，其次唯一的部分相符；都先比括號前的名稱，再比整段文字（地址裡的「花蓮」不會搶走「花蓮監理站」）。"""
     w = norm(wanted)
     if not w:
         raise OptionError("沒有指定要選什麼")
     texts = [(str(v), str(t)) for v, t in options]
-    exact = [v for v, t in texts if norm(t) == w]
-    if len(exact) == 1:
-        return exact[0]
-    part = [v for v, t in texts if w in norm(t)]
-    if len(part) == 1:
-        return part[0]
+    keys = (lambda t: norm(_name_part(t)), norm)
+    for key in keys:
+        exact = [v for v, t in texts if key(t) == w]
+        if len(exact) == 1:
+            return exact[0]
+    for key in keys:
+        part = [v for v, t in texts if w in key(t)]
+        if len(part) == 1:
+            return part[0]
     shown = "、".join(t for _, t in texts if t.strip()) or "（沒有選項）"
     if not part:
         raise OptionError(f"找不到「{wanted}」，網頁上可選的有：{shown}")
@@ -84,6 +93,8 @@ QUERY_NAME_RX = {
 
 # 報名資料頁（順序有意義：前面的先比對）
 FIELD_RX = [
+    # 送出後才出現的 OTP（寄到你手機／信箱的一次性密碼）：不是圖片驗證碼，要你本人輸入
+    ("otp", _rx(r"OTP|一次性")),
     ("captcha", _rx(r"驗證碼|認證碼|檢查碼|圖中|圖片中|captcha|verif\w*\s*code|security\s*code")),
     ("id_no", _rx(r"身[分份]證|居留證|統一證號|證號|ID\s*No|Identity")),
     ("birth", _rx(r"出生|生日|Birth")),
@@ -93,6 +104,7 @@ FIELD_RX = [
     ("name", _rx(r"姓\s*名|^\s*name\b|\bname\s*[:：]?\s*$")),
 ]
 FIELD_NAME_RX = [
+    ("otp", _rx(r"otp")),
     ("captcha", _rx(r"captcha|valid(ate)?_?(str|code|num|img)|verif\w*code|verifycode|checkcode|imgcode|kaptcha|rand\w*code|vcode|authcode")),
     ("id_no", _rx(r"^(?:id|idno|id_no|pid|uid|idnum\w*|identity\w*|personid)$|idno")),
     ("birth", _rx(r"birth")),
@@ -187,10 +199,11 @@ SEARCH_BUTTONS = [r"^查詢場次", r"查詢場次", r"^Search$", r"^查\s*詢$"
 SEARCH_EXCLUDE = r"已報名|紀錄|記錄|取消|危險感知|資格"
 CONTINUE_BUTTONS = [r"選擇場次繼續報名", r"繼續報名"]
 SUBMIT_BUTTONS = [r"^確認送出$", r"^送\s*出$", r"^確定送出$", r"確認報名|確定報名|送出報名|報名送出",
-                  r"^送出", r"送出", r"^確\s*定$|^確\s*認$", r"^報\s*名$", r"^submit$"]
+                  r"^送出", r"送出", r"^確\s*定$|^確\s*認$", r"^報\s*名(\s*sign\s*-?\s*up)?$", r"^submit$"]
 SUBMIT_EXCLUDE = r"取消|返回|回上|上一|重新|清除|重填|換一張|關閉|查詢|說明|列印"
 CONFIRM_BUTTONS = [r"^確認送出$", r"^確定送出$", r"確認報名|確定報名", r"^確\s*定$|^確\s*認$"]
-AGREE_BUTTONS = [r"我已(詳細)?閱讀", r"我同意", r"^同意", r"同意.*(繼續|下一步)"]
+# 監理服務網報名頁一打開會跳「我已充分知悉相關約定並願接受」蓋住表單
+AGREE_BUTTONS = [r"我已(詳細)?閱讀", r"我同意", r"^同意", r"同意.*(繼續|下一步)", r"我已.{0,6}知悉", r"並願接受"]
 NEXT_BUTTONS = [r"^下一步$", r"^進入報名", r"^繼續$"]
 # 注意事項頁只按「同意／下一步」；看起來像送出報名的按鈕一律不按
 AGREE_EXCLUDE = r"不同意|取消|返回|送出|確定|確認|完成|submit"
@@ -208,7 +221,7 @@ HEADER_RX = [
     ("action", _rx(r"功能|報名|操作|Function|Action|Sign")),
 ]
 SIGNUP_RX = _rx(r"報名|sign\s*-?\s*up|預約|選擇")
-SIGNUP_EXCLUDE = _rx(r"取消|查詢|說明")
+SIGNUP_EXCLUDE = _rx(r"取消|查詢|說明|勿|不得|請勿")
 
 
 def header_map(cells: list[str]) -> dict:
@@ -294,7 +307,8 @@ def parse_sessions(found: tuple[dict, int, dict]) -> list[Session]:
         acts = row.get("actions") or []
         col = m.get("action")
         in_col = [a for a in acts if col is not None and a.get("col") == col]
-        pool = in_col or acts
+        # 有「功能」欄就只看那一欄：監理服務網的組別說明裡有「(初考生勿預約本場次)」這種 <a> 標示文字，不是報名鈕
+        pool = in_col if col is not None else acts
         good = [a for a in pool if SIGNUP_RX.search(a.get("text") or "") and not SIGNUP_EXCLUDE.search(a.get("text") or "")]
         if not good and len(in_col) == 1 and not SIGNUP_EXCLUDE.search(in_col[0].get("text") or ""):
             good = in_col
@@ -536,9 +550,10 @@ def session_date_check(page_text: str, d: dt.date | None) -> str:
 # 注意：只拿「動作之後才新出現的文字」和網頁對話框來判斷（見 new_lines），
 # 否則頁面上本來就有的注意事項（例如「未完成危險感知者不得報名」）會被誤判。
 CAPTCHA_WRONG_RX = _rx(r"驗證碼.{0,6}(錯誤|不正確|有誤|不符|失效|過期)|(錯誤|請重新輸入).{0,4}驗證碼")
-# 「如報名失敗請洽監理所」「報名成功者請準時到考」「是否報名成功」這類條件句、說明文字不算結果
+# 「如報名失敗請洽監理所」「報名成功者請準時到考」「是否報名成功」這類條件句、說明文字不算結果。
+# 監理服務網報名頁的注意事項：「完成畫面中，需顯示預約成功才算成功」也不算
 FAILED_RX = _rx(r"(?<![如若倘有])(報名|預約)(失敗|未成功)(?!請洽|者|或|時|的話|，?請洽)")
-SUCCESS_RX = _rx(r"(?<![未不法如若倘否是將])(報名|預約)成功(?![後前時者與]|的話)"
+SUCCESS_RX = _rx(r"(?<![未不法如若倘否是將示需須])(報名|預約)成功(?![後前時者與才]|的話|即為|與否)"
                  r"|(?<![如若倘將])已完成(報名|預約)(?![後前時者])"
                  r"|(?<![如若倘將即])(報名|預約)完成(?![後前時者與])")
 # 明確的錯誤訊息（單獨出現也採信）

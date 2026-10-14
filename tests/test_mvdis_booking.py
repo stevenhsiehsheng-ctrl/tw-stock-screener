@@ -342,3 +342,63 @@ def test_pick_clickable():
     assert M.pick_clickable(clicks, M.SEARCH_BUTTONS, M.SEARCH_EXCLUDE)["cid"] == "2"
     assert M.pick_clickable(clicks, M.SUBMIT_BUTTONS, M.SUBMIT_EXCLUDE)["cid"] == "4"
     assert M.pick_clickable(clicks[:3], M.SUBMIT_BUTTONS, M.SUBMIT_EXCLUDE) is None
+
+
+# ---------------------------------------------------------------- 真實監理服務網（2026-10 偵察結果）
+def test_real_site_option_names_with_addresses():
+    opts = [["", ""], ["40", "臺北區監理所(新北市樹林區中正路248巷7號)"], ["41", "板橋監理站(新北市中和區中山路三段116號)"],
+            ["44", "花蓮監理站(花蓮縣吉安鄉中正路二段152號)"], ["45", "玉里監理分站(花蓮縣玉里鎮中華路427號)"]]
+    assert M.choose_option(opts, "花蓮") == "44"             # 玉里監理分站的地址裡也有「花蓮」
+    assert M.choose_option(opts, "板橋監理站") == "41"
+    assert M.choose_option(opts, "臺北區監理所") == "40"
+    assert M.choose_option(opts, "中和區") == "41"           # 括號裡的字也找得到
+    tao = [["52", "桃園監理站(桃園市介壽路416號)"], ["53", "中壢監理站(桃園縣中壢市延平路394號)"]]
+    assert M.choose_option(tao, "桃園") == "52" and M.choose_option(tao, "中壢") == "53"
+    assert M.choose_option([["5", "普通輕型機車 (50cc 以下)"], ["3", "普通重型機車"]], "普通輕型機車") == "5"
+    with pytest.raises(M.OptionError, match="同時符合"):
+        M.choose_option(opts, "監理站")
+
+
+def test_real_site_session_rows():
+    """組別說明裡有 <a> 標示文字（「(初考生勿預約本場次)」），額滿時「功能」欄是空的。"""
+    hdr = {"cells": ["考試日期 (星期) Date of Test", "場次組別說明 Desc.", "可報名人數 Number", "功能 function"], "actions": []}
+    retake = "上午場次, 組別 1 本場次為重考、吊註銷、持輕機駕照或完成講習之考生 (初考生勿預約本場次) 請先完成體檢"
+    first = "上午場次, 組別 2 本場次為初考生，請先完成體檢 於9：00-9：20準時至B棟講習教室繳費報到參加2小時安全講習"
+    rows = [hdr,
+            {"cells": ["115年10月19日 (星期一)", retake, "額滿", ""],
+             "actions": [{"aid": "n1", "text": "重考、吊註銷、持輕機駕照或完成講習", "col": 1},
+                         {"aid": "n2", "text": "(初考生勿預約本場次)", "col": 1}]},
+            {"cells": ["115年10月24日 (星期六)", first, "3", "報名 SignUp"],
+             "actions": [{"aid": "n3", "text": "初考生", "col": 1}, {"aid": "s1", "text": "報名 SignUp", "col": 3}]}]
+    ss = M.parse_sessions(M.find_session_table([_table(rows)]))
+    assert [(s.date, s.seats, s.action_id) for s in ss] == [(dt.date(2026, 10, 19), 0, None), (dt.date(2026, 10, 24), 3, "s1")]
+    cfg = cfg_of(target={"group_exclude": "免講習|補考|重考", "weekdays": [6, 7]})
+    assert [s.action_id for s in M.filter_sessions(ss, cfg, dt.date(2026, 10, 17), dt.date(2026, 11, 13))] == ["s1"]
+
+
+def test_real_site_signup_page():
+    fs = [fld(0, name="idNo", row_label="身分證字號 ID No.：", maxlength=10),
+          fld(1, name="birthdayStr", row_label="出生年月日 Birthday：", maxlength=7),
+          fld(2, name="name", row_label="姓名 Name：", maxlength=10),
+          fld(3, name="contactTel", row_label="聯絡電話/手機 Phone No.：", maxlength=20),
+          fld(4, name="email", row_label="Email：", maxlength=50),
+          fld(5, name="validateStr", row_label="驗證碼：")]
+    plan = M.plan_fill(fs, cfg_of(), has_captcha_image=True)
+    assert plan.problems == [] and plan.captcha["name"] == "validateStr"
+    assert _values(plan) == {0: "F131104093", 1: "0940702", 2: "王小明", 3: "0912345678", 4: "a@b.com"}
+    clicks = [{"cid": "1", "text": "› 考照預約報名"}, {"cid": "2", "text": "報名 SignUp"},
+              {"cid": "3", "text": "回「查詢場次 Reinquiry」"}, {"cid": "4", "text": "我已充分知悉相關約定並願接受"}]
+    assert M.pick_clickable(clicks, M.SUBMIT_BUTTONS, M.SUBMIT_EXCLUDE)["cid"] == "2"
+    assert M.pick_clickable(clicks, M.AGREE_BUTTONS, M.AGREE_EXCLUDE)["cid"] == "4"
+    assert M.pick_clickable([{"cid": "1", "text": "前往危險感知平台"}, {"cid": "2", "text": "選擇場次繼續報名"}],
+                            M.CONTINUE_BUTTONS)["cid"] == "2"
+    assert M.classify_field(fld(0, id="otpInput", before_text="請輸入OTP驗證碼完成報名：")) == "otp"
+
+
+def test_real_site_notice_is_not_a_result():
+    caution = ("預約考照貼心提醒注意事項：\n完成畫面中，需顯示預約成功才算成功，請務必以「查詢已報名」功能檢查您的訂單是否成立！\n"
+               "如您考照當天無法應考，請至遲於考照當日上午7:00前於系統「查詢已報名/取消報名」取消預約，以免被停權！")
+    assert M.classify_result(caution) is None
+    assert M.classify_page_change(caution) is None
+    assert M.classify_page_change("請輸入OTP驗證碼完成報名：\n報名 取消此次報名") is None
+    assert M.classify_page_change("預約成功\n" + caution) == "success"

@@ -199,6 +199,15 @@ SET_VALUE = r"""
 }
 """
 
+SET_CHECKED = r"""
+(el, v) => {
+  if (el.checked === v) return;
+  el.checked = v;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+"""
+
 FIRE_CHANGE = r"""
 el => {
   el.dispatchEvent(new Event('change', { bubbles: true }));

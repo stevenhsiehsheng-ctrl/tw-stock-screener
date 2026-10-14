@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import time
 from urllib.parse import parse_qsl, urlsplit
 
 from playwright.sync_api import Error as PwError
@@ -130,24 +129,12 @@ def _recon(cfg: dict, b: Booker, rep: Report, log: Log) -> None:
 
     rep.h("2. 各監理所底下的監理站")
     try:
-        office = q["places"][0]
-        offices = [(v, txt) for v, txt in b._target(p, office).evaluate(J.OPTIONS) if v.strip()]
-
-        def station_options():
-            q2 = b.query_targets(p)
-            return b._target(p, q2["places"][1]).evaluate(J.OPTIONS) if len(q2["places"]) > 1 else []
-        prev = station_options()
+        offices = [(v, txt) for v, txt in b._target(p, q["places"][0]).evaluate(J.OPTIONS) if v.strip()]
         for v, txt in offices[:12]:
-            b._target(p, office).select_option(value=v)
-            stations = prev
-            deadline = time.monotonic() + 8
-            while time.monotonic() < deadline:
-                stations = station_options()
-                if stations != prev and any(sv.strip() for sv, _ in stations):
-                    break
-                p.wait_for_timeout(300)
-            prev = stations
-            rep.line(f"{txt}（{v}）：" + "、".join(f"{st}（{sv}）" for sv, st in stations if sv.strip()))
+            # 選監理所時監理服務網會整頁重新送出：每次都重新找欄位、等清單換好
+            stations = b.station_options(p, v, timeout=25)
+            rep.line(f"{txt}（{v}）：" + ("、".join(f"{st}（{sv}）" for sv, st in stations if sv.strip())
+                                         or "（等太久沒載入，讀不到）"))
     except (PwError, M.LocateError, KeyError, IndexError) as e:
         rep.line(f"⚠ 讀不到監理站清單：{e!r}"[:300])
 
@@ -199,6 +186,7 @@ def _recon(cfg: dict, b: Booker, rep: Report, log: Log) -> None:
     before = b.text(p)
     n0 = len(b.dialogs)
     rep.line(f"點：{target.describe()}，按鈕文字「{target.action_text}」")
+    b._mark_old(p)
     p.locator(f'[data-mvdis-act="{target.action_id}"]').first.click()
     pg, early = b.wait_signup_form(p, before, n0)
     rep.line(f"對話框：{b.dialogs[n0:]}")
@@ -225,6 +213,8 @@ def _recon(cfg: dict, b: Booker, rep: Report, log: Log) -> None:
     clicks = b.clicks(pg)
     rep.line(f"按鈕：{[c['text'] for c in clicks][:40]}")
     rep.line(f"程式會按的送出鈕：{M.pick_clickable(clicks, M.SUBMIT_BUTTONS, M.SUBMIT_EXCLUDE)}")
+    # 偵察只記下來、不按（auto_agree 開著時，正式執行才會按）
+    rep.line(f"蓋住表單的注意事項按鈕：{M.pick_clickable(clicks, M.AGREE_BUTTONS, M.AGREE_EXCLUDE)}")
     rep.line(f"頁面上的日期：{[d.isoformat() for d in M.find_dates(b.text(pg))][:10]}，"
              f"場次日期比對：{M.session_date_check(b.text(pg), target.date)}")
     log.info("偵察完成，沒有填任何個人資料、沒有送出。")

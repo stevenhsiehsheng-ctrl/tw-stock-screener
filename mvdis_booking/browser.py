@@ -18,6 +18,9 @@ LOCATIONS_PATH = "/m3-emv-trn/exm/locations"
 CANCEL_PATH = "/m3-emv-trn/exm/query"
 LOGIN_MARK = "/m3-emv-cas/login"
 PROFILE_DIR = PKG_DIR / ".browser-profile"
+# 瀏覽器執行檔本身不能跑（被系統擋下、沒安裝）：可以換別的瀏覽器。設定檔資料夾被占用之類的錯誤換了也沒用。
+LAUNCH_BLOCKED_RX = re.compile(r"spawn|EACCES|EPERM|Executable doesn't exist|playwright install|is not found at|"
+                               r"Chromium distribution .* is not found", re.I)
 
 
 class Fatal(Exception):
@@ -82,9 +85,16 @@ class Booker:
         profile.mkdir(parents=True, exist_ok=True)
         kw = {"headless": bool(b.get("headless")), "locale": "zh-TW", "timezone_id": "Asia/Taipei",
               "viewport": {"width": 1280, "height": 900}}
-        if b.get("channel"):
-            kw["channel"] = b["channel"]
-        self.ctx = pw.chromium.launch_persistent_context(str(profile), **kw)
+        # 沒指定瀏覽器時先用內建 Chromium；有些 Windows（智慧型應用程式控制、防毒）不讓它執行，就改用 Edge／Chrome
+        channels = [b["channel"]] if b.get("channel") else [None, "msedge", "chrome"]
+        for i, ch in enumerate(channels):
+            try:
+                self.ctx = pw.chromium.launch_persistent_context(str(profile), **kw, **({"channel": ch} if ch else {}))
+                break
+            except PwError as e:
+                if i == len(channels) - 1 or not LAUNCH_BLOCKED_RX.search(str(e)):
+                    raise
+                self.log.info(f"{ch or '內建的 Chromium'} 開不起來（{_short(e)}），改用 {channels[i + 1]}")
         self.ctx.set_default_timeout(20000)
         self.ctx.on("page", self._hook)
         for p in self.ctx.pages:
@@ -254,6 +264,42 @@ class Booker:
         q.setdefault("weekend", None)
         return q
 
+    def query_targets_wait(self, p, timeout: float = 15) -> dict:
+        """同 query_targets，但網頁正在重新載入（例如選了監理所整頁重新送出）時等它載完。"""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if self._eval(p, "() => " + self._READY_JS):
+                    return self.query_targets(p)
+            except M.LocateError:
+                if time.monotonic() > deadline:
+                    raise
+            if time.monotonic() > deadline:
+                return self.query_targets(p)
+            p.wait_for_timeout(300)
+
+    def station_options(self, p, office_value: str, timeout: float = 15) -> list:
+        """選某個監理所，等監理站選單換成那個監理所的清單後回傳選項（偵察模式用）。"""
+        q = self.query_targets_wait(p)
+        prev = self._target(p, q["places"][1]).evaluate(J.OPTIONS) if len(q["places"]) > 1 else []
+        self._mark_old(p)
+        self._target(p, q["places"][0]).select_option(value=office_value)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                q = self.query_targets(p)
+                cur = self._target(p, q["places"][0]).input_value()
+                st = (self._target(p, q["places"][1]).evaluate("el => ({" + self._STATE_JS + ", opts: (" + J.OPTIONS + ")(el)})")
+                      if len(q["places"]) > 1 else {"ready": False, "old": True, "opts": []})
+                opts = st["opts"]
+                # 整頁重新載入：要等到新的那一頁載完；AJAX：清單換掉就算
+                if cur == office_value and _real_options(opts) and st["ready"] and (opts != prev or not st["old"]):
+                    return opts
+            except (M.LocateError, PwError):
+                pass      # 正在重新載入
+            p.wait_for_timeout(300)
+        return []     # 等太久：寧可回空的，也不要回上一個監理所的清單
+
     def select(self, p, target, wanted: str) -> str:
         loc = self._target(p, target)
         value = M.choose_option(loc.evaluate(J.OPTIONS), wanted)
@@ -277,13 +323,16 @@ class Booker:
         self._settle(p, 3000)
         q = self.query_targets(p)
         info["place"] = self._select_place(p, q)
-        q = self.query_targets(p)
-        info["date_sent"], info["date_shown"] = self._fill_date(p, q["date"], qdate)
+        q = self.query_targets_wait(p)
+        # 監理服務網選了監理所會整頁重新送出：確認照類還是選好的
+        if isinstance(q["license"], dict) and q["license"].get("selected_value") != info["license"]:
+            info["license"] = self.select(p, q["license"], t["license_label"])
+            q = self.query_targets(p)
         if q.get("weekend") is not None:
-            loc = self._target(p, q["weekend"])
-            want = bool(t.get("weekend_only"))
-            if loc.is_checked() != want:
-                loc.set_checked(want, force=True)
+            # 用 JS 勾，而且在填日期之前：監理服務網的日期欄位一點下去就跳出月曆，正好蓋在這個勾選框上，
+            # 用滑鼠點會點到月曆上的某一天（偷偷改掉查詢日期）
+            self._target(p, q["weekend"]).evaluate(J.SET_CHECKED, bool(t.get("weekend_only")))
+        info["date_sent"], info["date_shown"] = self._fill_date(p, q["date"], qdate)
         return info
 
     def _select_place(self, p, q: dict) -> list:
@@ -296,22 +345,27 @@ class Booker:
                 return [self.select(p, places[0], station or office)]
         chosen = [self.select(p, places[0], office)]
         if not station:
+            self.query_targets_wait(p)      # 選了監理所可能整頁重新載入：等它載完
             return chosen
-        # 監理站清單通常是選了監理所之後才載入（也可能原本藏起來）：等它出現
-        deadline = time.monotonic() + 15
+        # 監理站清單是選了監理所之後才載入（監理服務網是整頁重新送出，網路慢時要等二三十秒；也有網站用 AJAX）：等它出現
+        deadline = time.monotonic() + 40
         last: Exception | None = None
         loaded = False
+        st = None
         while True:
-            q2 = self.query_targets(p)
-            st = q2["places"][1] if len(q2["places"]) > 1 else None
-            if st is not None:
-                opts = self._target(p, st).evaluate(J.OPTIONS)
-                loaded = bool(_real_options(opts))
-                try:
-                    chosen.append(self.select(p, st, station))
-                    return chosen
-                except M.OptionError as e:
-                    last = e
+            try:
+                q2 = self.query_targets(p)
+                st = q2["places"][1] if len(q2["places"]) > 1 else None
+                if st is not None:
+                    opts = self._target(p, st).evaluate(J.OPTIONS)
+                    loaded = bool(_real_options(opts))
+                    try:
+                        chosen.append(self.select(p, st, station))
+                        return chosen
+                    except M.OptionError as e:
+                        last = e
+            except (M.LocateError, PwError):
+                pass      # 網頁正在重新載入：等一下再看
             if time.monotonic() > deadline:
                 if st is None:
                     raise M.OptionError(f"網頁上找不到監理站「{station}」可以選（只有一個考試地點選單）")
@@ -344,10 +398,25 @@ class Booker:
             self.log.info(f"注意：日期欄位填了 {val}，網頁上顯示 {got}")
         return val, got
 
+    def _mark_old(self, p) -> None:
+        """在目前的網頁上做記號：之後看到記號還在，就知道還是按下去之前的那一頁（還沒換頁）。"""
+        self._eval(p, "() => { window.__mvdisOld = true; }")
+
+    # 網頁「載好了」：整頁載完，或 jQuery 的 ready 已經跑完（監理服務網的提醒視窗都在 ready 時跳出；
+    # 整頁載完還要等外部字型服務，網路慢時會拖很久）
+    _READY_JS = "(document.readyState === 'complete' || !!(window.jQuery && window.jQuery.isReady))"
+    # 網頁狀態要跟內容在同一次 evaluate 裡讀：分兩次讀，換頁中途可能讀到「舊頁的狀態＋新頁讀一半的表格」
+    _STATE_JS = "ready: " + _READY_JS + ", old: !!window.__mvdisOld"
+
+    def _tables_state(self, p) -> dict:
+        st = self._eval(p, "() => ({" + self._STATE_JS + ", tables: (" + J.SCAN_TABLES + ")()})", default=None)
+        return st or {"ready": False, "old": True, "tables": []}
+
     def search(self) -> QueryResult:
         p = self.page
         before = self.text(p)
         n0 = len(self.dialogs)
+        self._mark_old(p)
         if self.sel.get("search_button"):
             p.locator(self.sel["search_button"]).first.click()
         else:
@@ -378,12 +447,18 @@ class Booker:
                     self.log.debug(f"點不到：{_short(e)}")
                 self._settle(p, 5000)
                 continue
-            found = M.find_session_table(self.tables(p))
+            st = self._tables_state(p)
+            found = M.find_session_table(st["tables"])
             if found:
                 sessions = M.parse_sessions(found)
-                if stale is None or [s.raw for s in sessions] != stale:
+                # 監理服務網查詢前就有一個空的場次表（只有表頭）：還沒換頁時不能當成查詢結果。
+                # 也要等網頁載完：表格才完整，「危險感知」提醒也是載完才跳出來（要先關掉才點得到報名）
+                if sessions and st["ready"] and (stale is None or [s.raw for s in sessions] != stale):
                     self.page = p
                     return QueryResult("ok", sessions)
+                if not sessions and st["ready"] and not st["old"]:
+                    self.page = p
+                    return QueryResult("empty", detail="場次表沒有資料")
             new = M.new_lines(before, self.text(p)) + "\n" + msgs
             if M.QUERY_EMPTY_RX.search(new):
                 return QueryResult("empty", detail=new.strip()[:200])
@@ -406,6 +481,7 @@ class Booker:
         stale = [s.raw for s in M.parse_sessions(found)] if found else None
         before = self.text(p)
         n0 = len(self.dialogs)
+        self._mark_old(p)
         try:
             self.click(p, c)
         except PwError:
@@ -423,8 +499,14 @@ class Booker:
         if not fresh:
             return Outcome("gone", "那個場次已經不在表上", s)
         s = fresh[0]
+        c = M.pick_clickable(self.clicks(p), M.CONTINUE_BUTTONS)
+        if c:     # 「危險感知」提醒還蓋在場次表上
+            self.log.info(f"點「{c['text']}」")
+            self.click(p, c)
+            p.wait_for_timeout(600)
         before = self.text(p)
         n0 = len(self.dialogs)
+        self._mark_old(p)
         self.log.info(f"點「{s.action_text or '報名'}」：{s.describe()}")
         p.locator(f'[data-mvdis-act="{s.action_id}"]').first.click()
         pg, early = self.wait_signup_form(p, before, n0)
@@ -443,16 +525,20 @@ class Booker:
                 if k:
                     return None, Outcome(k, m[:300])
             for pg in reversed([x for x in self.ctx.pages if not x.is_closed()]):
+                # 依序讀「網頁狀態 → 文字 → 欄位」：換頁中途，後讀的一定不會比先讀的舊。
+                # 報名表一出現就一定先認出來，不會拿新頁面的按鈕（例如報名頁上的「我已充分知悉…」）配舊頁面的欄位
+                st = self._eval(pg, "() => ({" + self._STATE_JS + "})", default=None) or {}
+                new = M.new_lines(before, self.text(pg))
                 fs = self.fields(pg)
                 if self._is_form(fs):
                     self._settle(pg, 3000)
                     return pg, None
-                new = M.new_lines(before, self.text(pg))
                 k = M.classify_page_change(new)
                 if k == "success":
                     # 不該在這一步就成功；照實回報並停下來，避免再去報別的場次
                     return None, Outcome("success", new.strip()[:300])
-                if steps < 4 and new.strip() and not M.find_session_table(self.tables(pg)):
+                gate = st.get("ready") and not st.get("old")     # 換頁後、載完的那一頁才當成注意事項／同意頁處理
+                if steps < 4 and gate and new.strip() and not M.find_session_table(self.tables(pg)):
                     acted = False
                     c = None
                     if self.cfg.get("auto_agree"):
@@ -475,6 +561,27 @@ class Booker:
                     return None, Outcome(k, new.strip()[:300])
             p0.wait_for_timeout(500)
         return None, Outcome("signup_timeout", "點了報名之後，等不到填資料的頁面")
+
+    def accept_notice(self, pg) -> str | None:
+        """報名頁一打開就蓋住表單的注意事項（監理服務網：「我已充分知悉相關約定並願接受」）。
+        auto_agree 開著就幫你按；關著就回傳按鈕文字（這時程式不能代你送出）。"""
+        deadline = time.monotonic() + 5
+        while not self._eval(pg, "() => " + self._READY_JS) and time.monotonic() < deadline:
+            pg.wait_for_timeout(200)
+        c = M.pick_clickable(self.clicks(pg), M.AGREE_BUTTONS, M.AGREE_EXCLUDE)
+        if c is None:
+            return None
+        if not self.cfg.get("auto_agree"):
+            return c["text"]
+        self.log.info(f"點「{c['text']}」")
+        self.click(pg, c)
+        pg.wait_for_timeout(800)      # 等遮罩淡出
+        return None
+
+    def otp_field(self, pg) -> dict | None:
+        """送出後網站要求輸入的 OTP（寄到你手機／信箱的一次性密碼）欄位。"""
+        return next((f for f in (self._eval(pg, J.SCAN_FIELDS, default=None) or [])
+                     if f.get("visible") and M.classify_field(f) == "otp"), None)
 
     def plan(self, pg) -> M.FillPlan:
         imgs = self._eval(pg, J.SCAN_IMAGES, default=[]) or []
@@ -523,8 +630,11 @@ class Booker:
     def _refill(self, pg):
         """表單重新載入後（驗證碼錯誤、換一張）重新填一次。回傳 (plan, problems)。"""
         self._settle(pg, 5000)
+        notice = self.accept_notice(pg)
         plan = self.plan(pg)
         problems = list(plan.problems) + self.apply(pg, plan)
+        if notice:
+            problems.append(f"報名頁蓋著注意事項，需要按「{notice}」（auto_agree 是關的）")
         if plan.captcha is not None:
             try:
                 self._target(pg, plan.captcha).fill("")
@@ -535,6 +645,7 @@ class Booker:
         return plan, problems
 
     def _fill_and_submit(self, pg, s: M.Session) -> Outcome:
+        notice = self.accept_notice(pg)
         form_text = self.text(pg)
         plan = self.plan(pg)
         for desc, key in plan.mapping:
@@ -542,6 +653,8 @@ class Booker:
         for note in plan.notes:
             self.log.info(note)
         problems = list(plan.problems) + self.apply(pg, plan)
+        if notice:
+            problems.append(f"報名頁蓋著注意事項，需要按「{notice}」（auto_agree 是關的）")
         if M.session_date_check(form_text, s.date) == "mismatch":
             problems.append(f"報名頁上的日期跟點的場次（{s.date}）對不起來")
         if self._submit_button(pg) is None:
@@ -590,6 +703,10 @@ class Booker:
             return self._finish(out, s)
 
     def _finish(self, out: Outcome, s: M.Session) -> Outcome:
+        if out.kind == "otp":
+            pg = self._newest_page()
+            return self.human_finish(pg, s, "網站要你輸入 OTP 驗證碼（寄到你的手機或 Email）：請在瀏覽器輸入後按「報名」",
+                                     self._baseline(pg))
         out.session = s
         self.snapshot(self._newest_page(), f"result-{out.kind}")
         return out
@@ -634,8 +751,8 @@ class Booker:
     def _after_captcha_gone(self, pg, n0: int) -> str:
         """驗證碼欄位不見了：是你按了送出，還是只是重新整理／換一張？"""
         self._settle(pg, 5000)
-        if pg.is_closed():
-            return "user_submitted"
+        if pg.is_closed() or self.otp_field(pg) is not None:
+            return "user_submitted"     # 已經送出，網站在要 OTP
         fs = self.fields(pg)
         has_cap = any(M.classify_field(f) == "captcha" for f in fs)
         if self._is_form(fs) and has_cap and not self.alerts(n0):
@@ -688,6 +805,8 @@ class Booker:
             bad = [(k, t) for k, t in found if k != "success"]
             if bad:
                 return Outcome(bad[0][0], bad[0][1].strip()[:300])
+            if not human and not pg.is_closed() and self.otp_field(pg) is not None:
+                return Outcome("otp", "網站要求輸入 OTP 驗證碼")
             if not human and confirms < 2 and not pg.is_closed():
                 cp = self._is_confirm_page(pg, before)
                 if cp is not None:
