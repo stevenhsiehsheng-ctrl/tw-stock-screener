@@ -2760,5 +2760,9 @@ def test_us_drops_rows_without_close(tmp_path, monkeypatch):
                  ).to_csv(d / "us" / "history.csv.gz", index=False)
     monkeypatch.setattr(today, "DATA", d)
     monkeypatch.setattr(today, "EX", d / "extras")
+    pd.DataFrame([{"date": dd, "sym": "^SOX", "close": c} for dd, c in (("2026-10-12", 100.0), ("2026-10-13", 101.0))]
+                 ).pipe(lambda x: pd.concat([pd.read_csv(d / "us" / "history.csv.gz"), x])).to_csv(d / "us" / "history.csv.gz", index=False)
+    pd.DataFrame({"date": ["2026-10-13"], "code": "2330", "close": [1500.0]}).to_csv(d / "history.csv.gz", index=False)
     out = today.build()
-    assert out["tsm"] == {"date": "2026-10-12", "chg": 1.0}
+    assert out["tsm"] == {"date": "2026-10-12", "chg": 1.0}  # 沒有 tw2330：ADR 比費半晚一天不換算
+    assert out["sox"] == {"date": "2026-10-13", "chg": 1.0}
