@@ -115,7 +115,7 @@ def build() -> dict:
     us = _csv(DATA / "us" / "history.csv.gz").rename(columns={"sym": "code"}) if (DATA / "us" / "history.csv.gz").exists() else pd.DataFrame()
     if len(us):
         for sym, key in (("^SOX", "sox"), ("TSM", "tsm")):
-            g = us[us.code == sym].sort_values("date")
+            g = us[(us.code == sym) & us.close.notna()].sort_values("date")   # 最後一天有量沒價的不算（10/14）
             if len(g) >= 2:
                 out[key] = {"date": g.date.iloc[-1], "chg": round(float(g.close.iloc[-1] / g.close.iloc[-2] - 1) * 100, 2)}
     h = _csv(DATA / "history.csv.gz")
