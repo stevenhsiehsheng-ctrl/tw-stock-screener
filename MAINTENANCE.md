@@ -40,6 +40,7 @@
 | 某天資料沒到 | 早上體檢會自動補跑；要手動就到 Actions → 該工作流程 → Run workflow，`date` 填那天（YYYY-MM-DD） |
 | 櫃買盤後零股 0 列 | 官方當天常常還沒公布：15:20 起會先用 MIS 補（log「官方還沒公布，用 MIS 補 N 檔」），哪天是 MIS 補的記在 `data/extras/oddlot_mis.json`，傍晚／隔天補抓會再抓官方的換掉（官方多了 ETF），換好就從檔裡拿掉。MIS 也沒有（隔天早上 MIS 已換新的一天）就跑 `extras_evening.yml`，`date`＝那天、`oddlot_days`＝5 |
 | 美股沒到 | Run `us.yml` |
+| 台積電 ADR／輝達等個股停在前一天、費半已經是最新 | Yahoo 收盤後不久個股最後一天常是「有量沒價」，`us.py` 不存那列（#386），`data/us/meta.json` 的 `last_dates` 會照實寫前一天；首頁 ADR 後面會標日期、不換算台積電價，盤中頁標 stale。等 GitHub 排程那班（約 10～11 點）或手動 Run `us.yml` 重抓就好，不用改程式 |
 | 虛擬帳戶帳本沒存 | 看協作板 `ledger_daily/日期` 有沒有；沒有就是 Cowork 15:47 沒跑成（fire 它一次）；有就照 16:25 排程的檢查存檔 |
 | GitHub 排程沒跑／晚跑 | 正常現象，都有備援班＋隔天早上體檢 |
 | 盤中頁整個上午沒更新 | 看 Actions「盤中連續監控」的 log。單輪出錯會自己重啟（log 有「盤中監控出錯（第 N 次）」，最多 5 次，狀態從 `live_state.json` 接續、不重複通知）；5 次都失敗才會停。修好後 Run workflow（**取消勾選 test**）就會接續當天 |
