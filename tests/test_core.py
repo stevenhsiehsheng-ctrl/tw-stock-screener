@@ -2641,3 +2641,16 @@ def test_exdiv_fill_days_and_etf_kind():
     assert (k("00679B", "元大美債20年"), k("00631L", "元大台灣50正2"), k("00632R", "元大台灣50反1"),
             k("00981A", "主動統一台股增長"), k("00635U", "期元大S&P黃金"), k("0050", "元大台灣50")) == \
            ("債券", "槓桿反向", "槓桿反向", "主動", "商品期貨", "股票")
+
+
+def test_streak_same_across_pages():
+    """「連買／連賣幾天」法人籌碼頁（chipspage._streak）、盤中頁／選股（enrich._streak）、融資連增（chips 用 enrich 那支）
+    三處要同一個數字：隨機序列（含 0、缺值）逐一比對。"""
+    import numpy as np
+
+    from screener import chipspage, enrich
+
+    rng = np.random.default_rng(1014)
+    for _ in range(300):
+        a = rng.choice([-3.0, -1.0, 0.0, 1.0, 2.0, np.nan], size=int(rng.integers(0, 9)))
+        assert chipspage._streak(a) == enrich._streak(pd.Series(a, dtype=float)), a
