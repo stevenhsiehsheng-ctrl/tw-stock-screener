@@ -186,6 +186,7 @@ def _recon(cfg: dict, b: Booker, rep: Report, log: Log) -> None:
     before = b.text(p)
     n0 = len(b.dialogs)
     rep.line(f"點：{target.describe()}，按鈕文字「{target.action_text}」")
+    b.dismiss_continue(p)
     b._mark_old(p)
     p.locator(f'[data-mvdis-act="{target.action_id}"]').first.click()
     pg, early = b.wait_signup_form(p, before, n0)

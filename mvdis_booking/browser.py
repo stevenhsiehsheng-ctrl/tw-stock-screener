@@ -18,6 +18,7 @@ LOCATIONS_PATH = "/m3-emv-trn/exm/locations"
 CANCEL_PATH = "/m3-emv-trn/exm/query"
 LOGIN_MARK = "/m3-emv-cas/login"
 PROFILE_DIR = PKG_DIR / ".browser-profile"
+POLL_MS = 1000      # 輪詢時每個元素操作最多等多久（毫秒）：整頁重新載入後舊的標記不見了，不要白等預設的 20 秒
 # 瀏覽器執行檔本身不能跑（被系統擋下、沒安裝）：可以換別的瀏覽器。設定檔資料夾被占用之類的錯誤換了也沒用。
 LAUNCH_BLOCKED_RX = re.compile(r"spawn|EACCES|EPERM|Executable doesn't exist|playwright install|is not found at|"
                                r"Chromium distribution .* is not found", re.I)
@@ -197,8 +198,8 @@ class Booker:
             return p.locator(f).first
         return p.locator(f'[data-mvdis-id="{f["mid"]}"]').first
 
-    def click(self, p, c: dict) -> None:
-        p.locator(f'[data-mvdis-click="{c["cid"]}"]').first.click()
+    def click(self, p, c: dict, timeout: float | None = None) -> None:
+        p.locator(f'[data-mvdis-click="{c["cid"]}"]').first.click(timeout=timeout)
 
     def press_submit(self, loc) -> None:
         """按下送出／確認送出。先記下「已送出」，之後就算逾時也不會當成網站忙碌而改報別的場次。"""
@@ -288,8 +289,9 @@ class Booker:
         while time.monotonic() < deadline:
             try:
                 q = self.query_targets(p)
-                cur = self._target(p, q["places"][0]).input_value()
-                st = (self._target(p, q["places"][1]).evaluate("el => ({" + self._STATE_JS + ", opts: (" + J.OPTIONS + ")(el)})")
+                cur = self._target(p, q["places"][0]).input_value(timeout=POLL_MS)
+                st = (self._target(p, q["places"][1]).evaluate("el => ({" + self._STATE_JS + ", opts: (" + J.OPTIONS + ")(el)})",
+                                                              timeout=POLL_MS)
                       if len(q["places"]) > 1 else {"ready": False, "old": True, "opts": []})
                 opts = st["opts"]
                 # 整頁重新載入：要等到新的那一頁載完；AJAX：清單換掉就算
@@ -300,10 +302,10 @@ class Booker:
             p.wait_for_timeout(300)
         return []     # 等太久：寧可回空的，也不要回上一個監理所的清單
 
-    def select(self, p, target, wanted: str) -> str:
+    def select(self, p, target, wanted: str, timeout: float | None = None) -> str:
         loc = self._target(p, target)
-        value = M.choose_option(loc.evaluate(J.OPTIONS), wanted)
-        loc.select_option(value=value)
+        value = M.choose_option(loc.evaluate(J.OPTIONS, timeout=timeout), wanted)
+        loc.select_option(value=value, timeout=timeout)
         return value
 
     def fill_query(self, qdate: dt.date) -> dict:
@@ -357,10 +359,10 @@ class Booker:
                 q2 = self.query_targets(p)
                 st = q2["places"][1] if len(q2["places"]) > 1 else None
                 if st is not None:
-                    opts = self._target(p, st).evaluate(J.OPTIONS)
+                    opts = self._target(p, st).evaluate(J.OPTIONS, timeout=POLL_MS)
                     loaded = bool(_real_options(opts))
                     try:
-                        chosen.append(self.select(p, st, station))
+                        chosen.append(self.select(p, st, station, timeout=POLL_MS * 2))
                         return chosen
                     except M.OptionError as e:
                         last = e
@@ -409,8 +411,27 @@ class Booker:
     _STATE_JS = "ready: " + _READY_JS + ", old: !!window.__mvdisOld"
 
     def _tables_state(self, p) -> dict:
-        st = self._eval(p, "() => ({" + self._STATE_JS + ", tables: (" + J.SCAN_TABLES + ")()})", default=None)
-        return st or {"ready": False, "old": True, "tables": []}
+        st = self._eval(p, "() => ({" + self._STATE_JS + ", tables: (" + J.SCAN_TABLES + ")(), "
+                           "clicks: (" + J.SCAN_CLICKABLES + ")()})", default=None)
+        return st or {"ready": False, "old": True, "tables": [], "clicks": []}
+
+    def _snapshot(self, p) -> dict | None:
+        """一次讀出網頁狀態、文字、表格、欄位、按鈕（同一份網頁，不會一半新一半舊）。讀不到回傳 None。"""
+        return self._eval(p, "() => ({" + self._STATE_JS + ", text: document.body ? document.body.innerText : '', "
+                             "tables: (" + J.SCAN_TABLES + ")(), fields: (" + J.SCAN_FIELDS + ")(), "
+                             "clicks: (" + J.SCAN_CLICKABLES + ")()})", default=None)
+
+    def dismiss_continue(self, p) -> None:
+        """「危險感知」提醒還蓋在場次表上就先關掉（它的按鈕是「選擇場次繼續報名」），不然點不到報名。"""
+        c = M.pick_clickable(self.clicks(p), M.CONTINUE_BUTTONS)
+        if c is None:
+            return
+        self.log.info(f"點「{c['text']}」")
+        try:
+            self.click(p, c)
+        except PwError as e:
+            self.log.debug(f"點不到：{_short(e)}")
+        p.wait_for_timeout(600)
 
     def search(self) -> QueryResult:
         p = self.page
@@ -437,7 +458,9 @@ class Booker:
                 return QueryResult("busy", detail=msgs[:200])
             if M.QUERY_REJECT_RX.search(msgs):
                 return QueryResult("rejected", detail=msgs[:200])
-            c = M.pick_clickable(self.clicks(p), M.CONTINUE_BUTTONS)
+            # 提醒視窗、表格、網頁狀態在同一次讀取：分開讀可能「沒看到提醒」之後才換頁，結果提醒還蓋著就回報查好了
+            st = self._tables_state(p)
+            c = M.pick_clickable(st["clicks"], M.CONTINUE_BUTTONS)
             if c and popup < 3:
                 popup += 1
                 self.log.debug(f"點「{c['text']}」")
@@ -447,7 +470,6 @@ class Booker:
                     self.log.debug(f"點不到：{_short(e)}")
                 self._settle(p, 5000)
                 continue
-            st = self._tables_state(p)
             found = M.find_session_table(st["tables"])
             if found:
                 sessions = M.parse_sessions(found)
@@ -494,16 +516,12 @@ class Booker:
     def try_book(self, s: M.Session) -> Outcome:
         self.submitted = False
         p = self.page
+        self.dismiss_continue(p)
         found = M.find_session_table(self.tables(p))
         fresh = [x for x in M.parse_sessions(found) if x.key == s.key and x.action_id] if found else []
         if not fresh:
             return Outcome("gone", "那個場次已經不在表上", s)
         s = fresh[0]
-        c = M.pick_clickable(self.clicks(p), M.CONTINUE_BUTTONS)
-        if c:     # 「危險感知」提醒還蓋在場次表上
-            self.log.info(f"點「{c['text']}」")
-            self.click(p, c)
-            p.wait_for_timeout(600)
         before = self.text(p)
         n0 = len(self.dialogs)
         self._mark_old(p)
@@ -525,34 +543,44 @@ class Booker:
                 if k:
                     return None, Outcome(k, m[:300])
             for pg in reversed([x for x in self.ctx.pages if not x.is_closed()]):
-                # 依序讀「網頁狀態 → 文字 → 欄位」：換頁中途，後讀的一定不會比先讀的舊。
-                # 報名表一出現就一定先認出來，不會拿新頁面的按鈕（例如報名頁上的「我已充分知悉…」）配舊頁面的欄位
-                st = self._eval(pg, "() => ({" + self._STATE_JS + "})", default=None) or {}
-                new = M.new_lines(before, self.text(pg))
-                fs = self.fields(pg)
+                # 網頁狀態、文字、表格、欄位、按鈕在同一次讀取：換頁中途分開讀，可能拿到「新頁的按鈕＋舊頁讀失敗的空表格」，
+                # 把報名頁誤當成注意事項頁去按「我已充分知悉…」。讀不到（正在換頁）就這一輪先不動作
+                snap = self._snapshot(pg)
+                if snap is None:
+                    continue
+                fs = snap["fields"]
                 if self._is_form(fs):
                     self._settle(pg, 3000)
                     return pg, None
+                new = M.new_lines(before, snap["text"])
                 k = M.classify_page_change(new)
                 if k == "success":
                     # 不該在這一步就成功；照實回報並停下來，避免再去報別的場次
                     return None, Outcome("success", new.strip()[:300])
-                gate = st.get("ready") and not st.get("old")     # 換頁後、載完的那一頁才當成注意事項／同意頁處理
-                if steps < 4 and gate and new.strip() and not M.find_session_table(self.tables(pg)):
+                # 換頁後載完的那一頁，或同一頁上場次表已經被注意事項取代，才當成注意事項／同意頁處理
+                has_table = bool(M.find_session_table(snap["tables"]))
+                gate = snap["ready"] and (not snap["old"] or not has_table)
+                if steps < 4 and gate and new.strip() and not has_table:
                     acted = False
                     c = None
                     if self.cfg.get("auto_agree"):
                         for f in fs:
                             if M.classify_field(f) == "agree" and not f.get("checked"):
                                 self.log.info(f"勾選「{M.describe_field(f)}」")
-                                self._target(pg, f).set_checked(True, force=True)
-                                acted = True
-                        c = M.pick_clickable(self.clicks(pg), M.AGREE_BUTTONS, M.AGREE_EXCLUDE)
-                    c = c or M.pick_clickable(self.clicks(pg), M.NEXT_BUTTONS, M.AGREE_EXCLUDE)
+                                try:
+                                    self._target(pg, f).set_checked(True, force=True, timeout=POLL_MS)
+                                    acted = True
+                                except PwError as e:
+                                    self.log.debug(f"勾不到：{_short(e)}")
+                        c = M.pick_clickable(snap["clicks"], M.AGREE_BUTTONS, M.AGREE_EXCLUDE)
+                    c = c or M.pick_clickable(snap["clicks"], M.NEXT_BUTTONS, M.AGREE_EXCLUDE)
                     if c:
                         self.log.info(f"點「{c['text']}」")
-                        self.click(pg, c)
-                        acted = True
+                        try:
+                            self.click(pg, c, timeout=POLL_MS * 3)
+                            acted = True
+                        except PwError as e:      # 剛好換頁了：下一輪重新看
+                            self.log.debug(f"點不到：{_short(e)}")
                     if acted:
                         steps += 1
                         self._settle(pg, 5000)

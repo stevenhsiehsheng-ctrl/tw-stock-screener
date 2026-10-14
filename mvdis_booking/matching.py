@@ -312,6 +312,11 @@ def parse_sessions(found: tuple[dict, int, dict]) -> list[Session]:
         good = [a for a in pool if SIGNUP_RX.search(a.get("text") or "") and not SIGNUP_EXCLUDE.search(a.get("text") or "")]
         if not good and len(in_col) == 1 and not SIGNUP_EXCLUDE.search(in_col[0].get("text") or ""):
             good = in_col
+        if not good and col is not None:
+            # 「功能」欄對錯了（例如前面多一欄「已報名人數」被當成功能欄）：退回整列找，但不看組別說明那一欄
+            gcol = m.get("group")
+            good = [a for a in acts if a.get("col") != gcol and SIGNUP_RX.search(a.get("text") or "")
+                    and not SIGNUP_EXCLUDE.search(a.get("text") or "")]
         act = good[0] if good else None
         seats = parse_seats(cell("seats")) if "seats" in m else None
         if not (cur_date or group.strip() or act):
@@ -319,6 +324,16 @@ def parse_sessions(found: tuple[dict, int, dict]) -> list[Session]:
         out.append(Session(cur_date, group.strip(), seats, act.get("aid") if act else None,
                            act.get("text", "") if act else "", list(cells)))
     return out
+
+
+# 組別說明裡「(初考生勿預約本場次)」這種「誰不能報」的句子：比對 group_include 前先拿掉，
+# 不然「初考」會在「初考生勿預約」裡被找到，幫第一次考的人約到重考專用的場次
+NEGATED_RX = re.compile(r"[(（][^)）]*(?:請?勿|不得|不可|不能)[^)）]*[)）]"
+                        r"|[^，,。、()（）\s]*(?:請?勿|不得|不可|不能)(?:預約|報名|報考)[^，,。()（）]*")
+
+
+def positive_part(group: str) -> str:
+    return NEGATED_RX.sub(" ", group or "")
 
 
 def filter_sessions(sessions: list[Session], cfg: dict, start: dt.date, end: dt.date) -> list[Session]:
@@ -333,7 +348,7 @@ def filter_sessions(sessions: list[Session], cfg: dict, start: dt.date, end: dt.
             continue
         if s.seats is not None and s.seats < 1:
             continue
-        if inc and not inc.search(s.group):
+        if inc and not inc.search(positive_part(s.group)):
             continue
         if exc and exc.search(s.group):
             continue

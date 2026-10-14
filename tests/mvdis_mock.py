@@ -116,6 +116,7 @@ class Mock:
     popup: bool = True
     onward: bool = True
     notice_page: bool = False
+    notice_inline: bool = False      # 按報名後在同一頁（不換頁）蓋上注意事項，按同意才進報名頁
     confirm_page: bool = False
     birth_split: bool = False
     extra_required: bool = False     # 報名頁多一個程式認不得的必填下拉選單
@@ -210,9 +211,16 @@ class Mock:
     )
 
     def locations(self, v: dict | None = None, results: str = "") -> str:
-        return self.page("考照預約報名", self.query_form(v or {}) + results +
+        inline = js = ""
+        if self.notice_inline:
+            inline = (f"<div id='inl' style='display:none'><h2>報名注意事項</h2><p>{NOTICE}</p>"
+                      f"<form method='post' action='{P}/signupForm'><input type='hidden' name='secId'>"
+                      "<button type='submit'>我已閱讀並同意</button></form></div>")
+            js = ("function signUp(id){document.querySelector('table.list').style.display='none';"
+                  "var n=document.getElementById('inl');n.style.display='block';n.querySelector('[name=secId]').value=id;}")
+        return self.page("考照預約報名", self.query_form(v or {}) + results + inline +
                          f"<form id='sf' method='post' action='{P}/signup'><input type='hidden' name='secId'></form>",
-                         self.QUERY_JS)
+                         self.QUERY_JS + js)
 
     def results(self, v: dict) -> str:
         d = parse_roc(v.get("expectExamDateStr", ""))

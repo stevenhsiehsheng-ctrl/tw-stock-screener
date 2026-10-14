@@ -455,3 +455,18 @@ def test_falls_back_to_edge_when_bundled_chromium_is_blocked(env):
     p, tried = _fake_pw({})
     Booker(cfg, FakeNotifier(), util.Log(env / "log.txt"), env).start(p)
     assert tried == ["msedge"]
+
+
+def test_in_page_notice_is_accepted(pw, env):
+    mock = Mock(notice_inline=True, expected=EXPECTED)
+    with MockServer(mock) as srv:
+        cfg = make_cfg(srv.url, env)
+        b, n = start(pw, cfg, env)
+        try:
+            _, _, matched = query(b, cfg, TODAY + dt.timedelta(days=3))
+            out = b.try_book(matched[0])
+        finally:
+            b.close()
+    assert out.kind == "dry_run_ready", out
+    assert mock.submissions == []
+

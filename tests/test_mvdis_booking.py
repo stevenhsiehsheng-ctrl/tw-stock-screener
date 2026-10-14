@@ -402,3 +402,29 @@ def test_real_site_notice_is_not_a_result():
     assert M.classify_page_change(caution) is None
     assert M.classify_page_change("請輸入OTP驗證碼完成報名：\n報名 取消此次報名") is None
     assert M.classify_page_change("預約成功\n" + caution) == "success"
+
+
+# ---------------------------------------------------------------- 第二輪審查
+def test_group_include_ignores_negated_clauses():
+    retake = "上午場次, 組別 1 本場次為已完成講習之考生 (初考生勿預約本場次)"
+    first = "上午場次, 組別 2 本場次為初考生，請先完成體檢"
+    retake2 = "本場次限已完成安全講習者，初考生請勿預約"
+    d = dt.date(2026, 10, 24)
+    ss = [M.Session(d, g, 3, f"a{i}", "報名") for i, g in enumerate((retake, first, retake2))]
+    cfg = cfg_of(target={"group_include": "初考", "group_exclude": ""})
+    assert [s.group for s in M.filter_sessions(ss, cfg, d, d)] == [first]
+    # 「重考生勿預約」的初考組照樣選得到
+    ok = M.Session(d, "本場次限初考生 (重考生勿預約本場次)", 3, "b", "報名")
+    assert M.filter_sessions([ok], cfg, d, d) == [ok]
+
+
+def test_signup_button_found_when_action_header_is_mismapped():
+    rows = [
+        {"cells": ["考試日期", "場次組別", "可報名人數", "已報名人數", "功能"], "actions": []},
+        {"cells": ["115/10/24 (六)", "初考生 (重考生勿預約)", "3", "37", "報名"],
+         "actions": [{"aid": "g", "text": "(重考生勿預約)", "col": 1}, {"aid": "a1", "text": "報名", "col": 4}]},
+    ]
+    found = M.find_session_table([{"tid": 0, "rows": rows}])
+    ss = M.parse_sessions(found)
+    assert ss[0].action_id == "a1"
+
