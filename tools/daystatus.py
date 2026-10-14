@@ -109,13 +109,23 @@ def main(argv: list[str]) -> int:
     print("\n== 資料到哪一天")
     state = json.loads(_read("data/state.json") or b"{}")
     mis = json.loads(_read("data/extras/oddlot_mis.json") or b"{}")
+    usm = json.loads(_read("data/us/meta.json") or b"{}")
     ledgers = sorted(p.split("/")[-1][:10] for p in (_git("ls-tree", "--name-only", "origin/main", "data/ledger/") or b"").decode().split())
     live = json.loads(_read("data/live_state.json") or b"{}")
+    pub = {}
+    if live.get("date") != day:   # live_state.json 收工（13:31）才提交；盤中看 live 分支每輪發佈的 live.json
+        _git("fetch", "-q", "origin", "live")
+        try:
+            pub = json.loads(_git("show", "origin/live:live.json") or b"{}")
+        except ValueError:
+            pub = {}
     off = live.get("official") or {}
     pos = _read("data/positions.csv")
     n_sig = int((pd.read_csv(io.BytesIO(pos), usecols=["signal_date"]).signal_date == day).sum()) if pos else 0
     rows = [("盤中監控（live_state）", f"{live.get('date')} 最後一輪 {live.get('last_scan')}，今日預警 {len(live.get('alerts') or {})} 檔"
-             if live.get("date") == day else f"沒有今天的（最後 {live.get('date')}）"),
+             if live.get("date") == day else
+             f"還在跑：live 分支 {str(pub.get('updated'))[11:16]} 第 {pub.get('scans')} 輪（收工 13:31 才提交 live_state）"
+             if pub.get("date") == day else f"沒有今天的（最後 {live.get('date')}）"),
             ("13:12 正式訊號", f"{off.get('count', '—')} 檔（{off.get('time', '—')}），positions 記了 {n_sig} 筆" if live.get("date") == day else "—"),
             ("每日資料 state.last_done", state.get("last_done", "—")),
             ("收盤價 history", _max_date("data/history.csv.gz")),
@@ -125,6 +135,8 @@ def main(argv: list[str]) -> int:
             ("盤後零股 上市", _max_date("data/extras/oddlot_hist.csv.gz", ("market", "TWSE"))),
             ("盤後零股 上櫃", _max_date("data/extras/oddlot_hist.csv.gz", ("market", "TPEX"))
              + ("（MIS 補的，等官方）" if "TPEX" in mis.get(day, []) else "")),
+            ("美股隔夜 費半／台積電 ADR", "／".join(str((usm.get("last_dates") or {}).get(k, "—")) for k in ("^SOX", "TSM"))
+             + ("（ADR 晚一天：Yahoo 個股還沒給，排程那班會再抓）" if (usm.get("last_dates") or {}).get("TSM", "") < (usm.get("last_dates") or {}).get("^SOX", "") else "")),
             ("虛擬帳戶帳本", ledgers[-1] if ledgers else "—"),
             ("13:12 盤中零股快照", "有" if _read(f"data/book/odd_{day}.csv") is not None else "沒有"),
             ("休市表 tw_holidays.json", "有" if _read("data/extras/tw_holidays.json") is not None else "沒有（用推定休市日）")]
