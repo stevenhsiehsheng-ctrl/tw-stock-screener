@@ -2716,3 +2716,49 @@ def test_screenpage_rev_high12_matches_revdrift(tmp_path, monkeypatch):
     assert flag == {"9901": 1, "9902": 1, "9903": 0, "9904": 0}   # 9903 不是新高、9904 不滿 12 個月
     basket = set(revdrift.baskets(pd.DataFrame(rh)).get("2026-09", []))
     assert basket == {c for c in codes if flag[c] and last[c][1] >= 30}
+
+
+def test_us_drops_rows_without_close(tmp_path, monkeypatch):
+    """Yahoo 收盤後不久抓，個股最後一天常是「有量、價格全空」（10/14 08:43：TSM／NVDA／AAPL 10/13 都這樣）：
+    us.fetch 不存這種列；盤中頁美股快照、首頁台積電 ADR 也不拿空價算漲跌（補不到就標 stale／用前一天）。"""
+    import sys
+    import types
+
+    import numpy as np
+
+    from screener import global_mkt, today, us
+
+    idx = pd.to_datetime(["2026-10-09", "2026-10-12", "2026-10-13"])
+
+    class T:
+        def __init__(self, sym):
+            self.sym = sym
+
+        def history(self, **k):
+            nan_last = self.sym in ("TSM", "NVDA")
+            c = [100.0, 101.0, np.nan if nan_last else 102.0]
+            return pd.DataFrame({"Open": c, "High": c, "Low": c, "Close": c, "Volume": [1, 2, 3]}, index=pd.Index(idx, name="Date"))
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=T))
+    df = us.fetch("5d")
+    assert df[df.sym == "TSM"].date.tolist() == ["2026-10-09", "2026-10-12"] and df[df.sym == "^SOX"].date.max() == "2026-10-13"
+    assert df.close.notna().all()
+
+    # 舊檔裡已經有空價列：盤中快照的「Yahoo 落後用 us 歷史檔補」不能拿空價，要標 stale
+    h = pd.DataFrame([{"date": d, "sym": "NVDA", "close": c} for d, c in (("2026-10-12", 185.0), ("2026-10-13", np.nan))])
+    h.to_csv(tmp_path / "h.csv", index=False)
+    monkeypatch.setattr(us, "HIST", tmp_path / "h.csv")
+    ix = pd.to_datetime(["2026-10-12", "2026-10-13"])
+    data = {"^SOX": pd.Series([100.0, 101.0], index=ix), "NVDA": pd.Series([180.0, 185.0], index=pd.to_datetime(["2026-10-09", "2026-10-12"]))}
+    monkeypatch.setattr(global_mkt, "_closes", lambda sym: data.get(sym))
+    it = {i["sym"]: i for i in global_mkt.snapshot()["items"]}
+    assert it["NVDA"]["stale"] and it["NVDA"]["close"] == 185.0 and it["NVDA"]["chg"] == round((185 / 180 - 1) * 100, 2)
+
+    # 首頁台積電 ADR：最後一天沒價就用前一個有價的日子
+    d = tmp_path / "data"
+    (d / "us").mkdir(parents=True)
+    pd.DataFrame([{"date": dd, "sym": "TSM", "close": c} for dd, c in (("2026-10-09", 300.0), ("2026-10-12", 303.0), ("2026-10-13", np.nan))]
+                 ).to_csv(d / "us" / "history.csv.gz", index=False)
+    monkeypatch.setattr(today, "DATA", d)
+    monkeypatch.setattr(today, "EX", d / "extras")
+    out = today.build()
+    assert out["tsm"] == {"date": "2026-10-12", "chg": 1.0}

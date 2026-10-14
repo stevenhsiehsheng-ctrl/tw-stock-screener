@@ -56,7 +56,7 @@ def _fix_stale(items: list, closes: dict) -> None:
     except Exception:  # noqa: BLE001
         h = None
     for i in lag:
-        s = None if h is None else h[h.sym == i["sym"]].set_index("date").close.sort_index()
+        s = None if h is None else h[h.sym == i["sym"]].dropna(subset=["close"]).set_index("date").close.sort_index()
         if s is not None and len(s) >= 2 and s.index[-1] == latest.isoformat():
             i.update(close=round(float(s.iloc[-1]), 2), chg=round((float(s.iloc[-1]) / float(s.iloc[-2]) - 1) * 100, 2),
                      date=latest.strftime("%m/%d"))

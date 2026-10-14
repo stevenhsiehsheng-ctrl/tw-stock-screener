@@ -53,7 +53,9 @@ def fetch(period: str = "5y") -> pd.DataFrame:
         if h.empty:
             log.warning("%s 沒有資料", sym)
             continue
-        h = h.reset_index()
+        # Yahoo 收盤後不久抓，個股最後一天常是「有量、價格全空」（10/14 08:43 補跑：TSM／NVDA／AAPL 10/13 都這樣），
+        # 存進去之後漲跌、ADR 溢價全變空值，last_dates 也誤以為已經更新；沒有收盤價的列不要
+        h = h.dropna(subset=["Close"]).reset_index()
         out.append(pd.DataFrame({"date": pd.to_datetime(h["Date"]).dt.strftime("%Y-%m-%d"), "sym": sym,
                                  "open": h["Open"], "high": h["High"], "low": h["Low"], "close": h["Close"],
                                  "volume": h["Volume"]}))
