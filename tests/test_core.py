@@ -2798,3 +2798,32 @@ def test_today_health_unfixed(tmp_path, monkeypatch):
     (d / "health" / "latest.json").write_text(_json.dumps({**hl, "items": items}), "utf-8")
     assert today.build()["health"]["unfixed"] == ["美股隔夜（費半）", "風險燈（大環境）", "股東紀念品"]
     assert "healing" in today.JS and "已自動補跑" in today.JS
+
+
+def test_daystatus_main_rows(monkeypatch, capsys):
+    """daystatus 主畫面：盤中 live_state 還沒提交時改看 live 分支的 live.json；美股費半／台積電 ADR 不同天要註明。"""
+    import json as _json
+
+    from tools import daystatus
+
+    files = {"data/live_state.json": {"date": "2026-10-13"}, "data/us/meta.json": {"last_dates": {"^SOX": "2026-10-13", "TSM": "2026-10-12"}},
+             "data/state.json": {"last_done": "2026-10-13"}, "data/health/latest.json": {}}
+    live = {"date": "2026-10-14", "updated": "2026-10-14 09:34:11", "scans": 12}
+
+    def git(*a):
+        if a[:1] == ("show",) and a[1] == "origin/live:live.json":
+            return _json.dumps(live).encode()
+        if a[:2] == ("ls-tree", "--name-only"):
+            return b"data/ledger/2026-10-13.json"
+        return None
+    monkeypatch.setattr(daystatus, "_git", git)
+    monkeypatch.setattr(daystatus, "_read", lambda p: _json.dumps(files[p]).encode() if p in files else None)
+    monkeypatch.setattr(daystatus, "_max_date", lambda *a, **k: "2026-10-13")
+    monkeypatch.setattr(daystatus, "runs", lambda day, repo: [])
+    assert daystatus.main(["2026-10-14"]) == 0
+    out = capsys.readouterr().out
+    assert "還在跑：live 分支 09:34 第 12 輪" in out
+    assert "美股隔夜 費半／台積電 ADR：2026-10-13／2026-10-12（ADR 晚一天" in out and "虛擬帳戶帳本：2026-10-13" in out
+    live["date"] = "2026-10-13"   # live 分支也不是今天 → 沒跑
+    daystatus.main(["2026-10-14"])
+    assert "沒有今天的（最後 2026-10-13）" in capsys.readouterr().out
