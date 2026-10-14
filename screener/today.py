@@ -106,6 +106,9 @@ def build() -> dict:
         out["health"] = {"date": hl.get("date"), "day": hl.get("trading_day"), "at": str(hl.get("checked_at", ""))[11:16],
                          "slot": hl.get("slot"), "bad": hl.get("bad") or [], "fails": len(hl.get("failed_runs") or []),
                          "fixed": hl.get("dispatched") or hl.get("dispatched_am") or [], "cron": hl.get("cron") or []}
+        # 缺的裡面，沒有自動補跑可救的（早上缺美股、已經派工補跑的不算）：全部都有補跑時首頁不掛 ⚠️（10/14 整個上午掛著嚇人）
+        fixed = set(out["health"]["fixed"])
+        out["health"]["unfixed"] = [i.get("name") for i in hl.get("items") or [] if not i.get("ok") and i.get("fix") not in fixed]
     except Exception:  # noqa: BLE001
         pass
     try:   # 盤勢主判：全市場等權指數 vs 200 日線（screener/ewindex.py）
@@ -234,8 +237,9 @@ const P=v=>v==null?'—':(v>0?'+':'')+Number(v).toFixed(2)+'%',S=c=>`stock.html?
 const L={green:'🟢 綠燈',yellow:'🟡 黃燈',red:'🔴 紅燈'};
 const rows=[];const add=(ic,html,ts,stale)=>rows.push(`<div class="row${stale?' stale':''}"><span class="ic">${ic}</span><span class="tx">${html}</span><span class="ts">${E(ts||'')}</span></div>`);
 function health(){const h=T.health;if(!h)return;const F={daily:'每日資料',extras:'傍晚補抓',us:'美股隔夜'},fx=(h.fixed||[]).map(f=>F[f]||f).join('、'),bad=h.bad||[];
-  const ok=!bad.length&&!h.fails,when=`${E(String(h.date||'').slice(5))} ${h.slot==='pm'?'收工後':'早上'} ${E(h.at||'')}`;
+  const ok=!bad.length&&!h.fails,healing=bad.length&&!h.fails&&h.unfixed&&!h.unfixed.length&&h.slot!=='pm',when=`${E(String(h.date||'').slice(5))} ${h.slot==='pm'?'收工後':'早上'} ${E(h.at||'')}`;
   add('🩺',(ok?`系統體檢 ✅ 前一個交易日（${E(String(h.day||'').slice(5))}）的資料都到了${fx?`（早上自動補跑過${E(fx)}）`:''}`
+    :healing?`系統體檢 🔧 早上發現 ${bad.map(E).join('、')} 還沒到，已自動補跑${fx?E(fx):''}（收工後體檢會再確認，還缺才寄信）`
     :`系統體檢 ⚠️ ${bad.length?`還缺：${bad.map(E).join('、')}`:''}${h.fails?`${bad.length?'・':''}有 ${h.fails} 個工作流程失敗`:''}${fx?`（已自動補跑${E(fx)}）`:''}・Claude Code 每天 16:25 會處理`)
     +((h.cron||[]).length?`・⏰ cron-job.org 沒準時叫：${h.cron.map(E).join('；')}`:''),when,false)}
 function regime(){health();const r=T.regime,w=T.ew;

@@ -2774,3 +2774,27 @@ def test_us_drops_rows_without_close(tmp_path, monkeypatch):
     out = today.build()
     assert out["tsm"] == {"date": "2026-10-12", "chg": 1.0}  # 沒有 tw2330：ADR 比費半晚一天不換算
     assert out["sox"] == {"date": "2026-10-13", "chg": 1.0}
+
+
+def test_today_health_unfixed(tmp_path, monkeypatch):
+    """首頁 🩺：早上缺的東西如果都已經自動補跑（例如缺美股 → 派 us.yml），unfixed 是空的，首頁顯示 🔧 而不是 ⚠️；
+    有補跑救不到的（沒有 fix、或 fix 沒派出去）才算 unfixed。"""
+    import json as _json
+
+    from screener import today
+
+    d = tmp_path / "data"
+    (d / "health").mkdir(parents=True)
+    monkeypatch.setattr(today, "DATA", d)
+    monkeypatch.setattr(today, "EX", d / "extras")
+    items = [{"name": "美股隔夜（費半）", "ok": False, "fix": "us"}, {"name": "風險燈（大環境）", "ok": False, "fix": "us"},
+             {"name": "收盤價", "ok": True, "fix": "daily"}]
+    hl = {"date": "2026-10-14", "trading_day": "2026-10-13", "checked_at": "2026-10-14T08:40:37+0800", "slot": "am",
+          "bad": ["美股隔夜（費半）", "風險燈（大環境）"], "failed_runs": [], "dispatched": ["us"], "cron": [], "items": items}
+    (d / "health" / "latest.json").write_text(_json.dumps(hl), "utf-8")
+    assert today.build()["health"]["unfixed"] == []
+    hl["dispatched"] = []   # 派工失敗
+    items.append({"name": "股東紀念品", "ok": False, "fix": None})
+    (d / "health" / "latest.json").write_text(_json.dumps({**hl, "items": items}), "utf-8")
+    assert today.build()["health"]["unfixed"] == ["美股隔夜（費半）", "風險燈（大環境）", "股東紀念品"]
+    assert "healing" in today.JS and "已自動補跑" in today.JS
