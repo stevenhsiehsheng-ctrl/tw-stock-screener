@@ -2686,3 +2686,33 @@ def test_mappage_us_rows(tmp_path, monkeypatch):
     assert a[5] == round(sum((100.0 + i) * 1e7 for i in range(240, 260)) / 20 / 1e9, 2)
     assert (a[6], a[7], a[8], a[9]) == tuple(round((last / (last - k) - 1) * 100, 2) for k in (1, 5, 20, 250))
     assert rows["MSFT"][6:] == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_screenpage_rev_high12_matches_revdrift(tmp_path, monkeypatch):
+    """自訂選股的「營收創 12 個月新高」欄跟營收漂移籃子（revdrift.baskets）同一個定義：
+    同月份、要滿 12 個月、≥ 前 12 個月最高；配上年增 ≥30% 就是籃子。"""
+    from screener import corpact, revdrift, screenpage, valuation
+
+    d, ex = tmp_path / "data", tmp_path / "data" / "extras"
+    ex.mkdir(parents=True)
+    monkeypatch.setattr(screenpage, "DATA", d)
+    monkeypatch.setattr(screenpage, "EX", ex)
+    monkeypatch.setattr(corpact, "adjust", lambda h: h)
+    monkeypatch.setattr(valuation, "HIST", tmp_path / "none.csv.gz")
+    codes = ["9901", "9902", "9903", "9904"]
+    pd.DataFrame({"code": codes, "name": codes, "market": "TWSE", "industry": "測試"}).to_csv(d / "stock_list.csv", index=False)
+    pd.DataFrame([{"date": dd, "code": c, "close": 10.0, "volume": 1000} for dd in ("2026-10-13", "2026-10-14") for c in codes]
+                 ).to_csv(d / "history.csv.gz", index=False)
+    yms = [f"2025-{m:02d}" for m in range(10, 13)] + [f"2026-{m:02d}" for m in range(1, 10)]
+    last = {"9901": (200, 50), "9902": (200, 10), "9903": (150, 60), "9904": (200, 40)}   # (9 月營收, 年增)
+    rh = [{"code": c, "ym": ym, "revenue": last[c][0] if ym == yms[-1] else (180 if c == "9903" and ym == yms[3] else 100),
+           "yoy": last[c][1] if ym == yms[-1] else 0} for c in codes for ym in yms if not (c == "9904" and ym == yms[0])]
+    pd.DataFrame(rh).to_csv(ex / "rev_hist.csv.gz", index=False)
+    pd.DataFrame({"code": codes, "rev_month": 11509, "rev_yoy": [last[c][1] for c in codes]}).to_csv(ex / "revenue.csv", index=False)
+    b = screenpage.build()
+    assert b["rmonth"] == "2026-09"
+    i = b["cols"].index("rh12")
+    flag = {r[0]: r[i] for r in b["rows"]}
+    assert flag == {"9901": 1, "9902": 1, "9903": 0, "9904": 0}   # 9903 不是新高、9904 不滿 12 個月
+    basket = set(revdrift.baskets(pd.DataFrame(rh)).get("2026-09", []))
+    assert basket == {c for c in codes if flag[c] and last[c][1] >= 30}

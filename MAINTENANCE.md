@@ -57,7 +57,7 @@
   - **三邊同一套**（網站、回測、13:12）：`config.yaml` intraday 門檻＝`tools/btsim` 預設值；btsim 出場＝`positions.update`；
     btsim 進場＝`tech.surge_frame`＋三道門檻（≥500 張、≤10.5%、≥10 元）；研究地基 `lottery.surge_trades`＝網站 K 線買賣點（`tech.signals`）；
     連買連賣天數法人籌碼頁＝盤中頁＝融資連增；`us.impact` 的訊號＝`tech.surge_frame`、台股 d 對到 d 之前的美股收盤；強勢續攻定義（`momo.events`）網站名單和 `tools/momo5y` 共用；
-    首頁系統訊號合計＝`tools/ledger_stats`；「今天幾家鎖漲停」收盤版（`positions.lock_counts`）＝13:12 版（`lock_now`）。
+    首頁系統訊號合計＝`tools/ledger_stats`；自訂選股「營收 12 個月新高」＝營收漂移籃子的定義；「今天幾家鎖漲停」收盤版（`positions.lock_counts`）＝13:12 版（`lock_now`）。
   - **盤中／13:12**：13:12 正式訊號寫進 positions（`intraday.main`）、盤中判斷（`live.scan`）、持股狀態（`holdings_view`）、
     族群熱度與主線時間（`group_heat`）、鎖漲停分鐘數、盤中頁 13:12 結果（`official_result`：鎖漲停灰色、前日當沖不新不掛）、
     漲停觸及紀錄、預警通知內容與存檔、盤中頁每一列（處置股 split、周轉率、沒成交價）、開盤待賣清單、MIS 取價、成交量曲線。
