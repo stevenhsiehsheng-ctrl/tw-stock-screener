@@ -2742,6 +2742,14 @@ def test_us_drops_rows_without_close(tmp_path, monkeypatch):
     df = us.fetch("5d")
     assert df[df.sym == "TSM"].date.tolist() == ["2026-10-09", "2026-10-12"] and df[df.sym == "^SOX"].date.max() == "2026-10-13"
     assert df.close.notna().all()
+    monkeypatch.setattr(us, "BENCH_LONG", tmp_path / "bench_long.csv")
+
+    class T2(T):
+        def history(self, **k):
+            x = super().history(**k)
+            return x.assign(**{"Adj Close": x.Close})
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=lambda s: T2("TSM" if s == "2330.TW" else s)))
+    assert us.update_bench_long() == 5  # 0050 三天＋台積電兩天（最後一天沒價不存）
 
     # 舊檔裡已經有空價列：盤中快照的「Yahoo 落後用 us 歷史檔補」不能拿空價，要標 stale
     h = pd.DataFrame([{"date": d, "sym": "NVDA", "close": c} for d, c in (("2026-10-12", 185.0), ("2026-10-13", np.nan))])

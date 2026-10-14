@@ -79,7 +79,7 @@ def update_bench_long(period: str = "6y") -> int:
         if h.empty:
             log.warning("%s 沒有資料", sym)
             continue
-        h = h.reset_index()
+        h = h.dropna(subset=["Close"]).reset_index()   # 最後一天有量沒價的不要（同 fetch）
         out.append(pd.DataFrame({"date": pd.to_datetime(h["Date"]).dt.strftime("%Y-%m-%d"), "code": code,
                                  "close_adj": h["Adj Close"].round(4), "close": h["Close"].round(4)}))
     if not out:
