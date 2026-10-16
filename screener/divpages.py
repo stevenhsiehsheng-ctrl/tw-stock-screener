@@ -2,7 +2,7 @@
 
 產生：
 - site/div/index.html：全部有配息的 ETF 清單
-- site/div/<代號>.html：「0056 除息日、配息紀錄」——下次除息、近 12 月配息與殖利率、過去兩年每次配多少
+- site/div/<代號>.html（兩年內配息至少 MIN_PAYOUTS 次的 ETF）：「0056 除息日、配息紀錄」——下次除息、近 12 月配息與殖利率、過去兩年每次配多少
 - site/data/dividends.csv：每次除息一列（id, ex_date, code, name, cash_div, status, ym），已除＋已公告的預告
 - site/data/div_summary.csv：每檔一列（id＝#代號、現價、近 12 月配息、殖利率、下次除息日與金額），付費試算表用 IMPORTDATA 讀
 - site/sitemap.xml：給 Google Search Console 提交
@@ -28,6 +28,7 @@ EX = DATA / "extras"
 log = logging.getLogger(__name__)
 
 DISCLAIMER = "本站僅整理證交所、櫃買中心公開資訊，不構成任何投資建議，資料可能有誤或延遲，以官方公告為準，投資盈虧請自行負責。"
+MIN_PAYOUTS = 4   # 兩年內至少配過幾次才產生單檔頁
 SITE_URL = "https://stevenhsiehsheng-ctrl.github.io/tw-stock-screener/"
 
 
@@ -180,7 +181,9 @@ def write(site_dir: Path, today: str | None = None) -> bool:
     summ.to_csv(site_dir / "data" / "div_summary.csv", index=False)
     d = site_dir / "div"
     d.mkdir(exist_ok=True)
-    etfs = summ[summ.code.map(is_etf)]
+    # 只做配息紀錄夠多的 ETF：紀錄太少的頁只是模板換代號，Google 會當成大量低品質頁面
+    n_past = ev[ev.status == "已除息"].groupby("code").size()
+    etfs = summ[summ.code.map(is_etf) & (summ.code.map(n_past).fillna(0) >= MIN_PAYOUTS)]
     year = int(today[:4])
     for s in etfs.to_dict("records"):
         (d / f"{s['code']}.html").write_text(etf_page(s["code"], s, ev[ev.code == s["code"]], cfg, year), "utf-8")
