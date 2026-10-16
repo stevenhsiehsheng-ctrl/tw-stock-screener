@@ -64,8 +64,10 @@ def build(base: str, out: str) -> None:
         ws[f"H{r}"] = f'=IF($A{r}="","",IFERROR(F{r}*B{r},0))'
         ws[f"I{r}"] = f'=IF($A{r}="","",IFERROR(F{r}/E{r},""))'
         ws[f"J{r}"] = f'=IF(OR($A{r}="",C{r}="",C{r}=0),"",IFERROR(F{r}/C{r},""))'
-        ws[f"K{r}"] = f'=IF($A{r}="","",IFERROR(DATEVALUE({look(r, 11)}),{look(r, 11)}))'
-        ws[f"L{r}"] = f'=IF($A{r}="","",IF(K{r}="","",IF({look(r, 12)}="","待公告",{look(r, 12)})))'
+        # 查不到或空白時 Excel／LibreOffice 會回 0，Google 試算表回空白：兩種都當「沒有」
+        nx, nc = look(r, 11), look(r, 12)
+        ws[f"K{r}"] = f'=IF($A{r}="","",IF(OR({nx}="",{nx}=0),"",IFERROR(DATEVALUE({nx}),{nx})))'
+        ws[f"L{r}"] = f'=IF($A{r}="","",IF(K{r}="","",IF(OR({nc}="",{nc}=0),"待公告",{nc})))'
         ws[f"M{r}"] = f'=IF(ISNUMBER(L{r}),L{r}*B{r},"")'
         ws[f"N{r}"] = f'=IF($A{r}="","",IFERROR(E{r}*B{r},0))'
         for c, f in (("B", "#,##0"), ("C", "0.00"), ("E", "0.00"), ("F", "0.000"), ("H", "#,##0"), ("I", "0.00%"),
