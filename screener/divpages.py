@@ -5,6 +5,7 @@
 - site/div/<代號>.html（兩年內配息至少 MIN_PAYOUTS 次的 ETF）：「0056 除息日、配息紀錄」——下次除息、近 12 月配息與殖利率、過去兩年每次配多少
 - site/data/dividends.csv：每次除息一列（id, ex_date, code, name, cash_div, status, ym），已除＋已公告的預告
 - site/data/div_summary.csv：每檔一列（id＝#代號、現價、近 12 月配息、殖利率、下次除息日與金額），付費試算表用 IMPORTDATA 讀
+- site/calc/*.html：三個試算頁（screener/calcpages.py）
 - site/sitemap.xml：給 Google Search Console 提交
 
 資料：data/extras/exdiv.csv（已除，約兩年）、exdiv_upcoming.csv（預告）、etf.csv.gz（ETF 名稱、收盤）、
@@ -161,7 +162,7 @@ def index_page(summ: pd.DataFrame, cfg: dict, date: str) -> str:
     return ("<!doctype html><html lang='zh-Hant'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>{t}</title><meta name='description' content='全部台股 ETF 的下次除息日、每股配息、近 12 月殖利率與配息頻率，每天收盤後更新。'>"
             f"<link rel='canonical' href='{SITE_URL}div/index.html'>{CSS}</head><body><!--SITENAV:exdiv:../-->"
-            f"<h1>{t}</h1><p>資料日期 {date}，每天收盤後自動更新。點代號看那檔 ETF 的歷次配息。</p>{_cta(cfg, '../')}"
+            f"<h1>{t}</h1><p>資料日期 {date}，每天收盤後自動更新。點代號看那檔 ETF 的歷次配息。試算工具：<a href='../calc/tax.html'>股利所得稅</a> · <a href='../calc/nhi.html'>二代健保補充保費</a> · <a href='../calc/goal.html'>存股目標</a></p>{_cta(cfg, '../')}"
             "<div class='wrap'><table><tr><th>代號</th><th>名稱</th><th>下次除息日</th><th>下次配息</th><th>近 12 月配息</th>"
             f"<th>殖利率 %</th><th>頻率</th></tr>{rows}</table></div><p class='note'>{DISCLAIMER}</p></body></html>")
 
@@ -189,7 +190,8 @@ def write(site_dir: Path, today: str | None = None) -> bool:
         (d / f"{s['code']}.html").write_text(etf_page(s["code"], s, ev[ev.code == s["code"]], cfg, year), "utf-8")
     (d / "index.html").write_text(index_page(etfs, cfg, today), "utf-8")
     base = cfg.get("site_url") or SITE_URL
-    urls = ["", "exdiv.html", "etf.html", "div/index.html"] + [f"div/{c}.html" for c in etfs.code]
+    from . import calcpages   # 試算頁一起寫，才能放進同一份 sitemap
+    urls = ["", "exdiv.html", "etf.html", "div/index.html"] + calcpages.write(site_dir) + [f"div/{c}.html" for c in etfs.code]
     (site_dir / "sitemap.xml").write_text(
         "<?xml version='1.0' encoding='UTF-8'?>\n<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>"
         + "".join(f"<url><loc>{base}{u}</loc><lastmod>{today}</lastmod></url>" for u in urls) + "</urlset>\n", "utf-8")
