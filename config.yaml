@@ -224,3 +224,9 @@ us_screener:
         - {type: above_ma, period: 200}
         - {type: ma_bias, period: 20, max: -8}
         - {type: change_pct, min: 0}
+
+# 付費試算表（screener/divpages.py）：url 填商品頁網址後，ETF 配息頁會出現購買區塊；空的就不顯示。
+product:
+  title: 存股股息追蹤試算表
+  url: ""
+  site_url: https://stevenhsiehsheng-ctrl.github.io/tw-stock-screener/

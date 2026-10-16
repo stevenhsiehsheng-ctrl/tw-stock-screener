@@ -130,7 +130,7 @@ label{font-size:13.5px;color:var(--muted);margin-left:10px;white-space:nowrap}
 </style></head><body><main>
 <!--SITENAV:exdiv-->
 <h1>💰 除權息行事曆</h1>
-<div class="meta">資料日 __DATE__・預告來自證交所／櫃買中心除權息預告表・殖利率＝這次現金股利 ÷ 最近收盤</div>
+<div class="meta">資料日 __DATE__・預告來自證交所／櫃買中心除權息預告表・殖利率＝這次現金股利 ÷ 最近收盤・<a href="div/index.html">全部 ETF 配息紀錄 →</a></div>
 <div class="box">📌 <b>除息不是送錢</b>：除息當天股價會先扣掉股利，帳面總值不變；之後漲回除息前價格才叫「填息」。
 領到的股利要併入綜合所得稅（或選 28% 分開計稅），單次領 2 萬元以上還要扣 2.11% 二代健保補充保費。
 所以「為了領股利才買」通常不划算，除非你本來就想長期持有。
