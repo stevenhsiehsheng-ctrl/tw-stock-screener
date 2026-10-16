@@ -1,10 +1,11 @@
 {
  "date": "2026-10-16",
  "slots": [
-  "am"
+  "am",
+  "pm"
  ],
- "checked_at": "2026-10-16T08:40:47+0800",
- "slot": "am",
+ "checked_at": "2026-10-16T13:31:21+0800",
+ "slot": "pm",
  "trading_day": "2026-10-15",
  "source": "origin/main",
  "calendar": "twse",
