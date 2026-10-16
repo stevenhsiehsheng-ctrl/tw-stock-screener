@@ -2830,3 +2830,25 @@ def test_daystatus_main_rows(monkeypatch, capsys):
     live["date"] = "2026-10-13"   # live 分支也不是今天 → 沒跑
     daystatus.main(["2026-10-14"])
     assert "沒有今天的（最後 2026-10-13）" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- ETF 配息頁／試算表資料
+def test_divpages_load(tmp_path, monkeypatch):
+    from screener import divpages
+    ex = tmp_path / "extras"
+    ex.mkdir()
+    (ex / "exdiv.csv").write_text("date,code,cash_div\n2025-07-21,0056,0.866\n2025-10-23,0056,0.866\n"
+                                  "2026-01-22,0056,0.866\n2026-04-23,0056,1.0\n2026-07-21,0056,1.35\n2026-08-01,1234,0\n", "utf-8")
+    (ex / "exdiv_upcoming.csv").write_text("date,code,market,kind,cash_div,stock_ratio\n2026-10-22,0056,TWSE,息,,\n"
+                                           "2026-07-21,0056,TWSE,息,1.35,\n2026-10-30,1234,TWSE,權,0,0.1\n", "utf-8")
+    pd.DataFrame({"date": ["2026-10-16"], "code": ["0056"], "close": [58.75], "name": ["元大高股息"]}).to_csv(ex / "etf.csv.gz", index=False)
+    monkeypatch.setattr(divpages, "EX", ex)
+    monkeypatch.setattr(divpages, "DATA", tmp_path)   # 沒有 stock_list／history：只用 ETF
+    ev, summ = divpages.load("2026-10-16")
+    assert len(ev[ev.code == "0056"]) == 6                      # 預告和已除重複的那筆只留一筆
+    assert ev.iloc[-1].status == "待公告" and pd.isna(ev.iloc[-1].cash_div)   # 待公告不能當成 0
+    assert "1234" not in set(ev.code)                           # 只配股、沒配現金的不列
+    s = summ.set_index("code").loc["0056"]
+    assert s.ttm_count == 4 and abs(s.ttm_cash - 4.082) < 1e-9 and s.ttm_yield_pct == 6.95
+    assert s.next_ex_date == "2026-10-22" and s.next_status == "待公告"
+    assert divpages.freq(4) == "季配" and divpages.is_etf("00401A") and not divpages.is_etf("2330")
