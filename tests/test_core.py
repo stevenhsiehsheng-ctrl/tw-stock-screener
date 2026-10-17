@@ -2334,6 +2334,7 @@ def test_live_official_result_and_touch(tmp_path, monkeypatch):
     """盤中頁 13:12 正式結果：只在今天跑過才給；附當下鎖不鎖漲停（灰色只看不追）、漲幅、前日當沖（不新就不掛）。
     漲停觸及紀錄：用當日最高價判斷碰過（兩輪之間碰一下打開的也抓到），at_limit＝這一輪還在漲停價。"""
     import json as _json
+    import pathlib
 
     from screener import live, positions
 
@@ -2357,6 +2358,8 @@ def test_live_official_result_and_touch(tmp_path, monkeypatch):
     assert (s["price"], s["rev_yoy"], s["lu"], s["chg"], s["dt"]) == (33.0, 12, True, 9.97, None)  # 當沖資料不新 → 不掛
     monkeypatch.setattr(live, "_DT_FRESH", True)
     assert live.official_result(today, q)["stocks"][0]["dt"] == 42
+    # 前日當沖 >36% 的 ⚠️ 10/17 照 5 年樣本外判準撤掉（帳本 #49）：數字留著，盤中頁 13:12 那行不再掛警示
+    assert "⚠️前日當沖" not in (pathlib.Path(live.__file__).parent / "live_page.html").read_text("utf-8")
 
     monkeypatch.setattr(live, "TOUCH_DIR", tmp_path / "touch")
     tq = pd.DataFrame({"code": ["1101", "1102", "1103"], "yclose": [30.0, 50.0, 100.0], "price": [33.0, 54.0, 104.0],
