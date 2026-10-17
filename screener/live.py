@@ -501,7 +501,7 @@ def official_result(today: str, q: pd.DataFrame | None = None) -> dict | None:
     for r in pos.itertuples():
         d = {"code": r.code, "name": r.name, "price": _num(r.alert_price),
              "rev_yoy": _num((_EXT.get(r.code) or {}).get("rev_yoy"), 0)}
-        try:   # 13:12 當下是否鎖漲停（盤中頁灰色『只看不追』）、漲幅、前日當沖（非漲停 >36% 掛警示）
+        try:   # 13:12 當下是否鎖漲停（盤中頁灰色『只看不追』）、漲幅、前日當沖（>36% 警示 10/17 照 5 年樣本外撤掉，只留數字）
             if qq is not None and r.code in qq.index:
                 d["lu"] = bool(qq.at[r.code, "locked"]) if "locked" in qq else None
                 d["chg"] = _num(qq.at[r.code, "chg"]) if "chg" in qq else None
