@@ -1,100 +1,102 @@
 {
- "date": "2026-10-21",
+ "date": "2026-10-22",
  "slots": [
-  "am",
-  "pm"
+  "am"
  ],
- "checked_at": "2026-10-21T13:31:06+0800",
- "slot": "pm",
- "trading_day": "2026-10-20",
+ "checked_at": "2026-10-22T08:40:49+0800",
+ "slot": "am",
+ "trading_day": "2026-10-21",
  "source": "origin/main",
  "calendar": "twse",
- "us_day": "2026-10-20",
+ "us_day": "2026-10-21",
  "items": [
   {
    "name": "每日資料（收盤價）",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": "daily"
   },
   {
    "name": "等權指數",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": "daily"
   },
   {
    "name": "13:12 鎖漲停家數",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": null
   },
   {
    "name": "三大法人",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "盤後零股（上市）",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "盤後零股（上櫃）",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "融資融券",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "當沖",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": "extras"
   },
   {
    "name": "美股隔夜（費半）",
    "have": "2026-10-20",
-   "want": "2026-10-20",
-   "ok": true,
+   "want": "2026-10-21",
+   "ok": false,
    "fix": "us"
   },
   {
    "name": "風險燈（大環境）",
    "have": "2026-10-20",
-   "want": "2026-10-20",
-   "ok": true,
+   "want": "2026-10-21",
+   "ok": false,
    "fix": "us"
   },
   {
    "name": "虛擬帳戶帳本",
-   "have": "2026-10-20",
-   "want": "2026-10-20",
+   "have": "2026-10-21",
+   "want": "2026-10-21",
    "ok": true,
    "fix": null
   }
  ],
- "bad": [],
+ "bad": [
+  "美股隔夜（費半）",
+  "風險燈（大環境）"
+ ],
  "failed_runs": [],
- "dispatched": [],
- "dispatched_am": [
+ "dispatched": [
   "us"
  ],
+ "dispatched_am": [],
  "cron": [],
- "repo_mb": 559.5
+ "repo_mb": 586.9
 }
