@@ -26,6 +26,13 @@ log = logging.getLogger("intraday")
 TZ = ZoneInfo("Asia/Taipei")
 MIS = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 QUOTES: tuple[pd.DataFrame, str | None] | None = None  # 盤中監控傳進來的報價
+# 連線逾時：連不上 5 秒就放棄（讀取照舊 20 秒）。10/22 那台 GitHub 機器整天連不上 MIS，原本 20 秒×3 次×40 批＋整批再抓，
+# 一輪要 2 小時，13:25 收不了工、被 330 分鐘逾時砍掉，13:12 正式訊號整天沒做
+TIMEOUT = (5, 20)
+
+
+class MisDown(Exception):
+    """MIS 整個連不上（不是回了怪東西）：這輪剩下的批次不用再抓。"""
 
 
 def _f(x):
@@ -39,31 +46,40 @@ def _f(x):
 def fetch_quotes(stocks: pd.DataFrame, batch: int = 50) -> tuple[pd.DataFrame, str | None]:
     s = requests.Session()
     s.headers.update(fetch.HEADERS | {"Referer": "https://mis.twse.com.tw/stock/index.jsp"})
+    home_down = False
     try:
-        s.get("https://mis.twse.com.tw/stock/index.jsp", timeout=20)
+        s.get("https://mis.twse.com.tw/stock/index.jsp", timeout=TIMEOUT)
     except requests.RequestException as e:
         log.warning("MIS 首頁連線失敗：%s", e)
+        home_down = isinstance(e, requests.ConnectionError)
     keys = [f"{'tse' if m == 'TWSE' else 'otc'}_{c}.tw" for c, m in zip(stocks.code, stocks.market)]
     got, day = {}, None
     failed: list[str] = []   # 連錯 3 次整批跳過的（MIS 偶爾回非 JSON），最後再抓一次
+    down = {"n": 0, "hit": False}   # 連續幾批 3 次都是連線失敗；首頁也連不上時 1 批就算，否則 2 批
 
     def pull(key_list):
         nonlocal day
         for i in range(0, len(key_list), batch):
             part = key_list[i : i + batch]
             chunk = "|".join(part)
+            conn_only = True
             for attempt in range(3):
                 try:
                     r = s.get(MIS, params={"ex_ch": chunk, "json": "1", "delay": "0", "_": int(time.time() * 1000)},
-                              timeout=20)
+                              timeout=TIMEOUT)
                     j = r.json()
                     break
                 except Exception as e:  # noqa: BLE001
                     log.warning("MIS 失敗（%d）：%s", attempt + 1, e)
+                    conn_only = conn_only and isinstance(e, requests.ConnectionError)
                     time.sleep(3)
             else:
                 failed.extend(part)
+                down["n"] = down["n"] + 1 if conn_only else 0
+                if down["n"] >= (1 if home_down else 2):
+                    raise MisDown(f"連續 {down['n']} 批連線失敗")
                 continue
+            down["n"] = 0
             for q in j.get("msgArray", []):
                 row = {"code": q.get("c"), "name": q.get("n"), "price": _price(q), "open": _f(q.get("o")),
                        "high": _f(q.get("h")), "low": _f(q.get("l")), "yclose": _f(q.get("y")), "vol_lots": _f(q.get("v")) or 0,
@@ -76,19 +92,28 @@ def fetch_quotes(stocks: pd.DataFrame, batch: int = 50) -> tuple[pd.DataFrame, s
                 day = day or q.get("d")
             time.sleep(0.8)
 
-    pull(keys)
-    if failed:
+    def safe_pull(key_list) -> bool:
+        """抓一遍；MIS 連不上就停（回 False），已經抓到的照樣用。"""
+        try:
+            pull(key_list)
+            return True
+        except MisDown as e:
+            down["hit"] = True
+            log.warning("MIS 連不上（%s），這輪剩下的不抓了；已取得 %d 檔", e, len(got))
+            return False
+
+    if safe_pull(keys) and failed:
         # 整批跳過的不能就這樣少掉（10/13 12:40 那輪少了 50 檔；碰上 13:12 那輪就是漏訊號）：等一下整批再抓一次
         again, failed[:] = failed[:], []
         time.sleep(5)
-        pull(again)
+        safe_pull(again)
         log.info("MIS 整批失敗 %d 檔，再抓後仍缺 %d 檔", len(again), len(failed))
     # MIS 偶爾在兩筆成交之間回傳 "-"（沒有最新成交價），對這些股票再抓一次
     key_of = dict(zip(stocks.code.astype(str), keys))
     miss = [key_of[c] for c, r in got.items() if r["price"] is None and c in key_of]
-    if miss:
+    if miss and not down["hit"]:
         time.sleep(2)
-        pull(miss)
+        safe_pull(miss)
         log.info("報價缺漏 %d 檔，重抓後仍缺 %d 檔", len(miss), sum(r["price"] is None for r in got.values()))
     log.info("取得 %d 檔即時報價", len(got))
     df = pd.DataFrame(list(got.values()))

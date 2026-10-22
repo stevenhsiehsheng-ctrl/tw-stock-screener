@@ -595,6 +595,7 @@ def test_health_cron_check(tmp_path, monkeypatch):
     monkeypatch.setattr(health, "HIST", tmp_path / "health" / "history.jsonl")
     monkeypatch.setattr(health, "REF", None)
     monkeypatch.setattr(health, "checks", lambda D, u: [])
+    monkeypatch.setattr(health, "live_today", lambda d: None)           # 這題只看 cron（今天的盤中監控另有 test_health_live_today）
     monkeypatch.setattr(health, "failed_runs", lambda hours=20: [])
     mails = []
     monkeypatch.setattr(notify, "send", lambda s, b: mails.append((s, b)))
@@ -834,6 +835,82 @@ def test_intraday_fetch_quotes_retries_failed_batch(monkeypatch):
                         else {"msgArray": [{"c": k.split("_")[1][:-3], "z": "1", "d": "20261014"} for k in self.keys]})
     df, _ = intraday.fetch_quotes(stocks, batch=2)
     assert sorted(df.code) == ["1100", "1101", "1104", "1105", "1106"]
+
+
+def test_intraday_fetch_quotes_mis_down_fast(monkeypatch):
+    """10/22 那台 GitHub 機器整天連不上 MIS：原本每批 20 秒×3 次、40 批再整批重抓，一輪 2 小時，13:25 收不了工。
+    現在首頁連不上＋第一批 3 次都連線失敗就整輪放棄（回空的）；抓到一半才斷線的，已經抓到的照樣回、不再重抓。"""
+    from screener import intraday
+    stocks = pd.DataFrame({"code": [f"{1100 + i}" for i in range(7)], "market": ["TWSE"] * 7})
+    calls = []
+    ok_batches = {"n": 0}
+
+    class R:
+        def __init__(self, keys):
+            self.keys = keys
+
+        def json(self):
+            return {"msgArray": [{"c": k.split("_")[1][:-3], "z": "10", "d": "20261022"} for k in self.keys]}
+
+    class S:
+        headers = {}
+
+        def get(self, url, params=None, timeout=None):
+            calls.append(params is not None)
+            assert timeout == intraday.TIMEOUT
+            if params and ok_batches["n"] > 0:
+                ok_batches["n"] -= 1
+                return R(params["ex_ch"].split("|"))
+            raise intraday.requests.ConnectTimeout("Connection to mis.twse.com.tw timed out. (connect timeout=5)")
+
+    monkeypatch.setattr(intraday.requests, "Session", S)
+    monkeypatch.setattr(intraday.time, "sleep", lambda s: None)
+    df, day = intraday.fetch_quotes(stocks, batch=2)
+    assert df.empty and day is None and len(calls) == 1 + 3            # 首頁 1 次＋第一批 3 次就放棄
+    calls.clear()
+    ok_batches["n"] = 2                                                  # 前兩批抓到，第三批開始斷線
+    df, day = intraday.fetch_quotes(stocks, batch=2)
+    assert sorted(df.code) == ["1100", "1101", "1102", "1103"] and day == "20261022"
+    assert len(calls) == 1 + 2 + 3                                       # 不再整批重抓
+
+
+def test_live_should_hop(monkeypatch):
+    """MIS 連續 15 分鐘抓不到就換一台機器（叫新的一班 live.yml、這班結束）：只在 Actions 裡、一天最多 3 次、離收工 15 分鐘內不換。"""
+    from screener import live
+    now = dt.datetime(2026, 10, 22, 9, 20, tzinfo=live.TZ)
+    end = now.replace(hour=13, minute=25)
+    down = now - dt.timedelta(minutes=16)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert not live.should_hop(down, now, end, 0)                        # 不在 Actions（本機跑）不換
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert live.should_hop(down, now, end, 0)
+    assert not live.should_hop(None, now, end, 0)                        # 有抓到就不換
+    assert not live.should_hop(now - dt.timedelta(minutes=10), now, end, 0)   # 還不到 15 分鐘
+    assert not live.should_hop(down, now, end, live.MAX_HOP)              # 今天換夠了
+    assert not live.should_hop(down, end - dt.timedelta(minutes=10), end, 0)  # 快收工了
+    assert not live.should_hop(down, now, end, 0, test=True)
+    runs = []
+    monkeypatch.setattr(live.subprocess, "run", lambda cmd, **k: runs.append(cmd))
+    assert live.redispatch(1) and runs[0][:4] == ["gh", "workflow", "run", "live.yml"] and "test=false" in runs[0] and "hop=2" in runs[0]
+
+
+def test_health_live_today(tmp_path, monkeypatch):
+    """收工後體檢看今天盤中監控有沒有掃到下午（10/22 MIS 整天連不上，體檢照樣說沒事）。"""
+    from screener import health, twcal
+    monkeypatch.setattr(health, "DATA", tmp_path)
+    monkeypatch.setattr(twcal, "is_trading_day", lambda d=None, fetch=False: d != "2026-10-24")
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    assert health.live_today("2026-10-22") is None                       # 不在 Actions 不判斷
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    assert health.live_today("2026-10-24") is None                       # 休市日不看
+    r = health.live_today("2026-10-22")
+    assert r["ok"] is False and r["have"] == "—" and r["fix"] is None   # 沒有 live_state
+    (tmp_path / "live_state.json").write_text(json.dumps({"date": "2026-10-21", "last_scan": "13:24"}), "utf-8")
+    assert health.live_today("2026-10-22")["ok"] is False                # 停在昨天（10/22 的情形）
+    (tmp_path / "live_state.json").write_text(json.dumps({"date": "2026-10-22", "last_scan": "10:03"}), "utf-8")
+    assert health.live_today("2026-10-22")["ok"] is False                # 上午就斷了
+    (tmp_path / "live_state.json").write_text(json.dumps({"date": "2026-10-22", "last_scan": "13:24"}), "utf-8")
+    assert health.live_today("2026-10-22")["ok"] is True
 
 
 def test_daily_evening_dispatch(tmp_path):
