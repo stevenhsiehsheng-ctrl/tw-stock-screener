@@ -152,6 +152,23 @@ def checks(D: str, us_day: str) -> list[dict]:
     return out
 
 
+def live_today(today: str) -> dict | None:
+    """收工後體檢多看一項『今天』的：盤中監控有沒有一路掃到下午。10/22 MIS 整天連不上，前一個交易日的資料都齊，
+    體檢照樣說沒事，13:12 正式訊號整天沒做也沒人知道。讀工作目錄的 live_state.json（收工後體檢跟盤中監控同一台機器、
+    推上 main 之前跑，不能讀 origin/main）。只在 Actions 裡、今天是交易日才看；其他情況回 None。"""
+    from . import twcal
+
+    if not os.environ.get("GITHUB_EVENT_NAME") or not twcal.is_trading_day(today):
+        return None
+    try:
+        st = json.loads((DATA / "live_state.json").read_text("utf-8"))
+    except Exception:  # noqa: BLE001
+        st = {}
+    have = f"{st.get('date')} {st.get('last_scan') or '沒掃到'}" if st.get("date") else "—"
+    ok = st.get("date") == today and (st.get("last_scan") or "") >= "13:00"
+    return {"name": "盤中監控（今天）", "have": have, "want": f"{today} 13:00 後", "ok": ok, "fix": None}
+
+
 def failed_runs(hours=20) -> list[dict]:
     """最近 hours 小時內失敗的工作流程（GitHub 本來也會寄信給觸發的人，這裡集中列一次）。"""
     try:
@@ -299,6 +316,8 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
     D = max([d for d in days if d < today.isoformat()], default=hist) if days else hist
     us_day = last_us_day(today)
     items = checks(D, us_day)
+    if slot == "pm" and (lt := live_today(today.isoformat())):
+        items.append(lt)
     bad = [i for i in items if not i["ok"]]
     fails = failed_runs(20 if slot == "am" else 5)   # 下午只看早上體檢之後的，早上報過的不重報
     sent = [f for f in sorted({i["fix"] for i in bad if i["fix"]}) if dispatch(f, D)] if heal else []

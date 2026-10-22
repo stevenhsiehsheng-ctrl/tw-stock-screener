@@ -663,6 +663,8 @@ def main(argv=None) -> int:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     page = f"https://{repo.split('/')[0].lower()}.github.io/{repo.split('/')[1]}/live.html" if "/" in repo else ""
     scans = 0
+    hop = int(os.environ.get("LIVE_HOP") or 0)
+    down_since = None   # 從什麼時候開始一直抓不到報價
 
     while True:
         t0 = time.time()
@@ -670,11 +672,16 @@ def main(argv=None) -> int:
         q, day = intraday.fetch_quotes(stocks)
         if q.empty:
             log.warning("這次抓不到報價")
+            down_since = down_since or now
+            if should_hop(down_since, now, end, hop, float(lc.get("mis_down_hop_min", 15)), a.test) and redispatch(hop):
+                log.warning("MIS 從 %s 起一直抓不到，已叫新的一班盤中監控（第 %d 次換機器），這班結束", f"{down_since:%H:%M}", hop + 1)
+                return 0
         elif day and day != today.replace("-", "") and not a.test:
             log.info("今天（%s）沒有交易（MIS 日期 %s），可能休市", today, day)
             return 0
         else:
             scans += 1
+            down_since = None
             q = scan(q, ref, stocks, lc, now, watch)
             hm = now.strftime("%H:%M")
             if now >= alert_start or a.test:
@@ -780,6 +787,8 @@ def main(argv=None) -> int:
 
         if a.test or a.once:
             return 0
+        if dt.datetime.now(TZ) >= end:
+            break   # 一輪拖太久（MIS 很慢、連不上）也要準時收工，不然被工作流程逾時砍掉、收盤那段全沒做（10/22）
         nxt = t0 + interval
         if not st.get("official") and t0 < official_t.timestamp() < nxt:
             nxt = official_t.timestamp()  # 準時在 13:12 做正式提醒
@@ -812,6 +821,29 @@ def main(argv=None) -> int:
             log.warning("漲停觸及收盤補抓失敗：%s", e)
     log.info("盤中監控結束，共掃描 %d 次", scans)
     return 0
+
+
+MAX_HOP = 3   # 一天最多換 3 次機器
+
+
+def should_hop(down_since: dt.datetime | None, now: dt.datetime, end: dt.datetime, hop: int,
+               after_min: float = 15, test: bool = False) -> bool:
+    """MIS 連續 after_min 分鐘抓不到報價、在 GitHub Actions 裡、今天換機器次數還沒到上限、離收工還有 15 分鐘以上 → 換機器。"""
+    return (down_since is not None and not test and os.environ.get("GITHUB_ACTIONS") == "true" and hop < MAX_HOP
+            and (now - down_since).total_seconds() >= after_min * 60 and now + dt.timedelta(minutes=15) < end)
+
+
+def redispatch(hop: int) -> bool:
+    """10/22 那台 GitHub 機器整天連不上 MIS（ConnectTimeout），收工後換一台馬上就連得上：
+    叫一班新的盤中監控（新機器，多半換 IP），這班結束讓位；狀態從 live_state／live 分支接續（restore_state）。
+    同一個 concurrency 群組，新的會等這班結束才開始。"""
+    try:
+        subprocess.run(["gh", "workflow", "run", "live.yml", "--ref", "main", "-f", "test=false", "-f", f"hop={hop + 1}"],
+                       cwd=ROOT, check=True, capture_output=True, text=True, timeout=60)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("叫新的盤中監控失敗，這班繼續試：%s", e)
+        return False
 
 
 def main_supervised(retries: int = 5, wait: float = 60) -> int:

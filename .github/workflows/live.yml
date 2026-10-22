@@ -14,6 +14,10 @@ on:
         description: "測試模式（只掃一次、不等開盤、不通知）"
         type: boolean
         default: true
+      hop:
+        description: "（程式自己用）MIS 連不上換機器重跑的第幾次，平常不用填"
+        type: number
+        default: 0
 
 permissions:
   contents: write
@@ -84,6 +88,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LIVE_HOP: ${{ inputs.hop || 0 }}
         run: |
           if [ "${{ inputs.test }}" = "true" ]; then
             python -m screener.live --test
