@@ -1,15 +1,14 @@
 {
- "date": "2026-10-23",
+ "date": "2026-10-26",
  "slots": [
-  "am",
-  "pm"
+  "am"
  ],
- "checked_at": "2026-10-23T13:25:26+0800",
- "slot": "pm",
+ "checked_at": "2026-10-26T08:40:36+0800",
+ "slot": "am",
  "trading_day": "2026-10-22",
  "source": "origin/main",
  "calendar": "twse",
- "us_day": "2026-10-22",
+ "us_day": "2026-10-23",
  "items": [
   {
    "name": "每日資料（收盤價）",
@@ -69,8 +68,8 @@
   },
   {
    "name": "美股隔夜（費半）",
-   "have": "2026-10-22",
-   "want": "2026-10-22",
+   "have": "2026-10-23",
+   "want": "2026-10-23",
    "ok": true,
    "fix": "us"
   },
@@ -94,9 +93,7 @@
  ],
  "failed_runs": [],
  "dispatched": [],
- "dispatched_am": [
-  "us"
- ],
+ "dispatched_am": [],
  "cron": [],
- "repo_mb": 627.5
+ "repo_mb": 572.2
 }
