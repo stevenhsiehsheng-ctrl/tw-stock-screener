@@ -16,3 +16,4 @@
 {"checked_at": "2026-10-23T13:25:26+0800", "slot": "pm", "trading_day": "2026-10-22", "bad": ["13:12 鎖漲停家數"], "dispatched": [], "cron": [], "repo_mb": 627.5, "failed_runs": []}
 {"checked_at": "2026-10-26T08:40:36+0800", "slot": "am", "trading_day": "2026-10-22", "bad": ["13:12 鎖漲停家數"], "dispatched": [], "cron": [], "repo_mb": 572.2, "failed_runs": []}
 {"checked_at": "2026-10-26T13:22:14+0800", "slot": "pm", "trading_day": "2026-10-22", "bad": ["13:12 鎖漲停家數"], "dispatched": [], "cron": [], "repo_mb": 572.2, "failed_runs": []}
+{"checked_at": "2026-10-27T08:40:35+0800", "slot": "am", "trading_day": "2026-10-22", "bad": ["13:12 鎖漲停家數", "美股隔夜（費半）"], "dispatched": ["us"], "cron": [], "repo_mb": 572.4, "failed_runs": []}
