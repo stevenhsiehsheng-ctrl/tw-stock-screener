@@ -11,20 +11,20 @@
  "dev200_pct_all": 84.8,
  "dev200_since": "1998-04-30",
  "r3": false,
- "sox_date": "2026-10-23",
- "sox_dev200": 0.84,
+ "sox_date": "2026-10-26",
+ "sox_dev200": 3.5,
  "last_dates": {
-  "0050.TW": "2026-10-22",
-  "CL=F": "2026-10-23",
-  "DX-Y.NYB": "2026-10-23",
-  "HG=F": "2026-10-23",
-  "TWD=X": "2026-10-23",
-  "^GSPC": "2026-10-23",
-  "^IRX": "2026-10-23",
-  "^SOX": "2026-10-23",
-  "^TNX": "2026-10-23",
+  "0050.TW": "2026-10-23",
+  "CL=F": "2026-10-26",
+  "DX-Y.NYB": "2026-10-26",
+  "HG=F": "2026-10-26",
+  "TWD=X": "2026-10-26",
+  "^GSPC": "2026-10-26",
+  "^IRX": "2026-10-26",
+  "^SOX": "2026-10-26",
+  "^TNX": "2026-10-26",
   "^TWII": "2026-10-22",
-  "^VIX": "2026-10-23"
+  "^VIX": "2026-10-26"
  },
  "sources": {
   "^TWII": {
@@ -34,57 +34,67 @@
   },
   "0050.TW": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-22",
+   "yahoo_last": "2026-10-23",
    "carried_days": 0
   },
   "^SOX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   },
   "^GSPC": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   },
   "^VIX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   },
   "^TNX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   },
   "^IRX": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   },
   "DX-Y.NYB": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   },
   "TWD=X": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   },
   "HG=F": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   },
   "CL=F": {
    "source": "yahoo",
-   "yahoo_last": "2026-10-23",
+   "yahoo_last": "2026-10-26",
    "carried_days": 0
   }
  },
- "stale": [],
- "stale_core": [],
+ "stale": [
+  {
+   "sym": "^TWII",
+   "last": "2026-10-22",
+   "ref": "2026-10-23",
+   "lag": 1,
+   "reason": "behind"
+  }
+ ],
+ "stale_core": [
+  "^TWII"
+ ],
  "changed": false,
  "prev_light": "green"
 }
