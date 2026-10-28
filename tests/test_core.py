@@ -538,6 +538,43 @@ def test_health_run_heal_and_notify(tmp_path, monkeypatch):
     assert len(hist) == 1 and hist[0]["slot"] == "am" and "13:12 鎖漲停家數" in hist[0]["bad"]   # 跳過的那次不寫
 
 
+def test_health_notify_once_per_trading_day(tmp_path, monkeypatch):
+    """同一個交易日寄過的缺項不再寄（10/22 13:12 鎖漲停家數補不回來，10/23～10/27 每班都寄一封）；換交易日重新算。"""
+    from zoneinfo import ZoneInfo
+    from screener import notify
+    monkeypatch.setattr(health, "DATA", tmp_path)
+    monkeypatch.setattr(health, "OUT", tmp_path / "health" / "latest.json")
+    monkeypatch.setattr(health, "HIST", tmp_path / "health" / "history.jsonl")
+    monkeypatch.setattr(health, "REF", None)
+    monkeypatch.setattr(health, "failed_runs", lambda hours=20: [])
+    monkeypatch.setattr(health, "live_today", lambda d: None)
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    days = ["2026-10-21", "2026-10-22"]
+    monkeypatch.setattr(health, "twse_days", lambda t: list(days))
+    bad = {"lock": True, "us": True}
+    monkeypatch.setattr(health, "checks", lambda D, u: [
+        {"name": "13:12 鎖漲停家數", "have": "2026-10-21", "want": D, "ok": not bad["lock"], "fix": None},
+        {"name": "美股隔夜（費半）", "have": "2026-10-21", "want": D, "ok": not bad["us"], "fix": "us"}])
+    monkeypatch.setattr(health, "dispatch", lambda f, D: True)
+    mails = []
+    monkeypatch.setattr(notify, "send", lambda s, b: mails.append(b))
+    tpe = ZoneInfo("Asia/Taipei")
+    health.run("am", heal=True, notify=True, now=dt.datetime(2026, 10, 23, 8, 40, tzinfo=tpe))
+    assert len(mails) == 1 and "- 13:12 鎖漲停家數：" in mails[0] and "- 美股隔夜（費半）：" not in mails[0]   # 美股派了補跑，先不吵
+    r = health.run("pm", heal=False, notify=True, now=dt.datetime(2026, 10, 23, 13, 31, tzinfo=tpe))
+    assert len(mails) == 2 and "- 美股隔夜（費半）：" in mails[1] and "鎖漲停" not in mails[1]   # 下午只寄還沒寄過的
+    assert r["told"] == ["13:12 鎖漲停家數", "美股隔夜（費半）"]
+    for d in (26, 27):                                                         # 補假、隔天：交易日還是 10/22 → 不再寄
+        health.run("am", heal=True, notify=True, now=dt.datetime(2026, 10, d, 8, 40, tzinfo=tpe))
+        health.run("pm", heal=False, notify=True, now=dt.datetime(2026, 10, d, 13, 31, tzinfo=tpe))
+    assert len(mails) == 2
+    days.append("2026-10-27")                                                  # 換交易日：重新算
+    bad["us"] = False
+    r = health.run("am", heal=True, notify=True, now=dt.datetime(2026, 10, 28, 8, 40, tzinfo=tpe))
+    assert len(mails) == 3 and "2026-10-27" in mails[2] and r["told"] == ["13:12 鎖漲停家數"]
+
+
 def test_health_wait_dispatched(tmp_path, monkeypatch):
     """早上補跑的等跑完再開始盤中監控：跑完就不等、剛派出去還沒出現在列表的先等一下、最晚等到 08:55。"""
     import datetime as dt

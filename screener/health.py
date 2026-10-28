@@ -329,6 +329,14 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
            "dispatched_am": (prev.get("dispatched") or []) if done == ["am"] else [],
            "cron": cron_check(D, now) if slot == "am" or "am" not in done else prev.get("cron"),   # 早上沒體檢（08:40 沒叫到）下午自己看
            "repo_mb": repo_mb() if slot == "am" else prev.get("repo_mb") if done else None}
+    # 早上補跑救得到的先不吵；救不到的（沒有補跑方法、派工失敗、工作流程失敗）才寄。下午還缺就寄。
+    # 同一個交易日寄過的缺項不再寄：10/22 的 13:12 鎖漲停家數補不回來，10/23～10/27 每班體檢（連颱風假、補假）都寄一封
+    told = set(prev.get("told") or []) if prev.get("trading_day") == D else set()
+    unfixed = [i for i in bad if i["fix"] not in sent and i["name"] not in told]
+    # cron-job.org：偶爾漏一次不吵，連兩天（今天第一次體檢＋上一次體檢）都沒叫到才寄（多半是 token 過期）
+    cron_bad = bool(res["cron"]) and prev.get("date") != res["date"] and bool(prev.get("cron"))
+    mail = notify and bool(unfixed or fails or cron_bad)
+    res["told"] = sorted(told | ({i["name"] for i in unfixed} if mail else set()))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", "utf-8")
     try:
@@ -340,11 +348,7 @@ def run(slot: str, heal: bool, notify: bool, now: dt.datetime | None = None, lat
         log.warning("體檢紀錄寫不進 history.jsonl：%s", e)
     log.info("體檢 %s：交易日 %s，缺 %s，失敗 %d 個，補跑 %s", slot, D, res["bad"] or "無", len(fails), sent or "無")
 
-    # 早上補跑救得到的先不吵；救不到的（沒有補跑方法、派工失敗、工作流程失敗）才寄。下午還缺就寄。
-    unfixed = [i for i in bad if i["fix"] not in sent]
-    # cron-job.org：偶爾漏一次不吵，連兩天（今天第一次體檢＋上一次體檢）都沒叫到才寄（多半是 token 過期）
-    cron_bad = bool(res["cron"]) and prev.get("date") != res["date"] and bool(prev.get("cron"))
-    if notify and (unfixed or fails or cron_bad):
+    if mail:
         from . import notify as nt
 
         lines = [f"## 系統體檢（{'早上' if slot == 'am' else '收盤後'}）：上一個交易日 {D}", ""]
