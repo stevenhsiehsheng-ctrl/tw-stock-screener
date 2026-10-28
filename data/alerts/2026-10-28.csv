@@ -1,0 +1,11 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-10-28,3691,碩禾,光電業,TPEX,09:31,131.0,131.0,9.62,2328.0,1.7,1.8,False,2,False,False,58.0,22,True,09:01,64.0,False
+2026-10-28,4526,東台,電機機械,TWSE,09:31,47.92,49.65,9.97,73845.0,2.7,2.8,False,4,False,False,91.0,9,True,11:43,81.0,False
+2026-10-28,4563,百德,電機機械,TPEX,09:31,63.4,64.3,5.24,2070.0,5.6,5.9,False,3,True,False,93.0,9,False,,48.0,True
+2026-10-28,6245,立端,通信網路業,TPEX,09:31,101.75,101.25,3.0,5885.0,3.6,3.8,False,1,True,True,77.0,26,False,,5.0,False
+2026-10-28,7704,明遠精密,半導體業,TPEX,09:31,79.2,80.5,9.67,3826.0,16.4,17.3,False,5,True,True,,30,False,,27.0,True
+2026-10-28,6026,福邦證,金融保險業,TPEX,09:34,16.23,16.33,6.38,3430.0,5.9,6.2,False,0,True,False,66.0,6,False,,-10.0,True
+2026-10-28,8099,大世科,資訊服務業,TPEX,09:37,93.6,93.6,9.99,461.0,1.4,1.5,False,0,False,False,91.0,1,True,09:19,123.0,False
+2026-10-28,6697,東捷資訊,資訊服務業,TPEX,09:43,52.15,51.5,2.18,2234.0,3.4,3.6,False,0,False,False,82.0,1,False,,26.0,False
+2026-10-28,5426,振發,電腦及週邊設備業,TPEX,10:43,35.0,33.73,1.29,27444.0,6.6,7.0,False,1,False,True,91.0,15,False,,28.0,False
+2026-10-28,1569,濱川,電腦及週邊設備業,TPEX,13:24,98.0,98.0,3.38,31261.0,2.9,3.1,False,0,True,True,98.0,15,False,,39.0,False
