@@ -1,0 +1,14 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-10-30,1201,味全,食品工業,TWSE,09:31,13.55,13.55,9.72,5707.0,4.3,4.6,False,0,True,False,46.0,9,True,09:10,-12.0,True
+2026-10-30,3332,幸康,電子零組件業,TPEX,09:31,79.85,79.2,8.34,960.0,17.6,18.5,False,1,True,False,,24,False,,62.0,True
+2026-10-30,4706,大恭,化學工業,TPEX,09:31,57.65,49.6,-8.82,920.0,4.0,4.2,False,0,False,True,95.0,5,False,,-5.0,False
+2026-10-30,6233,旺玖,半導體業,TPEX,09:31,33.62,31.6,2.27,20190.0,8.9,9.4,False,0,False,False,87.0,19,False,,20.0,False
+2026-10-30,8099,大世科,資訊服務業,TPEX,09:31,105.75,111.0,8.29,8065.0,4.2,4.4,False,0,True,False,96.0,1,False,,123.0,True
+2026-10-30,8089,康全電訊,通信網路業,TPEX,09:34,30.0,26.1,-10.0,8272.0,3.0,3.1,False,0,False,False,92.0,21,False,,49.0,False
+2026-10-30,8240,華宏,光電業,TPEX,09:40,63.15,58.8,-2.81,13828.0,3.3,3.5,False,1,False,False,84.0,13,False,,-9.0,False
+2026-10-30,3432,台端,電子零組件業,TWSE,09:43,16.52,16.6,9.93,809.0,8.1,8.5,False,1,True,False,,24,True,10:46,103.0,True
+2026-10-30,6697,東捷資訊,資訊服務業,TPEX,09:46,54.3,54.3,9.92,2363.0,1.8,1.9,False,1,False,False,76.0,1,True,09:46,26.0,False
+2026-10-30,9950,萬國通,塑膠工業,TPEX,12:01,11.7,11.7,9.86,801.0,5.8,6.1,False,0,True,False,,18,True,13:01,79.0,False
+2026-10-30,4568,科際精密,電機機械,TPEX,12:31,51.6,51.8,9.86,347.0,6.9,7.3,False,0,True,False,,8,True,12:34,23.0,False
+2026-10-30,2352,佳世達,電腦及週邊設備業,TWSE,12:58,34.1,33.73,2.84,76917.0,3.5,3.6,False,0,False,True,79.0,23,False,,8.0,True
+2026-10-30,4737,華廣,生技醫療業,TWSE,13:24,63.75,63.75,5.72,351.0,4.7,5.0,False,1,True,False,,22,False,,21.0,False
