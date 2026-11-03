@@ -1,0 +1,10 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-11-03,3379,彬台,電機機械,TPEX,09:31,33.92,31.9,1.59,4082.0,4.6,4.9,False,0,False,False,68.0,11,False,,-67.0,False
+2026-11-03,5202,力新,資訊服務業,TPEX,09:31,16.3,16.3,9.76,8796.0,3.2,3.4,False,2,True,False,79.0,1,True,12:40,-25.0,True
+2026-11-03,6609,瀧澤科,電機機械,TPEX,09:31,47.8,43.77,-3.59,6731.0,6.4,6.8,False,0,False,False,81.0,11,False,,113.0,False
+2026-11-03,6697,東捷資訊,資訊服務業,TPEX,09:31,63.15,57.4,-3.85,10508.0,4.8,5.0,False,3,False,False,91.0,1,False,,26.0,False
+2026-11-03,7767,仁大資訊,資訊服務業,TPEX,09:31,53.1,53.1,9.94,1109.0,29.8,31.5,False,2,True,,,1,True,13:15,34.0,True
+2026-11-03,8272,全景軟體,資訊服務業,TPEX,09:31,94.4,94.4,9.9,1064.0,8.1,8.6,False,2,True,False,,1,True,12:31,21.0,True
+2026-11-03,3285,微端,其他電子業,TPEX,09:46,48.0,49.12,9.16,706.0,5.9,6.2,False,0,True,True,,28,False,,51.0,True
+2026-11-03,5013,強新,鋼鐵工業,TPEX,12:34,66.6,66.6,9.9,6296.0,2.5,2.6,False,0,False,True,98.0,14,True,12:31,17.0,False
+2026-11-03,6865,偉康科技,數位雲端,TPEX,13:18,35.3,35.3,9.97,936.0,15.3,16.2,False,1,True,False,,6,True,13:18,-15.0,False
