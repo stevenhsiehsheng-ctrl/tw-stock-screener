@@ -288,7 +288,6 @@ KMB,Kimberly-Clark,,Consumer Staples,Household Products,SP500
 KMI,Kinder Morgan,,Energy,Oil & Gas Storage & Transportation,SP500
 KO,Coca-Cola Company (The),可口可樂,Consumer Staples,Soft Drinks & Non-alcoholic Beverages,SP500
 KR,Kroger,,Consumer Staples,Food Retail,SP500
-KVUE,Kenvue,,Consumer Staples,Personal Care Products,SP500
 L,Loews Corporation,,Financials,Multi-line Insurance,SP500
 LDOS,Leidos,,Industrials,Diversified Support Services,SP500
 LEN,Lennar,,Consumer Discretionary,Homebuilding,SP500
@@ -364,6 +363,7 @@ NXPI,NXP Semiconductors,恩智浦,Information Technology,Semiconductors,SP500
 O,Realty Income,,Real Estate,Retail REITs,SP500
 ODFL,Old Dominion,,Industrials,Cargo Ground Transportation,SP500
 OKE,Oneok,,Energy,Oil & Gas Storage & Transportation,SP500
+OKTA,"Okta, Inc.",,Information Technology,Application Software,SP500
 OMC,Omnicom Group,,Communication Services,Advertising,SP500
 ON,ON Semiconductor,安森美,Information Technology,Semiconductors,SP500
 ORCL,Oracle Corporation,甲骨文,Information Technology,Application Software,SP500
