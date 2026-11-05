@@ -1,0 +1,6 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-11-05,1416,廣豐,其他業,TWSE,09:32,15.55,14.72,4.03,12851.0,7.6,8.0,False,0,True,False,86.0,13,False,,70.0,True
+2026-11-05,2471,資通,資訊服務業,TWSE,09:32,57.3,54.6,4.0,11005.0,23.2,24.4,False,1,True,False,66.0,1,False,,1.0,True
+2026-11-05,2618,長榮航,航運業,TWSE,09:32,45.42,45.0,2.86,59036.0,3.6,3.8,False,1,False,True,73.0,9,False,,33.0,True
+2026-11-05,5202,力新,資訊服務業,TPEX,09:32,19.05,16.25,-9.22,17623.0,3.7,3.9,False,2,False,False,93.0,1,False,,-25.0,False
+2026-11-05,2453,凌群,資訊服務業,TWSE,09:50,56.6,53.75,1.99,3563.0,8.5,9.0,False,2,False,False,51.0,1,False,,3.0,False
