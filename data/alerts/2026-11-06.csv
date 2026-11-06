@@ -1,0 +1,4 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-11-06,5438,東友,電腦及週邊設備業,TPEX,09:31,18.05,18.85,9.91,2488.0,36.0,38.2,False,1,True,False,,26,True,12:46,-7.0,True
+2026-11-06,1416,廣豐,其他業,TWSE,11:01,15.62,16.35,9.73,19236.0,4.6,4.9,False,1,True,False,93.0,17,True,12:07,70.0,True
+2026-11-06,6782,視陽,生技醫療業,TWSE,11:49,281.25,274.0,3.2,1308.0,2.9,3.0,True,0,False,True,92.0,16,False,,15.0,False
