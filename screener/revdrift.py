@@ -291,8 +291,8 @@ def write(site_dir: Path) -> bool:
             "numpy default_rng(批次日) 不放回抽；零股資料 2026-07 才開始，更早的批次只限股價。判斷策略好壞看籃子平均，6 檔那欄只是帳本會買到的樣子。"
             "續抱＝這批籃子裡上一批也有的比例（續＝續抱那幾檔的平均超額、新＝新進的）；帳本只交易差額，續抱的不付來回 0.38%。</p>"
             "<p class='meta'>虛擬帳本實際做法（Cowork 10/8 定案）：批次日<b>收盤</b>換批、只交易差額，記零股收盤價×(1±滑價)（&lt;50 元 0、50～100 元 0.15%、≥100 元 0.3%、ETF 0.05%）。開盤限價換批試算過被收盤換壓著打，已經廢掉。所以帳本損益跟『開盤進、20 天出』的數字不會一模一樣，下表是拿來判斷策略的。</p>"
-            "<div class='tbl'><table><tr><th>營收月</th><th>批次日</th><th>出場日</th><th>檔數</th><th>籃子平均</th><th>籃子中位</th>"
-            "<th>安慰劑平均中位</th><th>輸贏</th><th>連輸</th><th>近 6 批平均</th><th>續抱</th><th>抽 6 檔</th><th>6 檔平均</th><th></th></tr>"
+            "<div class='tbl'><table><tr><th>營收月</th><th>批次日</th><th>出場日</th><th>檔數</th><th>籃子平均超額</th><th>籃子中位超額</th>"
+            "<th>安慰劑平均超額中位</th><th>輸贏</th><th>連輸</th><th>近 6 批平均超額</th><th>續抱</th><th>抽 6 檔</th><th>6 檔平均超額</th><th></th></tr>"
             f"{trs}</table></div>")
     (site_dir / "revdrift.html").write_text(_page("月營收漂移每批成績", body, "<!--SITENAV:revdrift-->"), "utf-8")
     return True
