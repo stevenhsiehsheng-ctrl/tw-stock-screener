@@ -1,10 +1,11 @@
 {
  "date": "2026-11-09",
  "slots": [
-  "am"
+  "am",
+  "pm"
  ],
- "checked_at": "2026-11-09T08:40:50+0800",
- "slot": "am",
+ "checked_at": "2026-11-09T13:31:40+0800",
+ "slot": "pm",
  "trading_day": "2026-11-06",
  "source": "origin/main",
  "calendar": "twse",
@@ -85,6 +86,13 @@
    "have": "2026-11-03",
    "want": "2026-11-06",
    "ok": false,
+   "fix": null
+  },
+  {
+   "name": "盤中監控（今天）",
+   "have": "2026-11-09 13:23",
+   "want": "2026-11-09 13:00 後",
+   "ok": true,
    "fix": null
   }
  ],
