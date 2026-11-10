@@ -1,16 +1,16 @@
 {
  "rev_month": "2026-10",
  "batch_date": "2026-11-12",
- "asof": "2026-11-09",
+ "asof": "2026-11-10",
  "exact": false,
  "next_day": false,
  "deadline": "2026-11-10",
  "settled": false,
  "cal_approx": false,
- "n": 101,
- "n_pool": 68,
+ "n": 183,
+ "n_pool": 112,
  "pick6": [],
  "cov_ok": false,
- "n_twse": 422,
- "n_tpex": 384
+ "n_twse": 833,
+ "n_tpex": 683
 }
