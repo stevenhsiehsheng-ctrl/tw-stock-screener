@@ -1,0 +1,5 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-11-10,3703,欣陸,建材營造業,TWSE,09:31,23.62,23.77,5.88,7132.0,3.2,3.3,False,0,True,False,83.0,15,False,,89.0,True
+2026-11-10,6757,台灣虎航,航運業,TWSE,09:34,58.7,59.15,7.94,5793.0,2.9,3.1,False,0,True,False,71.0,12,False,,36.0,True
+2026-11-10,1416,廣豐,其他業,TWSE,09:40,19.02,18.38,2.4,32545.0,2.8,3.0,False,0,False,False,97.0,9,False,,70.0,False
+2026-11-10,5202,力新,資訊服務業,TPEX,09:43,20.77,19.42,-3.38,21772.0,2.5,2.7,False,0,False,False,96.0,1,False,,-25.0,False
