@@ -1,0 +1,7 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-11-11,1569,濱川,電腦及週邊設備業,TPEX,09:32,102.25,104.5,10.0,16638.0,1.4,1.5,False,0,False,True,98.0,23.0,True,09:41,39.0,False
+2026-11-11,1802,台玻,玻璃陶瓷,TWSE,09:32,74.6,76.7,9.89,264131.0,1.9,2.0,False,0,False,False,87.0,,True,09:50,34.0,False
+2026-11-11,9933,中鼎,其他業,TWSE,09:32,52.4,51.25,6.99,41465.0,5.6,5.9,True,1,True,True,92.0,6.0,False,,4.0,True
+2026-11-11,6234,高僑,光電業,TPEX,10:05,53.75,54.1,9.85,12706.0,3.5,3.7,False,2,True,False,89.0,22.0,True,13:13,134.0,True
+2026-11-11,8089,康全電訊,通信網路業,TPEX,10:38,32.9,32.9,9.85,3320.0,1.8,1.9,False,1,False,False,96.0,19.0,True,10:38,49.0,False
+2026-11-11,6870,騰雲,數位雲端,TPEX,11:59,493.5,493.5,9.91,927.0,2.4,2.6,False,0,False,True,98.0,11.0,True,11:59,13.0,False
