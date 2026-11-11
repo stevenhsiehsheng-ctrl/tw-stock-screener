@@ -1,16 +1,23 @@
 {
  "rev_month": "2026-10",
  "batch_date": "2026-11-12",
- "asof": "2026-11-10",
+ "asof": "2026-11-11",
  "exact": false,
- "next_day": false,
+ "next_day": true,
  "deadline": "2026-11-10",
  "settled": false,
  "cal_approx": false,
- "n": 183,
- "n_pool": 112,
- "pick6": [],
- "cov_ok": false,
- "n_twse": 833,
- "n_tpex": 683
+ "n": 218,
+ "n_pool": 132,
+ "pick6": [
+  "6739",
+  "3167",
+  "2646",
+  "8028",
+  "8299",
+  "2002"
+ ],
+ "cov_ok": true,
+ "n_twse": 980,
+ "n_tpex": 862
 }
