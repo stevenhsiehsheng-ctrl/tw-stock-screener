@@ -40,3 +40,4 @@
 {"checked_at": "2026-11-10T13:31:17+0800", "slot": "pm", "trading_day": "2026-11-09", "bad": ["虛擬帳戶帳本"], "dispatched": [], "cron": [], "repo_mb": 625.3, "failed_runs": []}
 {"checked_at": "2026-11-11T08:40:47+0800", "slot": "am", "trading_day": "2026-11-10", "bad": ["美股隔夜（費半）", "風險燈（大環境）", "虛擬帳戶帳本"], "dispatched": ["us"], "cron": [], "repo_mb": 604.0, "failed_runs": []}
 {"checked_at": "2026-11-11T13:31:18+0800", "slot": "pm", "trading_day": "2026-11-10", "bad": ["虛擬帳戶帳本"], "dispatched": [], "cron": [], "repo_mb": 604.0, "failed_runs": []}
+{"checked_at": "2026-11-12T08:40:42+0800", "slot": "am", "trading_day": "2026-11-11", "bad": ["美股隔夜（費半）", "風險燈（大環境）", "虛擬帳戶帳本"], "dispatched": ["us"], "cron": [], "repo_mb": 635.1, "failed_runs": []}
