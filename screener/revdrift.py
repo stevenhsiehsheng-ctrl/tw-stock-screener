@@ -11,6 +11,10 @@
 - 抽 6 檔（Cowork 1056 定案，10/13 那批起帳本用這個）：池子＝籃內股價 ≤2,000，且批次日前 5 個交易日盤後零股
   平均成交股數×20% ≥ 2,000 元可買股數（只用批次日以前的資料）；同一個 default_rng(批次日) 從池子不放回抽 6 檔。
   零股資料（data/extras/oddlot_hist.csv.gz，2026-07-13 起）不夠 5 天的舊批次只套股價上限，n_pool 留空。
+- 名單凍結（Cowork 1113）：批次日第一次算出來的籃子、抽 3 檔、抽 6 檔寫進 data/extras/revdrift_frozen.json，
+  之後營收補登、個股停牌都不再改名單，成績照凍結名單算（帳本批次日收盤就照那份買了）。
+  籃內個股出場日（未滿 20 天＝今天）整天沒成交就用最後一筆收盤價算，不從籃子拿掉：
+  11/13 6904、7782 整天沒成交，2026-10 批從 217 檔變 215 檔，抽籤池少 2 檔、6 檔換掉 2 檔。
 """
 from __future__ import annotations
 
@@ -30,6 +34,7 @@ REV = ROOT / "data" / "extras" / "rev_hist.csv.gz"
 HIST = ROOT / "data" / "history.csv.gz"
 OUT = ROOT / "data" / "extras" / "revdrift_batches.csv"
 ODD = ROOT / "data" / "extras" / "oddlot_hist.csv.gz"
+FROZEN = ROOT / "data" / "extras" / "revdrift_frozen.json"
 PICK_N, PICK_CASH, PICK_MAXPX, ODD_SHARE = 6, 2000, 2000, 0.20
 HOLD = 20
 YOY_MIN = 30.0
@@ -94,8 +99,10 @@ def _pick6(b: list[str], px: pd.Series, odd: pd.DataFrame | None, prev_days: lis
 
 
 def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n: int = N_PLACEBO,
-            cov_min: dict | None = COV_MIN, fetch_cal: bool = True) -> pd.DataFrame:
-    """cov_min=None 不做覆蓋檢查（研究用的 5 年營收，舊年份公司本來就比較少）。"""
+            cov_min: dict | None = COV_MIN, fetch_cal: bool = True, frozen: dict | None = None) -> pd.DataFrame:
+    """cov_min=None 不做覆蓋檢查（研究用的 5 年營收，舊年份公司本來就比較少）。
+    frozen＝{營收月: 批次日那份名單}（write() 傳 revdrift_frozen.json 進來）：有的批次照它的籃子和抽籤算成績；
+    還沒有的（新批次第一次算）算完放進去，呼叫端存檔。研究用的不傳。"""
     hist = hist if hist is not None else pd.read_csv(HIST, dtype={"code": str})
     rev = rev if rev is not None else pd.read_csv(REV, dtype={"code": str})
     cov = coverage(rev) if cov_min else None
@@ -112,41 +119,64 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
     except Exception as e:  # noqa: BLE001
         log.warning("零股歷史讀不到：%s", e)
         odd = None
+    close_ff = close.ffill()   # 籃內個股出場日沒成交 → 用最後一筆收盤
     rows = []
     prev_b: set[str] = set()   # 上一批籃子：算續抱（Cowork 0856 carryover、分身 0915-cc-ab）
     for ym, codes in sorted(baskets(rev).items()):
         i = _batch_day(ym, days)
-        if i is None or not codes:
+        if i is None:
             continue
         e = days[i]
+        fz = frozen.get(ym) if frozen is not None else None
+        if fz is not None and fz.get("batch_date") != e:
+            log.warning("revdrift %s 凍結名單的批次日 %s 跟現在算的 %s 不同，不用凍結名單", ym, fz.get("batch_date"), e)
+            fz = None
+        if not codes and fz is None:
+            continue
         done = i + HOLD < len(days)
         x = days[min(i + HOLD, len(days) - 1)]
         r = close.loc[x] / opn.loc[e] - 1
         valid = r.notna() & (r.abs() < 3)
-        ex = (r - r[valid].mean()) * 100 - COST
-        b = [c for c in codes if c in ex.index and valid.get(c, False)]
+        rm = close_ff.loc[x] / opn.loc[e] - 1          # 籃內個股：x 那天沒成交用最後一筆收盤
+        vm = rm.notna() & (rm.abs() < 3)
+        ex = (rm - r[valid].mean()) * 100 - COST        # 等權基準照舊只算 x 那天有成交的
+        if fz is not None:
+            b = [c for c in fz["basket"].split() if c in ex.index]
+        elif done:   # 凍結機制上線（2026-11-13）前就滿 20 天的舊批次：照舊口徑（出場日有成交的），網站上的舊數字不變
+            b = [c for c in codes if c in ex.index and valid.get(c, False)]
+        else:        # 新批次：批次日開盤、收盤都有的（帳本批次日收盤照這份買），之後凍結
+            re_ = close.loc[e] / opn.loc[e] - 1
+            b = [c for c in codes if c in ex.index and pd.notna(re_.get(c)) and abs(re_[c]) < 3]
         if not b:
             continue
-        avg = float(ex[b].mean())
+        ok = lambda cs: [c for c in cs if vm.get(c, False)]   # 凍結名單裡算不出報酬的（資料壞掉）不進平均
+        avg = float(ex[ok(b)].mean())
         carry = [c for c in b if c in prev_b]
         new = [c for c in b if c not in prev_b]
         ov = len(carry) / len(b) if prev_b else np.nan
         prev_b = set(b)
-        rng = np.random.default_rng(int(e.replace("-", "")))
-        pick = list(rng.choice(sorted(b), size=min(3, len(b)), replace=False))
-        nt = np_ = None
-        cov_ok = True
-        if cov is not None:  # 12 個月新高要看 12 個月，窗內任一月某市場家數不足 → 那批可能漏股，不抽、不買
-            win = [m for m in cov.index if m <= ym][-12:]
-            nt, np_ = int(cov.loc[win].get("TWSE", pd.Series([0])).min()), int(cov.loc[win].get("TPEX", pd.Series([0])).min())
-            cov_ok = len(win) == 12 and nt >= cov_min["TWSE"] and np_ >= cov_min["TPEX"]
-        pick6, n_pool = _pick6(b, close.iloc[i - 1] if i > 0 else close.iloc[i], odd, days[max(0, i - 5):i], e)
-        if not cov_ok:
-            pick, pick6 = [], []
+        if fz is not None:
+            pick, pick6, n_pool = fz["pick3"].split(), fz["pick6"].split(), fz.get("n_pool")
+            cov_ok, nt, np_ = bool(fz["cov_ok"]), fz.get("n_twse"), fz.get("n_tpex")
+        else:
+            rng = np.random.default_rng(int(e.replace("-", "")))
+            pick = list(rng.choice(sorted(b), size=min(3, len(b)), replace=False))
+            nt = np_ = None
+            cov_ok = True
+            if cov is not None:  # 12 個月新高要看 12 個月，窗內任一月某市場家數不足 → 那批可能漏股，不抽、不買
+                win = [m for m in cov.index if m <= ym][-12:]
+                nt, np_ = int(cov.loc[win].get("TWSE", pd.Series([0])).min()), int(cov.loc[win].get("TPEX", pd.Series([0])).min())
+                cov_ok = len(win) == 12 and nt >= cov_min["TWSE"] and np_ >= cov_min["TPEX"]
+            pick6, n_pool = _pick6(b, close.iloc[i - 1] if i > 0 else close.iloc[i], odd, days[max(0, i - 5):i], e)
+            if not cov_ok:
+                pick, pick6 = [], []
+            if frozen is not None:
+                frozen[ym] = {"batch_date": e, "frozen_at": days[-1], "basket": " ".join(sorted(b)), "pick3": " ".join(map(str, pick)),
+                              "pick6": " ".join(map(str, pick6)), "n_pool": n_pool, "cov_ok": bool(cov_ok), "n_twse": nt, "n_tpex": np_}
         # 配對安慰劑：同日同流動性五分位
         qe = q.loc[e]
         pools, pos = {}, []
-        for c in b:
+        for c in ok(b):
             g = qe.get(c)
             if pd.isna(g):
                 continue
@@ -156,16 +186,17 @@ def compute(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, n
         prng = np.random.default_rng(0)
         sims = [np.mean([pools[g][prng.integers(len(pools[g]))] for g in pos]) for _ in range(n)] if pos else []
         pm = float(np.median(sims)) if sims else np.nan
+        mean = lambda cs: round(float(ex[ok(cs)].mean()), 2) if ok(cs) else np.nan
         rows.append({"rev_month": ym, "batch_date": e, "exit_date": x, "done": done, "n": len(b),
-                     "avg": round(avg, 2), "median": round(float(ex[b].median()), 2),
+                     "avg": round(avg, 2), "median": round(float(ex[ok(b)].median()), 2),
                      "placebo_avg_median": round(pm, 2), "beat": bool(avg > pm) if not np.isnan(pm) else None,
-                     "pick3": " ".join(pick), "pick3_avg": round(float(ex[pick].mean()), 2) if pick else np.nan,
-                     "pick6": " ".join(pick6), "pick6_avg": round(float(ex[pick6].mean()), 2) if pick6 else np.nan,
+                     "pick3": " ".join(pick), "pick3_avg": mean(pick),
+                     "pick6": " ".join(pick6), "pick6_avg": mean(pick6),
                      "n_pool": n_pool, "n_twse": nt, "n_tpex": np_, "cov_ok": cov_ok,
                      # 續抱比例、續抱／新進各自的超額、只交易差額的批超額（續抱的不付來回 0.38）
                      "overlap": round(ov * 100, 1) if ov == ov else np.nan,
-                     "avg_carry": round(float(ex[carry].mean()), 2) if carry else np.nan,
-                     "avg_new": round(float(ex[new].mean()), 2) if new else np.nan,
+                     "avg_carry": mean(carry),
+                     "avg_new": mean(new),
                      "avg_diff": round(avg + ov * COST, 2) if ov == ov else np.nan})
     df = pd.DataFrame(rows)
     if df.empty:
@@ -238,9 +269,19 @@ def preview(hist: pd.DataFrame | None = None, rev: pd.DataFrame | None = None, f
             "n": len(b), "n_pool": n_pool, "pick6": pick6 if cov_ok else [], "cov_ok": cov_ok, "n_twse": nt, "n_tpex": np_}
 
 
-def write(site_dir: Path) -> bool:
+def load_frozen() -> dict:
     try:
-        df = compute()
+        return json.loads(FROZEN.read_text("utf-8")) if FROZEN.exists() else {}
+    except Exception as e:  # noqa: BLE001  壞掉就當沒有：照現在的資料重算，新的一份會蓋掉（log 看得到）
+        log.warning("revdrift 凍結名單讀不到：%s", e)
+        return {}
+
+
+def write(site_dir: Path) -> bool:
+    frozen = load_frozen()
+    before = json.dumps(frozen, sort_keys=True)
+    try:
+        df = compute(frozen=frozen)
     except Exception as e:  # noqa: BLE001
         log.warning("revdrift 成績表失敗：%s", e)
         return False
@@ -248,6 +289,8 @@ def write(site_dir: Path) -> bool:
         return False
     OUT.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT, index=False)
+    if json.dumps(frozen, sort_keys=True) != before:
+        FROZEN.write_text(json.dumps(frozen, ensure_ascii=False, indent=1, sort_keys=True) + "\n", "utf-8")
     try:
         nxt = preview()
     except Exception as e:  # noqa: BLE001
@@ -283,12 +326,13 @@ def write(site_dir: Path) -> bool:
         picks = links(" ".join(nxt["pick6"])) if nxt["cov_ok"] else "⚠️ 營收資料有缺，這批不抽"
         nx = (f"<div class='card'><b>下一批 {nxt['rev_month']}：批次日 {nxt['batch_date']}{'（約）' if nxt['cal_approx'] else ''}・{label}</b><br>"
               f"籃子 {nxt['n']} 檔、池子 {nxt['n_pool'] if nxt['n_pool'] is not None else '—'} 檔，抽 6 檔：{picks}"
-              "<div class='meta'>跟正式版同一支程式、同一個亂數種子；批次日當天停牌的會被正式版排除，晚公告的營收補進來籃子也會變，以批次日收盤後的表為準。</div></div>")
+              "<div class='meta'>跟正式版同一支程式、同一個亂數種子；批次日當天停牌的會被正式版排除，晚公告的營收補進來籃子也會變，以批次日收盤後的表為準（之後就凍結不再變）。</div></div>")
     body = (f"<h1>月營收漂移（revdrift）每批成績</h1>{nx}"
             "<p>籃子＝年增 ≥30% 且營收創 12 個月新高；11 日後第一個交易日（10 日期限遇假日順延時再往後）開盤進、第 20 個交易日收盤出；"
             "超額＝減同期全市場等權、扣 0.38%。安慰劑＝每檔換成同日同流動性五分位的隨機股票，籃子平均 300 次取中位。"
             "下架：連 3 批輸安慰劑，或最近 6 批平均 ≤0。抽 6 檔＝從籃內『股價 ≤2,000 且前 5 日盤後零股均量×20% 買得到 2,000 元』的池子，"
             "numpy default_rng(批次日) 不放回抽；零股資料 2026-07 才開始，更早的批次只限股價。判斷策略好壞看籃子平均，6 檔那欄只是帳本會買到的樣子。"
+            "名單在批次日收盤後就凍結：之後營收補登、個股停牌都不改籃子和抽籤；籃內個股出場日（未滿 20 天＝今天）整天沒成交的用最後一筆收盤價算。"
             "續抱＝這批籃子裡上一批也有的比例（續＝續抱那幾檔的平均超額、新＝新進的）；帳本只交易差額，續抱的不付來回 0.38%。</p>"
             "<p class='meta'>虛擬帳本實際做法（Cowork 10/8 定案）：批次日<b>收盤</b>換批、只交易差額，記零股收盤價×(1±滑價)（&lt;50 元 0、50～100 元 0.15%、≥100 元 0.3%、ETF 0.05%）。開盤限價換批試算過被收盤換壓著打，已經廢掉。所以帳本損益跟『開盤進、20 天出』的數字不會一模一樣，下表是拿來判斷策略的。</p>"
             "<div class='tbl'><table><tr><th>營收月</th><th>批次日</th><th>出場日</th><th>檔數</th><th>籃子平均超額</th><th>籃子中位超額</th>"
