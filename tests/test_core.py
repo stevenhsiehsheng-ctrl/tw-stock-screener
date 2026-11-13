@@ -232,6 +232,37 @@ def test_revdrift_preview_settled(monkeypatch, tmp_path):
     assert late["settled"] and late["exact"]
 
 
+# ---------------------------------------------------------------- revdrift 名單批次日凍結
+def test_revdrift_frozen_basket(monkeypatch, tmp_path):
+    """11/13 6904、7782 整天沒成交，2026-10 批從 217 檔變 215 檔、抽籤池少 2 檔、6 檔換掉 2 檔（Cowork 1113）。
+    批次日算出來的籃子、抽籤要凍結：之後個股沒成交、營收補登都不改；沒成交的用最後一筆收盤算。"""
+    monkeypatch.setattr(twcal, "CACHE", tmp_path / "tw_holidays.json")
+    monkeypatch.setattr(revdrift, "ODD", tmp_path / "no_odd.csv.gz")
+    yms = [f"{y}-{m:02d}" for y, m in [(2025, 9), (2025, 10), (2025, 11), (2025, 12)] + [(2026, k) for k in range(1, 10)]]
+    codes = [f"{1101 + k}" for k in range(10)]
+    rev = pd.DataFrame([{"code": c, "ym": ym, "revenue": 100 + i * 10, "yoy": 50.0} for c in codes for i, ym in enumerate(yms)])
+    days = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-12", "2026-10-13", "2026-10-14"]
+    hist = pd.DataFrame([{"date": d, "code": c, "open": 50.0, "close": 50.0 + k, "volume": 1e6}
+                         for d in days for k, c in enumerate(codes + ["2201", "2202"])])
+    run = lambda h, r, fz: revdrift.compute(h, r, n=5, cov_min=None, fetch_cal=False, frozen=fz).set_index("rev_month").loc["2026-09"]
+    fz = {}
+    first = run(hist[hist.date <= "2026-10-13"], rev, fz)              # 批次日 10/13 收盤後第一次算 → 凍結
+    assert first.batch_date == "2026-10-13" and first.n == 10 and fz["2026-09"]["basket"].split() == codes
+    assert fz["2026-09"]["pick6"] == first.pick6 and len(first.pick6.split()) == 6
+    # 10/14：1103 整天沒成交；晚報的 1199 營收補進來也符合
+    h2 = hist.copy()
+    h2.loc[(h2.date == "2026-10-14") & (h2.code == "1103"), ["open", "close", "volume"]] = [float("nan"), float("nan"), 0]
+    late = pd.DataFrame([{"code": "1199", "ym": ym, "revenue": 100 + i * 10, "yoy": 50.0} for i, ym in enumerate(yms)])
+    h2 = pd.concat([h2, pd.DataFrame([{"date": d, "code": "1199", "open": 50.0, "close": 60.0, "volume": 1e6} for d in days])])
+    rev2 = pd.concat([rev, late])
+    again = run(h2, rev2, fz)
+    assert again.n == 10 and again.pick3 == first.pick3 and again.pick6 == first.pick6   # 凍結名單不變
+    assert again.exit_date == "2026-10-14" and not pd.isna(again.avg)
+    # 沒有凍結檔也不會因為某檔今天沒成交就踢掉（未滿的批次看批次日開收盤）
+    assert run(h2, rev, None).n == 10
+    assert run(h2, rev2, None).n == 11                                   # 不凍結：晚報的會補進來（所以要凍結）
+
+
 # ---------------------------------------------------------------- 漲停價：四個地方各算一次，要一模一樣
 def test_limit_up_price_consistent():
     import numpy as np
