@@ -15,6 +15,9 @@ from . import ledger_nav
 
 ROOT = Path(__file__).resolve().parent.parent
 LEDGER = ROOT / "data" / "ledger"
+# 2026-11-16 Dennis：把股票方面的 AI 用量減到最小 → Cowork 收盤結算（虛擬帳戶）排程停了。
+# False：體檢不查帳本、首頁不列虛擬帳戶那行、這頁標「停止更新」。排程重新打開時改回 True。
+ACTIVE = False
 BUCKET = {"core": "題材", "revdrift": "revdrift", "satellite": "衛星", "breakout": "突破", "etf": "0050 底倉"}
 FILL = {"oddlot_after": "盤後零股", "close_fill": "收盤", "regular_open": "整股開盤", "regular_close": "整股收盤"}
 
@@ -163,6 +166,8 @@ def write(site_dir: Path) -> bool:
     table = "".join(f"<tr><td>{p['date']}</td><td>{p['acct']:.2f}</td><td>{p['bench']:.2f}</td></tr>" for p in reversed(pts))
     body = (
         "<h1>🧾 虛擬帳戶</h1>"
+        + ("" if ACTIVE else "<p><b>2026-11-16 起停止更新</b>：股票方面的 AI 用量減到最小，Cowork 每天的收盤結算停了。"
+           f"網站上的帳本只存到 {html.escape(lg['date'])}，下面是那一天的樣子。</p>") +
         f"<p>10 萬元模擬帳戶，照系統規則買賣（題材選股、revdrift 營收漂移、0050 底倉；突破訊號 10/12 起暫停），"
         f"Cowork 每個交易日 15:47 用收盤後的成交價結算。<b>不是真的錢，也不含任何真實持股。</b>"
         f"資料到 {html.escape(lg['date'])}（{html.escape(str(lg.get('asof') or '')[11:16])} 結算）。</p>"

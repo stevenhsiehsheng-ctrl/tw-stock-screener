@@ -140,9 +140,10 @@ def checks(D: str, us_day: str) -> list[dict]:
         ("當沖", _max_date(ex / "daytrade_hist.csv.gz"), D, "extras"),
         ("美股隔夜（費半）", _json(DATA / "us" / "meta.json", "sox_date"), us_day, "us"),
         ("風險燈（大環境）", _json(DATA / "macro" / "regime.json", "date"), D, "us"),
-        # Cowork 15:47 結算 → Claude Code 16:25 存檔；沒有就是那兩個排程有一個沒跑成，要人看
-        ("虛擬帳戶帳本", _ledger_last(), D, None),
     ]
+    from . import ledgerpage
+    if ledgerpage.ACTIVE:   # Cowork 15:47 結算 → Claude Code 16:25 存檔；11/16 起虛擬帳戶停了，不查（不然每個交易日寄一封）
+        items.append(("虛擬帳戶帳本", _ledger_last(), D, None))
     out = [{"name": n, "have": h or "—", "want": w, "ok": bool(h) and h >= w, "fix": f} for n, h, w, f in items]
     # 日期到了但只抓到一半（證交所、櫃買有一邊還沒公布）：日期看起來對，筆數少一大截
     for i in out:

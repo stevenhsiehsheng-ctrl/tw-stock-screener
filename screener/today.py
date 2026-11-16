@@ -171,8 +171,9 @@ def build() -> dict:
     if today_sig:
         out["sig_day"] = sig_day   # 13:31 收工後 history 還是昨天：13:12 訊號那行的日期要寫訊號那天，不是 tw_date
     # Cowork 虛擬帳戶（協作板 ledger_daily → 本尊 16:25 commit 成 data/ledger/YYYY-MM-DD.json，Cowork 0027 格式）
+    from .ledgerpage import ACTIVE as ledger_on
     lf = sorted((DATA / "ledger").glob("20??-??-??.json")) if (DATA / "ledger").exists() else []
-    if lf:
+    if lf and ledger_on:   # 11/16 起虛擬帳戶停了，首頁不列（虛擬帳戶頁還在，標停止更新）
         try:
             lg = json.loads(lf[-1].read_text("utf-8"))
             out["ledger"] = {k: lg.get(k) for k in ("date", "asof", "nav", "ret_cum", "ret_today", "bench_tr_cum", "bench_tr_today",
