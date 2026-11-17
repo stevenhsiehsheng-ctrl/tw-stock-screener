@@ -1,0 +1,4 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-11-17,9933,中鼎,其他業,TWSE,09:33,55.75,56.6,9.9,52479.0,3.2,3.4,False,1,True,True,93.0,12,True,13:21,54.0,True
+2026-11-17,8415,大國鋼,鋼鐵工業,TPEX,10:43,39.48,41.35,9.97,9028.0,6.3,6.6,False,0,True,False,77.0,17,True,11:45,44.0,True
+2026-11-17,6614,資拓宏宇,數位雲端,TWSE,13:24,44.55,44.55,10.0,3841.0,10.1,10.7,False,1,True,False,84.0,2,True,13:24,2.0,False
