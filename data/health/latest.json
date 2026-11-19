@@ -1,10 +1,11 @@
 {
  "date": "2026-11-19",
  "slots": [
-  "am"
+  "am",
+  "pm"
  ],
- "checked_at": "2026-11-19T08:40:40+0800",
- "slot": "am",
+ "checked_at": "2026-11-19T13:26:58+0800",
+ "slot": "pm",
  "trading_day": "2026-11-18",
  "source": "origin/main",
  "calendar": "twse",
@@ -68,28 +69,32 @@
   },
   {
    "name": "美股隔夜（費半）",
-   "have": "2026-11-17",
+   "have": "2026-11-18",
    "want": "2026-11-18",
-   "ok": false,
+   "ok": true,
    "fix": "us"
   },
   {
    "name": "風險燈（大環境）",
-   "have": "2026-11-17",
+   "have": "2026-11-18",
    "want": "2026-11-18",
-   "ok": false,
+   "ok": true,
    "fix": "us"
+  },
+  {
+   "name": "盤中監控（今天）",
+   "have": "2026-11-19 13:23",
+   "want": "2026-11-19 13:00 後",
+   "ok": true,
+   "fix": null
   }
  ],
- "bad": [
-  "美股隔夜（費半）",
-  "風險燈（大環境）"
- ],
+ "bad": [],
  "failed_runs": [],
- "dispatched": [
+ "dispatched": [],
+ "dispatched_am": [
   "us"
  ],
- "dispatched_am": [],
  "cron": [],
  "repo_mb": 603.9,
  "told": []
