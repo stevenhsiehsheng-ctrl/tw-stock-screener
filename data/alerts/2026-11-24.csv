@@ -1,0 +1,4 @@
+date,code,name,industry,market,first_time,first_price,last_price,last_chg,vol_lots,vol_x,proj_x,watch,peers,still_hit,tpl,rs,group_rank,locked,lock_since,rev_yoy,official
+2026-11-24,6614,資拓宏宇,數位雲端,TWSE,09:31,47.55,42.58,-4.85,7512.0,2.8,2.9,False,0,False,False,95.0,17,False,,2.0,False
+2026-11-24,2597,潤弘,建材營造業,TWSE,09:58,190.0,191.0,7.61,1732.0,2.3,2.4,True,0,False,False,92.0,6,False,,31.0,False
+2026-11-24,7736,虎山,汽車工業,TWSE,10:01,79.8,73.75,1.58,707.0,5.4,5.7,False,0,False,False,,22,False,,10.0,False
