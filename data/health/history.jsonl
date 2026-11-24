@@ -56,3 +56,4 @@
 {"checked_at": "2026-11-20T13:27:13+0800", "slot": "pm", "trading_day": "2026-11-19", "bad": [], "dispatched": [], "cron": [], "repo_mb": 578.2, "failed_runs": []}
 {"checked_at": "2026-11-23T08:40:44+0800", "slot": "am", "trading_day": "2026-11-20", "bad": [], "dispatched": [], "cron": [], "repo_mb": 614.4, "failed_runs": []}
 {"checked_at": "2026-11-23T13:31:19+0800", "slot": "pm", "trading_day": "2026-11-20", "bad": [], "dispatched": [], "cron": [], "repo_mb": 614.4, "failed_runs": []}
+{"checked_at": "2026-11-24T08:40:47+0800", "slot": "am", "trading_day": "2026-11-23", "bad": ["美股隔夜（費半）", "風險燈（大環境）"], "dispatched": ["us"], "cron": [], "repo_mb": 616.4, "failed_runs": []}
