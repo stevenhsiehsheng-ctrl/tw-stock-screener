@@ -1,40 +1,40 @@
 {
- "date": "2026-11-25",
- "close": 38195.43,
+ "date": "2026-11-26",
+ "close": 39151.81,
  "light": "red",
  "light_since": "2026-11-03",
  "r2": true,
- "dd52": -23.34,
+ "dd52": -21.42,
  "r1": true,
- "dev200": -8.25,
- "dev200_pct20y": 11.8,
- "dev200_pct_all": 17.0,
+ "dev200": -6.03,
+ "dev200_pct20y": 14.7,
+ "dev200_pct_all": 20.4,
  "dev200_since": "1998-04-30",
  "r3": true,
  "sox_date": "2026-11-25",
  "sox_dev200": -19.76,
  "last_dates": {
-  "0050.TW": "2026-11-25",
-  "CL=F": "2026-11-25",
-  "DX-Y.NYB": "2026-11-25",
-  "HG=F": "2026-11-25",
-  "TWD=X": "2026-11-25",
+  "0050.TW": "2026-11-26",
+  "CL=F": "2026-11-26",
+  "DX-Y.NYB": "2026-11-26",
+  "HG=F": "2026-11-26",
+  "TWD=X": "2026-11-26",
   "^GSPC": "2026-11-25",
   "^IRX": "2026-11-25",
   "^SOX": "2026-11-25",
   "^TNX": "2026-11-25",
-  "^TWII": "2026-11-25",
-  "^VIX": "2026-11-25"
+  "^TWII": "2026-11-26",
+  "^VIX": "2026-11-26"
  },
  "sources": {
   "^TWII": {
-   "source": "yahoo",
+   "source": "carried",
    "yahoo_last": "2026-11-25",
-   "carried_days": 0
+   "carried_days": 1
   },
   "0050.TW": {
    "source": "carried",
-   "yahoo_last": "2026-11-24",
+   "yahoo_last": "2026-11-25",
    "carried_days": 1
   },
   "^SOX": {
@@ -49,7 +49,7 @@
   },
   "^VIX": {
    "source": "yahoo",
-   "yahoo_last": "2026-11-25",
+   "yahoo_last": "2026-11-26",
    "carried_days": 0
   },
   "^TNX": {
@@ -64,22 +64,22 @@
   },
   "DX-Y.NYB": {
    "source": "yahoo",
-   "yahoo_last": "2026-11-25",
+   "yahoo_last": "2026-11-26",
    "carried_days": 0
   },
   "TWD=X": {
    "source": "yahoo",
-   "yahoo_last": "2026-11-25",
+   "yahoo_last": "2026-11-26",
    "carried_days": 0
   },
   "HG=F": {
    "source": "yahoo",
-   "yahoo_last": "2026-11-25",
+   "yahoo_last": "2026-11-26",
    "carried_days": 0
   },
   "CL=F": {
    "source": "yahoo",
-   "yahoo_last": "2026-11-25",
+   "yahoo_last": "2026-11-26",
    "carried_days": 0
   }
  },
